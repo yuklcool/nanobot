@@ -31,7 +31,7 @@
 
 说明：解决的具体问题、对应阶段/验收编号、变更文件与上游冲突风险、实际运行的命令及结果、未完成事项和下一步。修改宿主接入点时记录必要性和改动范围；涉及会话、权限、写操作或恢复时，附对应真实链路验证证据。
 
-建议将 P0 的结果整理为 docs/openui-p0-validation.md，后续运行与维护说明整理为 docs/openui-integration.md；这些文件尚待相应开发阶段产生，不应预先声明其内容或验证成功。
+P0 的首批实现、实测结果和剩余阻断项见 [docs/openui-p0-validation.md](openui-p0-validation.md)。P0 尚未全部通过；后续运行与维护说明 docs/openui-integration.md 待相应开发阶段产生，不应预先声明其内容或验证成功。
 
 ## 1. 设计结论
 
