@@ -2507,7 +2507,7 @@
     }
   },
   "openui": {
-    "enable": "대화형 보기 (미리보기)",
+    "enable": "대화형 응답",
     "followup": "추가 질문",
     "submit": "보내기",
     "saveDraft": "초안 저장",

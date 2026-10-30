@@ -105,6 +105,67 @@ it("does not request OpenUI from an older host and rejects another generation", 
   } finally { cleanup(); current.client.close(); }
 });
 
+it("sends a contextual choice as one same-session reply, without sending on restore", async () => {
+  const fixture = setup({ protocol: 1, library_hash: manifest.library_hash }, [message], {
+    ...initial, source: 'root = Panel([next])\nnext = Choices("How should we continue?", [{label: "Review the plan", question: "Review the proposed plan"}, {label: "Adjust the scope", question: "I want to adjust the scope first"}])\n',
+  });
+  const view = fixture.mount();
+  try {
+    const choice = await screen.findByRole("button", { name: "Review the plan" });
+    expect(fixture.frames.filter((frame) => frame.type === "message")).toHaveLength(0);
+    fireEvent.click(choice); fireEvent.click(choice);
+    await screen.findByText("openui.submitted");
+    expect(fixture.frames.filter((frame) => frame.type === "message")).toEqual([
+      expect.objectContaining({ chat_id: "chat", content: "Review the proposed plan", ui_action: expect.objectContaining({
+        block_id: "block", action_id: "conversation.followup", session_generation: "generation",
+      }) }),
+    ]);
+    expect(screen.getByRole("list", { name: "Conversation" })).toHaveTextContent("Review the proposed plan");
+  } finally { view.unmount(); fixture.client.close(); }
+});
+
+it("collects the requested details before sending a form through the existing conversation", async () => {
+  const fixture = setup({ protocol: 1, library_hash: manifest.library_hash }, [message], {
+    ...initial, source: 'root = Panel([details])\ndetails = Form("Prepare the project", [{label: "Project name", placeholder: "Enter a name"}, {label: "Priority", options: ["Normal", "High"]}])\n',
+  });
+  const view = fixture.mount();
+  try {
+    const name = await screen.findByRole("textbox", { name: "Project name" });
+    const submit = screen.getByRole("button", { name: "openui.submit" });
+    expect(submit).toBeDisabled();
+    fireEvent.change(name, { target: { value: "  Nanobot  " } });
+    expect(submit).toBeDisabled();
+    fireEvent.change(screen.getByRole("combobox", { name: "Priority" }), { target: { value: "High" } });
+    expect(submit).toBeEnabled();
+    expect(fixture.frames.filter((frame) => frame.type === "message")).toHaveLength(0);
+    fireEvent.submit(screen.getByRole("form", { name: "Prepare the project" }));
+    await screen.findByText("openui.submitted");
+    expect(fixture.frames.find((frame) => frame.type === "message")).toMatchObject({
+      chat_id: "chat", content: "Prepare the project\nProject name: Nanobot\nPriority: High",
+      ui_action: { action_id: "conversation.followup", block_id: "block" },
+    });
+  } finally { view.unmount(); fixture.client.close(); }
+});
+
+it("keeps streamed choices disabled until the view is complete", async () => {
+  const snapshot = { ...initial, status: "streaming" as const,
+    source: 'root = Panel([next])\nnext = Choices("Continue?", [{label: "Confirm", question: "Confirm the plan"}, {label: "Revise", question: "Revise the plan"}])\n' };
+  const fixture = setup({ protocol: 1, library_hash: manifest.library_hash }, [message], snapshot);
+  const view = fixture.mount();
+  try {
+    const confirm = await screen.findByRole("button", { name: "Confirm" });
+    expect(confirm).toBeDisabled();
+    fireEvent.click(confirm);
+    expect(fixture.frames.filter((frame) => frame.type === "message")).toHaveLength(0);
+    act(() => fixture.socket.onmessage?.({ data: JSON.stringify({ event: "openui.snapshot", chat_id: "chat",
+      snapshot: { ...snapshot, seq: snapshot.seq + 1, status: "complete" } }) } as MessageEvent));
+    await waitFor(() => expect(confirm).toBeEnabled());
+    fireEvent.click(confirm);
+    await screen.findByText("openui.submitted");
+    expect(fixture.frames.filter((frame) => frame.type === "message")).toHaveLength(1);
+  } finally { view.unmount(); fixture.client.close(); }
+});
+
 it("restores loaded history in bounded batches including turns older than the latest hundred", async () => {
   const seed: UIMessage[] = [message, ...Array.from({ length: 101 }, (_, index): UIMessage => ({
     id: `history-${index}`, turnId: `history-turn-${index}`, role: "user", content: "History", createdAt: index + 2,

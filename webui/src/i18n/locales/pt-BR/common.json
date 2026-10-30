@@ -2521,7 +2521,7 @@
     }
   },
   "openui": {
-    "enable": "Visualização interativa (prévia)",
+    "enable": "Respostas interativas",
     "followup": "Pergunta de acompanhamento",
     "submit": "Enviar",
     "saveDraft": "Salvar rascunho",

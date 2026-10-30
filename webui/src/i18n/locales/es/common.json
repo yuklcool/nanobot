@@ -2508,7 +2508,7 @@
     }
   },
   "openui": {
-    "enable": "Vista interactiva (vista previa)",
+    "enable": "Respuestas interactivas",
     "followup": "Pregunta de seguimiento",
     "submit": "Enviar",
     "saveDraft": "Guardar borrador",

@@ -54,6 +54,10 @@
 
 ## 验证与复现
 
+当前交互库增加 `Choices(title, options)` 和 `Form(title, fields)`，分别用于具体的下一步选择/确认和缺失信息收集。生成提示要求组件补充原回答、沿用回答语言、避免重复文字和固定追问表单；无需交互时生成 `Panel([])`。`preview` 仅输出可信数据表格，不为普通文字回合创建面板。对应新增测试覆盖选项去重、表单必填与同会话提交、流式期间禁用、preview 原生回答保留，以及真实 Gateway 的选择→表单→确认流程。该流程使用确定性 Provider；外部模型的实际组件选择质量仍需单独验收。
+
+新增交互的测试和检查通过 GitHub Actions 的 OpenUI Gateway acceptance 工作流运行，浏览器产物包含桌面、手机及深色模式截图。以下旧批次的本地结果保留为历史记录，不能替代当前提交的 GitHub Actions 结果。
+
 本地通过：OpenUI Python 40 项；加上 hook、WebSocket 边界、Gateway smoke、CLI runtime 和历史回归共 126 项。前端 OpenUI 18 项；加 NanobotClient 和 useNanobotStream 共 231 项。应用/browser TypeScript、针对性 Ruff/ESLint/BasedPyright、Python/WebUI 导入边界、共享 manifest 一致性、主应用 build 通过。既有 pytest fixture 弃用提示、stream hook 测试的 React act 提示和构建大 chunk 提示仍存在。
 
 ```bash

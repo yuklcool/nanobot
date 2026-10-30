@@ -48,6 +48,15 @@ class FixtureProvider(LLMProvider):
 
     async def chat(self, messages, **kwargs):
         index = max(i for i, row in enumerate(messages) if row["role"] == "user")
+        question = str(messages[index]["content"])
+        if "Plan a small project" in question:
+            return LLMResponse(content="We can define a new project or review an existing draft.", tool_calls=[])
+        if "I want to define a new project." in question:
+            return LLMResponse(content="A name and priority are enough to get started.", tool_calls=[])
+        if "Project details\nProject name:" in question:
+            return LLMResponse(content="I have the details. Confirm when you are ready to prepare the plan.", tool_calls=[])
+        if "Confirm the proposed project plan." in question:
+            return LLMResponse(content="Confirmed. We can now prepare the plan in this conversation.", tool_calls=[])
         if not any(row["role"] == "tool" for row in messages[index + 1:]):
             return LLMResponse(content=None, tool_calls=[ToolCallRequest(
                 id=uuid4().hex, name="lookup", arguments={},
@@ -57,11 +66,27 @@ class FixtureProvider(LLMProvider):
     async def chat_stream(self, messages, *, on_content_delta=None, **kwargs):
         if "Generate only OpenUI Lang" not in str(messages[0].get("content")):
             return await super().chat_stream(messages, on_content_delta=on_content_delta, **kwargs)
-        dataset = json.loads(messages[-1]["content"])["datasets"][0]
-        source = ('$question = ""\nroot = Panel([heading, data, followup])\n'
+        payload = json.loads(messages[-1]["content"])
+        datasets = payload["datasets"]
+        if datasets:
+            source = ('$question = ""\nroot = Panel([heading, data, followup])\n'
                   'heading = Text("Captured lookup records")\n'
-                  + f'data = DataTable({json.dumps(dataset["data_ref"])})\n'
+                  + f'data = DataTable({json.dumps(datasets[0]["data_ref"])})\n'
                   + 'followup = Followup($question)\n')
+        elif payload["public_answer"].startswith("We can define"):
+            source = ('root = Panel([next])\nnext = Choices("Where should we start?", ['
+                      '{label: "Define the project", question: "I want to define a new project."}, '
+                      '{label: "Review a draft", question: "I want to review an existing project draft."}])\n')
+        elif payload["public_answer"].startswith("A name and priority"):
+            source = ('root = Panel([details])\ndetails = Form("Project details", ['
+                      '{label: "Project name", placeholder: "Give your project a name"}, '
+                      '{label: "Priority", options: ["Normal", "High"]}])\n')
+        elif payload["public_answer"].startswith("I have the details"):
+            source = ('root = Panel([confirm])\nconfirm = Choices("Ready to continue?", ['
+                      '{label: "Confirm plan", question: "Confirm the proposed project plan."}, '
+                      '{label: "Change details", question: "I want to change the project details first."}])\n')
+        else:
+            source = "root = Panel([])\n"
         if on_content_delta is not None:
             await on_content_delta(source[:40])
             await asyncio.sleep(0.02)

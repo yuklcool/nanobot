@@ -14,20 +14,21 @@ function Thread({ client }: { client: NanobotClient }) {
   const { messages, send, isStreaming } = useNanobotStream(chatId, undefined, false, undefined, undefined, undefined,
     { key: `websocket:${chatId}` });
   return <OpenUIChatProvider client={client} chatId={chatId} messages={messages} send={send}>
-    <main className="mx-auto max-w-3xl p-6">
-      <h1>OpenUI Gateway acceptance</h1>
+    <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-6 py-5">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-3">
+      <h1 className="text-title font-medium">Nanobot</h1>
       <OpenUIControls />
-      <button type="button" onClick={async () => {
+      <button type="button" className="text-caption text-muted-foreground hover:text-foreground" onClick={async () => {
         await client.requestMutation("session.delete", { key: `websocket:${chatId}` });
         location.reload();
-      }}>Delete conversation</button>
-      <form onSubmit={(event) => { event.preventDefault(); send(question); }}>
-        <input aria-label="Question" value={question} onChange={(event) => setQuestion(event.target.value)} />
-        <button disabled={isStreaming}>Ask</button>
-      </form>
-      <ol aria-label="Conversation">{messages.map((message) => <li key={message.id}>
+      }}>Delete conversation</button></header>
+      <ol className="flex flex-1 flex-col gap-8" aria-label="Conversation">{messages.map((message) => <li key={message.id}>
         <MessageBubble message={message} />
       </li>)}</ol>
+      <form className="sticky bottom-0 flex items-center gap-2 bg-background py-4" onSubmit={(event) => { event.preventDefault(); send(question); }}>
+        <input className="h-12 min-w-0 flex-1 rounded-control border border-input bg-background px-4 text-reading-small" aria-label="Question" value={question} onChange={(event) => setQuestion(event.target.value)} />
+        <button className="h-10 rounded-control bg-primary px-4 text-reading-small text-primary-foreground disabled:opacity-50" disabled={isStreaming}>Ask</button>
+      </form>
     </main>
   </OpenUIChatProvider>;
 }

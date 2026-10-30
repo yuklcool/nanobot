@@ -93,7 +93,7 @@ async def gateway(tmp_path, request):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     sessions = SessionManager(workspace, sessions_root=tmp_path / "sessions")
-    config = WebSocketConfig(openui_enabled=True)
+    config = WebSocketConfig.model_validate({"openui_enabled": True, "openui": {"generation": "model"}})
     services = build_gateway_services(
         config=config, bus=bus, session_manager=sessions, static_dist_path=None,
         workspace_path=workspace, default_restrict_to_workspace=True,
@@ -170,7 +170,7 @@ async def first_card(gateway):
 async def test_native_two_turn_card_action_and_refresh(gateway):
     block = await first_card(gateway)
     assert gateway.tool.calls == 1
-    assert "Lookup result 1" in block["source"]
+    assert block["fallback_text"] == "Lookup result 1"
     assert block["anchor_seq"] is not None
     result = await rpc(gateway, "openui.state", {
         "chat_id": "chat", "session_generation": block["session_generation"], "block_id": block["block_id"],
@@ -269,7 +269,7 @@ async def test_real_authenticated_websocket_roundtrip(gateway, unused_tcp_port):
             block = (await receive("openui.snapshot"))["snapshot"]
             while block["status"] != "complete":
                 block = (await receive("openui.snapshot"))["snapshot"]
-            assert "Lookup result 1" in block["source"]
+            assert block["fallback_text"] == "Lookup result 1"
             assert gateway.tool.calls == 1
             await socket.send(json.dumps({"type": "message", "chat_id": "chat", "turn_id": "network-action",
                 "webui": True, "content": "Lookup again", "ui_action": {
@@ -324,6 +324,27 @@ def enable_model_tables(gateway):
     gateway.tool = TaskLookup()
     gateway.loop.tools.register(gateway.tool)
     return gateway.loop.provider
+
+
+@pytest.mark.parametrize("with_tables", [False, True])
+async def test_preview_only_adds_captured_data_to_the_native_answer(gateway, with_tables):
+    provider = enable_model_tables(gateway) if with_tables else gateway.loop.provider
+    gateway.services.openui.options.generation = "preview"
+    await rpc(gateway, "openui.subscribe", {"chat_id": "chat"})
+    await dispatch(gateway, {"type": "message", "chat_id": "chat", "turn_id": "preview", "webui": True,
+                             "content": "Lookup", "ui_mode": "openui"})
+    await execute(gateway)
+    assert gateway.tool.calls == 1 and provider.ui_calls == 0
+    assert any(row.get("text") == "Lookup result 1" for row in gateway.connection.sent)
+    result = await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": ["preview"]})
+    blocks = result["result"]["blocks"]
+    if with_tables:
+        assert len(blocks) == 1 and blocks[0]["status"] == "complete"
+        assert blocks[0]["tables"]
+        assert "DataTable(" in blocks[0]["source"]
+        assert "Lookup result 1" not in blocks[0]["source"] and "Followup(" not in blocks[0]["source"]
+    else:
+        assert blocks == []
 
 
 async def test_model_table_values_and_record_action_use_authorized_snapshot(gateway):

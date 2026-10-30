@@ -2507,7 +2507,7 @@
     }
   },
   "openui": {
-    "enable": "Tampilan interaktif (pratinjau)",
+    "enable": "Balasan interaktif",
     "followup": "Pertanyaan lanjutan",
     "submit": "Kirim",
     "saveDraft": "Simpan draf",

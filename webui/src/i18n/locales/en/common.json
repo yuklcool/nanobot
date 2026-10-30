@@ -2713,7 +2713,7 @@
     }
   },
   "openui": {
-    "enable": "Interactive view (preview)",
+    "enable": "Interactive replies",
     "followup": "Follow-up question",
     "submit": "Send",
     "saveDraft": "Save draft",

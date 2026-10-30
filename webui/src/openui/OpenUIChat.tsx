@@ -1,5 +1,6 @@
 import { Component, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Renderer, type OpenUIError } from "@openuidev/react-lang";
+import { MousePointer2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import manifest from "../../../nanobot/openui/generated/chat-library.json";
@@ -145,9 +146,11 @@ export function OpenUIControls() {
   const views = useContext(Views);
   const { t } = useTranslation();
   if (!views?.available) return null;
-  return <label className="flex items-center gap-2 px-3 py-1 text-sm text-muted-foreground">
-    <input type="checkbox" checked={views.enabled} onChange={(event) => views.toggle(event.target.checked)} />
-    {t("openui.enable")}
+  return <label className="mx-3 my-1 inline-flex w-fit cursor-pointer items-center gap-2 rounded-control px-2 py-1.5 text-reading-small text-muted-foreground hover:bg-muted/40 has-[:focus-visible]:ring-1 has-[:focus-visible]:ring-ring">
+    <input type="checkbox" className="peer sr-only" checked={views.enabled} onChange={(event) => views.toggle(event.target.checked)} />
+    <MousePointer2 className="h-3.5 w-3.5 peer-checked:text-foreground" aria-hidden />
+    <span className="peer-checked:text-foreground">{t("openui.enable")}</span>
+    <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/30 peer-checked:bg-foreground" aria-hidden />
   </label>;
 }
 

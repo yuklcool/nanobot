@@ -37,6 +37,13 @@ jobs:
         working-directory: webui
       - run: bun run openui:check
         working-directory: webui
+      - run: bun run typecheck
+        working-directory: webui
+      - name: Check changed OpenUI code
+        run: |
+          python -m ruff check nanobot/openui/generator.py nanobot/webui/openui_runtime.py tests/openui/test_gateway.py tests/openui/gateway_fixture.py
+          cd webui
+          bun x eslint src/openui/chat-library.tsx src/openui/OpenUIChat.tsx src/tests/openui/OpenUIChat.test.tsx browser/openui-gateway-fixture.tsx browser/openui-gateway.spec.ts --max-warnings 0
       - run: bun x vitest run src/tests/openui src/tests/nanobot-client.test.ts src/tests/useNanobotStream.test.tsx
         working-directory: webui
       - run: bun x playwright install --with-deps chromium
@@ -46,6 +53,13 @@ jobs:
         env:
           NANOBOT_OPENUI_GATEWAY_PYTHON: python
         run: bun run test:browser -- browser/openui.spec.ts browser/openui-gateway.spec.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openui-browser-results-${{ github.sha }}
+          path: webui/test-results/browser/
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Build installable test wheel
         run: |
           cd webui

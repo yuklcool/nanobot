@@ -253,6 +253,8 @@ class OpenUIRuntime:
             return
         if answer.get("resuming") or answer.get("merge_next") or type(answer.get("turn_seq")) is not int:
             return
+        if self.options.generation == "preview" and (prepared is None or not prepared.tables):
+            return
         seq = answer["turn_seq"]
         snapshot = UiSnapshot(
             chat_id=chat_id, session_generation=scope.generation, turn_id=turn_id,
@@ -308,11 +310,10 @@ class OpenUIRuntime:
                                          emit=delta)
             usage = result.to_turn_dict() if result is not None else {}
         else:
-            children = ["heading", *[f"table{index}" for index in range(len(snapshot.tables))], "followup"]
-            await delta('$question = ""\nroot = Panel([' + ", ".join(children) + "])\nheading = Text(" + json.dumps(snapshot.fallback_text, ensure_ascii=False) + ")\n")
+            children = [f"table{index}" for index in range(len(snapshot.tables))]
+            await delta("root = Panel([" + ", ".join(children) + "])\n")
             for index, data_ref in enumerate(snapshot.tables):
                 await delta(f"table{index} = DataTable({json.dumps(data_ref)})\n")
-            await delta("followup = Followup($question)\n")
         await flush()
         if not current.source.strip():
             raise ValueError("UI_EMPTY_OUTPUT")

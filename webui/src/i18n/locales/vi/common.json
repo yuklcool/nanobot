@@ -2507,7 +2507,7 @@
     }
   },
   "openui": {
-    "enable": "Chế độ tương tác (xem trước)",
+    "enable": "Phản hồi tương tác",
     "followup": "Câu hỏi tiếp theo",
     "submit": "Gửi",
     "saveDraft": "Lưu bản nháp",
