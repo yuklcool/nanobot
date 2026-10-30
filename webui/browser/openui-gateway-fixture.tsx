@@ -40,8 +40,9 @@ function Thread({ client }: { client: NanobotClient }) {
   </OpenUIChatProvider>;
 }
 function NewConversation({ client }: { client: NanobotClient }) {
+  useReadingTypography();
   const [session, setSession] = useState<ChatSummary | null>(null);
-  return <div className="flex h-dvh flex-col"><ThreadShell session={session} title="Nanobot" onToggleSidebar={() => {}}
+  return <div className="flex flex-col" style={{ height: "100dvh" }}><ThreadShell session={session} title="Nanobot" onToggleSidebar={() => {}}
     onCreateChat={async () => {
       const id = await client.newChat();
       setSession({ key: `websocket:${id}`, channel: "websocket", chatId: id,

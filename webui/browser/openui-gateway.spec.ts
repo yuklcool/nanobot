@@ -71,7 +71,7 @@ test("native model adapter, captured data, record actions and refresh recovery",
     action_id: "record.analyze", record_id: "task_08", request_id: messages[2].turn_id,
   } });
   expect(messages[2].content).toBe("Analyze Tasks: Energy review");
-  await page.getByRole("button", { name: "Delete conversation", exact: true }).click();
+  await Promise.all([page.waitForEvent("load"), page.getByRole("button", { name: "Delete conversation", exact: true }).click()]);
   await expect(page.getByRole("combobox", { name: "Interactive replies" })).toBeAttached();
   await expect(page.getByRole("textbox", { name: "Follow-up question" })).toHaveCount(0);
   await expect(page.getByRole("list", { name: "Conversation" })).not.toContainText("Lookup result 1");
@@ -92,7 +92,7 @@ test("inline choices, short forms and confirmations continue the native conversa
     if (frame.type === "message") messages.push(frame);
   }));
   await page.goto("/browser/openui-gateway.html");
-  await page.getByRole("button", { name: "Delete conversation", exact: true }).click();
+  await Promise.all([page.waitForEvent("load"), page.getByRole("button", { name: "Delete conversation", exact: true }).click()]);
   await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
   await page.getByRole("textbox", { name: "Question", exact: true }).fill("Plan a small project");
   await page.getByRole("button", { name: "Ask", exact: true }).click();
@@ -146,7 +146,7 @@ test("auto mode uses real session search and read tools without replaying histor
     if (frame.type === "message") messages.push(frame);
   }));
   await page.goto("/browser/openui-gateway.html");
-  await page.getByRole("button", { name: "Delete conversation", exact: true }).click();
+  await Promise.all([page.waitForEvent("load"), page.getByRole("button", { name: "Delete conversation", exact: true }).click()]);
   await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
   await page.getByRole("textbox", { name: "Question", exact: true }).fill("Explain variables");
   await page.getByRole("button", { name: "Ask", exact: true }).click();
