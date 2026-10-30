@@ -229,3 +229,18 @@ class UiSnapshotStore:
                 })
                 db.execute("UPDATE ui_snapshots SET snapshot=? WHERE rowid=?",
                            (updated.model_dump_json(), rowid))
+
+    def delete_session(self, owner: str, session_key: str, generation: str | None) -> None:
+        """Fence the retiring generation before the host deletes native history."""
+        with self.transaction() as db:
+            generations = {row[0] for row in db.execute(
+                "SELECT generation FROM ui_snapshots WHERE owner=? AND session_key=? "
+                "UNION SELECT generation FROM ui_actions WHERE owner=? AND session_key=?",
+                (owner, session_key, owner, session_key),
+            )}
+            if generation is not None:
+                generations.add(generation)
+            db.executemany("INSERT OR IGNORE INTO ui_tombstones VALUES (?, ?, ?)",
+                           [(owner, session_key, value) for value in generations])
+            db.execute("DELETE FROM ui_snapshots WHERE owner=? AND session_key=?", (owner, session_key))
+            db.execute("DELETE FROM ui_actions WHERE owner=? AND session_key=?", (owner, session_key))

@@ -20,7 +20,7 @@ const initial: UiSnapshot = {
   state: { $question: "Look up again" }, state_version: 1,
 };
 
-function setup(capability: unknown = { protocol: 1, library_hash: manifest.library_hash }) {
+function setup(capability: unknown = { protocol: 1, library_hash: manifest.library_hash }, seed = [message]) {
   const frames: Record<string, unknown>[] = [];
   let saved = { ...initial };
   const socket = { readyState: 1, onopen: null as (() => void) | null,
@@ -32,7 +32,7 @@ function setup(capability: unknown = { protocol: 1, library_hash: manifest.libra
           if (frame.action === "openui.state") saved = { ...saved, state: { $question: frame.payload.question }, state_version: saved.state_version + 1 };
           socket.onmessage?.({ data: JSON.stringify({ event: "webui_response", ok: true, request_id: frame.request_id,
             result: frame.action === "openui.state" ? { snapshot: saved }
-              : { capability, session_generation: "generation", blocks: [saved] } }) } as MessageEvent);
+              : { capability, session_generation: "generation", blocks: frame.payload.turn_ids?.includes(saved.turn_id) ? [saved] : [] } }) } as MessageEvent);
         }
         if (frame.type === "message") socket.onmessage?.({ data: JSON.stringify({ event: "message_accepted",
           chat_id: frame.chat_id, turn_id: frame.turn_id, starts_turn: true }) } as MessageEvent);
@@ -43,7 +43,7 @@ function setup(capability: unknown = { protocol: 1, library_hash: manifest.libra
   client.connect(); socket.onopen?.();
   socket.onmessage?.({ data: JSON.stringify({ event: "ready", chat_id: "chat", client_id: "browser", openui: capability }) } as MessageEvent);
   function Thread() {
-    const { send, messages } = useNanobotStream("chat", [message]);
+    const { send, messages } = useNanobotStream("chat", seed);
     return <OpenUIChatProvider client={client} chatId="chat" messages={messages} send={send}>
       <OpenUIControls />
       <OpenUIMessage message={message} />
@@ -84,7 +84,7 @@ it("restores only the canonical anchor, saves drafts explicitly and sends one st
     fixture.mount();
     expect(await screen.findByRole("textbox")).toHaveValue("Inspect updated result");
     expect(fixture.frames.filter((frame) => frame.type === "message")).toHaveLength(1);
-  } finally { fixture.client.close(); }
+  } finally { cleanup(); fixture.client.close(); }
 });
 
 it("does not request OpenUI from an older host and rejects another generation", async () => {
@@ -100,5 +100,21 @@ it("does not request OpenUI from an older host and rejects another generation", 
       snapshot: { ...initial, session_generation: "foreign", seq: 10, source: 'root = Text("foreign")' } }) } as MessageEvent));
     await waitFor(() => expect(screen.getByRole("textbox")).toHaveValue("Look up again"));
     expect(screen.queryByText("foreign")).toBeNull();
-  } finally { current.client.close(); }
+  } finally { cleanup(); current.client.close(); }
+});
+
+it("restores loaded history in bounded batches including turns older than the latest hundred", async () => {
+  const seed: UIMessage[] = [message, ...Array.from({ length: 101 }, (_, index): UIMessage => ({
+    id: `history-${index}`, turnId: `history-turn-${index}`, role: "user", content: "History", createdAt: index + 2,
+  }))];
+  const fixture = setup({ protocol: 1, library_hash: manifest.library_hash }, seed);
+  const view = fixture.mount();
+  try {
+    await screen.findByRole("textbox");
+    await waitFor(() => expect(fixture.frames.filter((frame) => frame.action === "openui.subscribe")).toHaveLength(2));
+    const requests = fixture.frames.filter((frame) => frame.action === "openui.subscribe");
+    expect(requests.map((frame) => (frame.payload as { turn_ids: string[] }).turn_ids.length)).toEqual([100, 2]);
+    expect(screen.getByRole("textbox")).toHaveValue("Look up again");
+    expect(fixture.frames.filter((frame) => frame.type === "message")).toHaveLength(0);
+  } finally { view.unmount(); fixture.client.close(); }
 });

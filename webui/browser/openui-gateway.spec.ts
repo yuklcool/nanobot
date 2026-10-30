@@ -33,5 +33,14 @@ test("native tools, structured follow-up and server-side refresh recovery", asyn
   await expect(page.getByRole("textbox", { name: "Follow-up question" })).toHaveCount(2);
   await expect(page.getByRole("list", { name: "Conversation" })).toContainText("Lookup result 2");
   expect(messages).toHaveLength(2);
+  await page.getByRole("button", { name: "Delete conversation", exact: true }).click();
+  await expect(page.getByRole("checkbox", { name: "Interactive view (preview)" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Follow-up question" })).toHaveCount(0);
+  await expect(page.getByRole("list", { name: "Conversation" })).not.toContainText("Lookup result 1");
+  await page.getByRole("checkbox", { name: "Interactive view (preview)" }).check();
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  await expect(page.getByRole("list", { name: "Conversation" })).toContainText("Lookup result 3");
+  await expect(page.getByRole("textbox", { name: "Follow-up question" })).toHaveCount(1);
+  expect(messages).toHaveLength(3);
   expect(errors).toEqual([]);
 });

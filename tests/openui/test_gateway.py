@@ -94,9 +94,15 @@ async def dispatch(gateway, envelope, connection=None):
 
 async def rpc(gateway, action, payload, connection=None):
     connection = connection or gateway.connection
-    await dispatch(gateway, {"type": "webui_request", "request_id": f"rpc-{len(connection.sent)}",
+    request_id = f"rpc-{len(connection.sent)}"
+    await dispatch(gateway, {"type": "webui_request", "request_id": request_id,
                              "action": action, "payload": payload}, connection)
-    return connection.sent[-1]
+    for _ in range(1000):
+        for row in reversed(connection.sent):
+            if row.get("event") == "webui_response" and row.get("request_id") == request_id:
+                return row
+        await asyncio.sleep(0.001)
+    raise AssertionError("Gateway did not return an RPC response")
 
 
 async def execute(gateway):
@@ -237,3 +243,25 @@ async def test_real_authenticated_websocket_roundtrip(gateway, unused_tcp_port):
     finally:
         await gateway.channel.stop()
         await server
+
+
+async def test_native_delete_retires_ui_and_cannot_resurrect_old_cards(gateway):
+    block = await first_card(gateway)
+    runtime = gateway.services.openui
+    scope = await runtime.scope("chat")
+    await runtime.admit_action("chat", "retiring", "Lookup again", {
+        "request_id": "retiring", "action_id": "conversation.followup",
+        "session_generation": block["session_generation"], "block_id": block["block_id"], "revision": 1,
+    })
+    response = await rpc(gateway, "session.delete", {"key": "websocket:chat"})
+    assert response["ok"] and response["result"]["deleted"]
+    with pytest.raises(KeyError):
+        runtime.store.read(scope, block["block_id"])
+    with runtime.store.transaction() as db:
+        assert db.execute("SELECT count(*) FROM ui_actions").fetchone()[0] == 0
+    await dispatch(gateway, {"type": "message", "chat_id": "chat", "turn_id": "new-generation",
+                             "content": "Lookup new", "webui": True, "ui_mode": "openui"})
+    await execute(gateway)
+    current = await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": ["turn-1", "new-generation"]})
+    assert current["result"]["session_generation"] != block["session_generation"]
+    assert [item["turn_id"] for item in current["result"]["blocks"]] == ["new-generation"]

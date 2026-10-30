@@ -32,7 +32,7 @@ export function OpenUIChatProvider({ client, chatId, messages, send, children }:
   const [enabled, setEnabled] = useState(false);
   const generation = useRef<string | null>(null);
   const mode = useRef(false);
-  const turnIds = JSON.stringify([...new Set(messages.map((message) => message.turnId).filter(Boolean))].slice(-100));
+  const turnIds = JSON.stringify([...new Set(messages.map((message) => message.turnId).filter(Boolean))]);
 
   const merge = useCallback((next: UiSnapshot) => {
     if (next.chat_id !== chatId || next.library_hash !== manifest.library_hash) return;
@@ -52,20 +52,24 @@ export function OpenUIChatProvider({ client, chatId, messages, send, children }:
     async function load() {
       if (!chatId || !supported()) { if (active) setAvailable(false); return; }
       try {
-        const result = responseSchema.parse(await client.requestMutation("openui.subscribe", {
-          chat_id: chatId, turn_ids: JSON.parse(turnIds),
-        }));
-        if (!active || !supported() || result.capability.library_hash !== manifest.library_hash) return;
-        if (generation.current !== result.session_generation) {
-          generation.current = result.session_generation;
-          setBlocks([]);
+        const turns: string[] = JSON.parse(turnIds);
+        for (let offset = 0; offset < Math.max(1, turns.length); offset += 100) {
+          const result = responseSchema.parse(await client.requestMutation("openui.subscribe", {
+            chat_id: chatId, turn_ids: turns.slice(offset, offset + 100),
+          }));
+          if (!active || !supported() || result.capability.library_hash !== manifest.library_hash) return;
+          if (generation.current !== result.session_generation) {
+            generation.current = result.session_generation;
+            setBlocks([]);
+          }
+          setAvailable(true);
+          client.setOpenUIMode(chatId, mode.current);
+          result.blocks.forEach(merge);
         }
-        setAvailable(true);
-        client.setOpenUIMode(chatId, mode.current);
-        result.blocks.forEach(merge);
       } catch { if (active) setAvailable(false); }
     }
     const unready = client.onReady(() => { void load(); });
+    const unsession = client.onSessionUpdate((updated) => { if (updated === chatId) void load(); });
     const unstatus = client.onStatus((status) => {
       if (status !== "open" && active) setAvailable(false);
     });
@@ -75,7 +79,7 @@ export function OpenUIChatProvider({ client, chatId, messages, send, children }:
       if (result.success && result.data.chat_id === chatId) merge(result.data.snapshot);
     });
     void load();
-    return () => { active = false; unready(); unstatus(); unevent(); };
+    return () => { active = false; unready(); unsession(); unstatus(); unevent(); };
   }, [client, chatId, merge, turnIds]);
 
   useEffect(() => () => { if (chatId) client.setOpenUIMode(chatId, false); }, [client, chatId]);

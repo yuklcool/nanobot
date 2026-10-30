@@ -17,6 +17,10 @@ function Thread({ client }: { client: NanobotClient }) {
     <main className="mx-auto max-w-3xl p-6">
       <h1>OpenUI Gateway acceptance</h1>
       <OpenUIControls />
+      <button type="button" onClick={async () => {
+        await client.requestMutation("session.delete", { key: `websocket:${chatId}` });
+        location.reload();
+      }}>Delete conversation</button>
       <form onSubmit={(event) => { event.preventDefault(); send(question); }}>
         <input aria-label="Question" value={question} onChange={(event) => setQuestion(event.target.value)} />
         <button disabled={isStreaming}>Ask</button>

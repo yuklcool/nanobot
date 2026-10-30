@@ -82,6 +82,12 @@ class OpenUIRuntime:
             return None
         return UiScope(owner="webui", session_key=key, generation=identity.generation)
 
+    async def retire_session(self, session_key: str) -> None:
+        await self.sessions.state.read_metadata(session_key)
+        identity = self.sessions.state.peek_identity(session_key)
+        await asyncio.to_thread(self.store.delete_session, "webui", session_key,
+                                identity.generation if identity is not None else None)
+
     async def list_blocks(self, request: UiRequest) -> dict[str, object]:
         scope = await self.scope(request.chat_id)
         blocks = await asyncio.to_thread(self.store.for_turns, scope, request.turn_ids) if scope else []
