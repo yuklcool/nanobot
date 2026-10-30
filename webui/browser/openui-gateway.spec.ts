@@ -43,6 +43,7 @@ test("empty search attempts keep the final answer and can still ask for a useful
   await expect(page.getByRole("textbox", { name: "Project keyword" })).toBeVisible();
   expect(messages).toHaveLength(2);
   expect(errors).toEqual([]);
+  await Promise.all([page.waitForEvent("load"), page.getByRole("button", { name: "Delete conversation", exact: true }).click()]);
 });
 
 test("new conversation selects a mode before its first message through the production thread shell", async ({ page }) => {
@@ -223,9 +224,15 @@ test("auto mode uses real session search and read tools without replaying histor
   await expect(table).toContainText("Planning notes");
   await expect(table).not.toContainText("Planning detail");
   await page.getByRole("textbox", { name: "Filter records" }).fill("not a matching title");
-  await expect(table).not.toContainText("Planning notes");
+  await expect(table).toHaveCount(0);
+  await expect(page.getByRole("status").filter({ hasText: "No matching records." })).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath("filtered-empty-desktop.png"), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: test.info().outputPath("filtered-empty-mobile.png"), fullPage: true });
+  await page.setViewportSize({ width: 1280, height: 720 });
   expect(messages).toHaveLength(2);
-  await page.getByRole("textbox", { name: "Filter records" }).fill("");
+  await page.getByRole("button", { name: "Clear filter", exact: true }).click();
+  await expect(table).toContainText("Planning notes");
   await page.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(page.getByText("Loading data…", { exact: true })).toHaveCount(0);
   await expect(table).toContainText("Planning notes");
