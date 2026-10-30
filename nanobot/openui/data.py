@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import time
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, model_validator
 
@@ -35,6 +35,24 @@ class DisplayRow(BaseModel):
     values: dict[str, Cell]
 
 
+class SessionQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    query: Annotated[str, Field(min_length=1, max_length=500)]
+    exclude_session_key: Annotated[str, Field(min_length=1, max_length=512)]
+
+
+class SessionDetailMessage(BaseModel):
+    model_config = ConfigDict(strict=True)
+    role: Literal["user", "assistant"]
+    content: Annotated[str, Field(max_length=4002)]
+
+
+class SessionDetail(BaseModel):
+    model_config = ConfigDict(strict=True)
+    title: Annotated[str, Field(max_length=160)]
+    messages: Annotated[list[SessionDetailMessage], Field(max_length=8)]
+
+
 class DisplayTable(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
     data_ref: Annotated[str, Field(min_length=1, max_length=128)]
@@ -45,6 +63,7 @@ class DisplayTable(BaseModel):
     source_call_id: str
     captured_at: float
     total_rows: Annotated[int, Field(ge=0)] = 0
+    session_query: SessionQuery | None = None
 
     def descriptor(self) -> dict[str, JsonValue]:
         return {"data_ref": self.data_ref, "title": self.title,

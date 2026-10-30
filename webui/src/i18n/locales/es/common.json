@@ -2534,6 +2534,17 @@
     "snapshotTime": "Instantánea: {{time}}",
     "showingRows": "Se muestran {{shown}} de {{total}} registros",
     "retryView": "Reintentar vista",
-    "cancelView": "Cancelar vista"
+    "cancelView": "Cancelar vista",
+    "refreshData": "Actualizar",
+    "viewDetails": "Ver detalles",
+    "noRecords": "No hay registros coincidentes.",
+    "loadingData": "Cargando datos…",
+    "queryFailed": "No se pudieron cargar los datos. Inténtalo de nuevo.",
+    "retryData": "Reintentar",
+    "recordDetails": "Detalles de la conversación",
+    "closeDetails": "Cerrar detalles",
+    "historyUser": "Usuario",
+    "historyAssistant": "Asistente",
+    "noMessages": "No hay mensajes visibles."
   }
 }

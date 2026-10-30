@@ -1,15 +1,16 @@
 import { createContext, useContext, useEffect, useId, useRef, useState } from "react";
 import { createLibrary, defineComponent, reactive, useIsStreaming, useStateField, useTriggerAction, createParser } from "@openuidev/react-lang";
-import { ArrowUp, ArrowUpRight, Search } from "lucide-react";
+import { ArrowUp, ArrowUpRight, Search, RefreshCw, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import { Button } from "../components/ui/button";
-import type { DisplayTable } from "./data-contract";
+import type { DataQuery, DisplayTable, SessionDetail } from "./data-contract";
 import { emptyFormValue, formComplete, formContent, formDefinitionSchema, normalizeFormValues, visibleFields,
   type FormInput, type FormState, type FormValue } from "./form-contract";
 
 export const ChatInteraction = createContext(false);
 export const DisplayDataContext = createContext<Record<string, DisplayTable>>({});
+export const ReadonlyQuery = createContext<((request: DataQuery) => Promise<SessionDetail | null>) | null>(null);
 export const FormRecovery = createContext<{
   forms: Record<string, FormState>;
   update: (form: FormInput) => Promise<FormState>;
@@ -201,7 +202,7 @@ const Followup = defineComponent({
   },
 });
 const DataTable = defineComponent({
-  name: "DataTable", description: "Authoritative captured table, local filtering and a read-only Agent analysis action; never supply cell values in the layout.",
+  name: "DataTable", description: "Authoritative captured table with local filtering and an explicit Agent analysis action. Supported session tables also provide refresh and inline details without a model call. Never supply cell values or query instructions in the layout.",
   props: z.object({ data_ref: z.string().min(1).max(128) }),
   component: function CapturedTable({ props }) {
     const { t } = useTranslation();
@@ -211,31 +212,70 @@ const DataTable = defineComponent({
     const streaming = useIsStreaming();
     const trigger = useTriggerAction();
     const [filter, setFilter] = useState("");
+    const query = useContext(ReadonlyQuery);
+    const [detail, setDetail] = useState<SessionDetail | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [failed, setFailed] = useState<DataQuery | null>(null);
+    const pending = useRef(false);
+    useEffect(() => { setDetail(null); setFailed(null); }, [data?.captured_at]);
+    const canQuery = !!query && data?.source_tool === "search_sessions" && !!data.session_query;
+    async function read(request: DataQuery) {
+      if (!query || !enabled || streaming || pending.current) return;
+      pending.current = true;
+      setLoading(true);
+      setFailed(null);
+      setDetail(null);
+      try { setDetail(await query(request)); }
+      catch { setFailed(request); }
+      finally { pending.current = false; setLoading(false); }
+    }
     if (!data) return <p role="status">{t("openui.unavailable")}</p>;
     const rows = data.rows.filter((row) => Object.values(row.values).some((value) =>
       String(value ?? "").toLocaleLowerCase().includes(filter.toLocaleLowerCase())));
-    return <section className="flex min-w-0 flex-col gap-3">
+    return <section className="flex min-w-0 flex-col gap-3" aria-busy={loading}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
       <h3 className="text-reading-small font-medium">{data.title}</h3>
       <time className="text-caption text-muted-foreground" dateTime={new Date(data.captured_at * 1000).toISOString()}>
         {t("openui.snapshotTime", { time: new Date(data.captured_at * 1000).toLocaleString() })}
       </time></div>
-      <div className="relative max-w-xs"><Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" aria-hidden />
+      <div className="flex flex-wrap items-center gap-2"><div className="relative max-w-xs"><Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" aria-hidden />
       <input className="h-10 w-full rounded-control border border-input bg-background pl-9 pr-3 text-reading-small focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         aria-label={t("openui.filterRecords")} placeholder={t("openui.filterRecords")} maxLength={200}
         value={filter} onChange={(event) => setFilter(event.target.value)} /></div>
+      {canQuery && <Button type="button" variant="outline" size="sm" className="gap-2"
+        disabled={!enabled || streaming || loading} onClick={() => { void read({ data_ref: data.data_ref, operation: "refresh" }); }}>
+        <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden />{t("openui.refreshData")}
+      </Button>}</div>
       <div className="max-w-full overflow-x-auto rounded-control border border-border/70"><table className="w-full text-left text-reading-small tabular-nums" aria-label={data.title}>
         <thead className="bg-muted/40 text-muted-foreground"><tr>{Object.entries(data.columns).map(([key, label]) => <th scope="col" className="px-3 py-2.5 font-medium" key={key}>{label}</th>)}
+          {canQuery && <th scope="col" className="px-3 py-2.5 font-medium">{t("openui.viewDetails")}</th>}
           <th scope="col" className="px-3 py-2.5 font-medium">{t("openui.analyzeRecord")}</th></tr></thead>
         <tbody>{rows.map((row) => <tr key={row.id} className="hover:bg-muted/20">
           {Object.keys(data.columns).map((key) => <td className="border-t border-border/60 px-3 py-2" key={key}>{String(row.values[key] ?? "")}</td>)}
+          {canQuery && <td className="border-t border-border/60 px-3 py-2"><Button type="button" variant="ghost" size="sm"
+            disabled={!enabled || streaming || loading} onClick={() => { void read({ data_ref: data.data_ref, operation: "detail", record_id: row.id }); }}>
+            {t("openui.viewDetails")}</Button></td>}
           <td className="border-t border-border/60 px-3 py-2"><Button type="button" variant="ghost" size="sm"
-            disabled={!enabled || streaming} onClick={() => { void trigger("analyze", undefined, {
+            disabled={!enabled || streaming || loading} onClick={() => { void trigger("analyze", undefined, {
               type: "record_analyze", params: { data_ref: data.data_ref, record_id: row.id },
             }); }}>{t("openui.analyzeRecord")}</Button></td>
         </tr>)}</tbody>
       </table></div>
       <p className="text-caption text-muted-foreground">{t("openui.showingRows", { shown: rows.length, total: data.total_rows ?? data.rows.length })}</p>
+      {!rows.length && <p role="status" className="text-reading-small text-muted-foreground">{t("openui.noRecords")}</p>}
+      {loading && <p role="status" className="text-reading-small text-muted-foreground">{t("openui.loadingData")}</p>}
+      {failed && <div role="alert" className="flex flex-wrap items-center gap-2 text-reading-small">
+        <span>{t("openui.queryFailed")}</span><Button type="button" variant="outline" size="sm" disabled={!enabled || streaming || loading}
+          onClick={() => { void read(failed); }}>{t("openui.retryData")}</Button>
+      </div>}
+      {detail && <section aria-label={t("openui.recordDetails")} className="flex min-w-0 flex-col gap-3 rounded-control border border-border/70 p-4">
+        <div className="flex items-center justify-between gap-3"><h4 className="text-reading-small font-medium [overflow-wrap:anywhere]">{detail.title}</h4>
+          <Button type="button" variant="ghost" size="icon" aria-label={t("openui.closeDetails")} onClick={() => setDetail(null)}><X className="h-4 w-4" aria-hidden /></Button></div>
+        {detail.messages.length ? detail.messages.map((message, index) => <div key={index} className="min-w-0">
+          <p className="mb-1 text-caption text-muted-foreground">{t(message.role === "user" ? "openui.historyUser" : "openui.historyAssistant")}</p>
+          <p className="whitespace-pre-wrap text-reading-small [overflow-wrap:anywhere]">{message.content}</p>
+        </div>) : <p className="text-reading-small text-muted-foreground">{t("openui.noMessages")}</p>}
+      </section>}
     </section>;
   },
 });

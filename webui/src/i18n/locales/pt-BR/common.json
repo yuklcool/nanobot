@@ -2547,6 +2547,17 @@
     "snapshotTime": "Captura: {{time}}",
     "showingRows": "Exibindo {{shown}} de {{total}} registros",
     "retryView": "Tentar visualização novamente",
-    "cancelView": "Cancelar visualização"
+    "cancelView": "Cancelar visualização",
+    "refreshData": "Atualizar",
+    "viewDetails": "Ver detalhes",
+    "noRecords": "Nenhum registro correspondente.",
+    "loadingData": "Carregando dados…",
+    "queryFailed": "Não foi possível carregar os dados. Tente novamente.",
+    "retryData": "Tentar novamente",
+    "recordDetails": "Detalhes da conversa",
+    "closeDetails": "Fechar detalhes",
+    "historyUser": "Usuário",
+    "historyAssistant": "Assistente",
+    "noMessages": "Nenhuma mensagem visível."
   }
 }

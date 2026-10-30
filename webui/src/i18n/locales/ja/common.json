@@ -2533,6 +2533,17 @@
     "snapshotTime": "取得日時：{{time}}",
     "showingRows": "{{total}} 件中 {{shown}} 件を表示",
     "retryView": "表示を再試行",
-    "cancelView": "生成をキャンセル"
+    "cancelView": "生成をキャンセル",
+    "refreshData": "データを更新",
+    "viewDetails": "詳細を見る",
+    "noRecords": "一致する記録はありません。",
+    "loadingData": "読み込み中…",
+    "queryFailed": "データを取得できませんでした。再試行してください。",
+    "retryData": "再試行",
+    "recordDetails": "会話の詳細",
+    "closeDetails": "詳細を閉じる",
+    "historyUser": "ユーザー",
+    "historyAssistant": "アシスタント",
+    "noMessages": "表示できるメッセージはありません。"
   }
 }

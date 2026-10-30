@@ -36,7 +36,7 @@ async def probe(payload):
     async with websockets.connect(url, proxy=None, open_timeout=5) as ws:
         ready = json.loads(await asyncio.wait_for(ws.recv(), 5))
         assert ready["event"] == "ready"
-        assert ready["openui"] == {"protocol": 1, "library_hash": manifest["library_hash"], "modes": ["markdown", "openui", "auto"], "form_recovery": True}
+        assert ready["openui"] == {"protocol": 1, "library_hash": manifest["library_hash"], "modes": ["markdown", "openui", "auto"], "form_recovery": True, "readonly_query": True}
     print("Container WebUI, authentication and OpenUI capability passed")
 
 

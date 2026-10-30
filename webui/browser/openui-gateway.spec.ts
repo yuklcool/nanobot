@@ -160,10 +160,12 @@ test("inline choices, short forms and confirmations continue the native conversa
 test("auto mode uses real session search and read tools without replaying history actions", async ({ page }) => {
   const errors: string[] = [];
   const messages: Record<string, unknown>[] = [];
+  const queryFrames: Record<string, unknown>[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("websocket", (socket) => socket.on("framesent", ({ payload }) => {
     const frame = JSON.parse(String(payload));
     if (frame.type === "message") messages.push(frame);
+    if (frame.action === "openui.query") queryFrames.push(frame);
   }));
   await page.goto("/browser/openui-gateway.html");
   await Promise.all([page.waitForEvent("load"), page.getByRole("button", { name: "Delete conversation", exact: true }).click()]);
@@ -181,6 +183,23 @@ test("auto mode uses real session search and read tools without replaying histor
   await expect(table).not.toContainText("Planning notes");
   expect(messages).toHaveLength(2);
   await page.getByRole("textbox", { name: "Filter records" }).fill("");
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(page.getByText("Loading data…", { exact: true })).toHaveCount(0);
+  await expect(table).toContainText("Planning notes");
+  await table.getByRole("button", { name: "View details", exact: true }).click();
+  const details = page.getByRole("region", { name: "Conversation details" });
+  await expect(details).toContainText("Planning detail: Ship the read-only workflow.");
+  expect(queryFrames).toHaveLength(2);
+  expect(messages).toHaveLength(2);
+  await page.screenshot({ path: test.info().outputPath("readonly-session-details-desktop.png"), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: test.info().outputPath("readonly-session-details-mobile.png"), fullPage: true });
+  await page.reload();
+  await expect(table).toContainText("Planning notes");
+  await expect(details).toHaveCount(0);
+  expect(queryFrames).toHaveLength(2);
+  await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
   await table.getByRole("button", { name: "Analyze snapshot" }).click();
   await expect(page.getByRole("button", { name: "Summarize notes" })).toBeVisible();
   await expect(page.getByRole("list", { name: "Conversation" })).toContainText("Planning detail: Ship the read-only workflow.");

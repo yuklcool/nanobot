@@ -63,6 +63,7 @@ from nanobot.webui.openui_runtime import (
     REQUEST_ERRORS,
     UiBlockRequest,
     UiFormRequest,
+    UiQueryRequest,
     UiRecordRequest,
     UiRequest,
     UiStateRequest,
@@ -980,6 +981,12 @@ class WebUICommandRouter:
                         raise ValueError("ACTION_NOT_ALLOWED")
                     self._openui_connections.add(connection)
                     result = await runtime.list_blocks(request)
+                elif action == "openui.query":
+                    query_request = UiQueryRequest.model_validate(envelope.get("payload"))
+                    if (connection not in self._openui_connections
+                            or query_request.chat_id not in self._transport.webui_connection_chats(connection)):
+                        raise ValueError("ACTION_NOT_ALLOWED")
+                    result = await runtime.query(query_request, emit=self.emit_openui)
                 elif action in {"openui.cancel", "openui.retry", "openui.prepare_record"}:
                     block_request = (UiRecordRequest if action == "openui.prepare_record" else UiBlockRequest).model_validate(envelope.get("payload"))
                     if (connection not in self._openui_connections

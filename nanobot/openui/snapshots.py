@@ -191,6 +191,21 @@ class UiSnapshotStore:
             self._write(db, scope, updated)
             return updated
 
+    def refresh_table(
+        self, scope: UiScope, block_id: str, *, revision: int, expected_seq: int, table: DisplayTable,
+    ) -> UiSnapshot:
+        with self.transaction() as db:
+            current = self._read(db, scope, block_id)
+            if (current.revision != revision or current.seq != expected_seq or current.status != "complete"
+                    or table.data_ref not in current.tables):
+                raise UiConflictError("STALE_REVISION")
+            updated = UiSnapshot.model_validate({
+                **current.model_dump(), "seq": current.seq + 1,
+                "tables": {**current.tables, table.data_ref: table},
+            })
+            self._write(db, scope, updated)
+            return updated
+
     def save_state(
         self, scope: UiScope, block_id: str, *, revision: int,
         expected_state_version: int, state: dict[str, JsonValue],
