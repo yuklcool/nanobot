@@ -75,7 +75,7 @@ test("inline choices, short forms and confirmations continue the native conversa
   await page.getByRole("textbox", { name: "Question", exact: true }).fill("Plan a small project");
   await page.getByRole("button", { name: "Ask", exact: true }).click();
   await expect(page.getByRole("group", { name: "Where should we start?" })).toBeVisible();
-  await expect(page.getByText("We can define a new project or review an existing draft.", { exact: true })).toHaveCount(1);
+  await expect(page.getByText("We can define a new project or review an existing draft.", { exact: true }).filter({ visible: true })).toHaveCount(1);
   await expect(page.getByRole("textbox", { name: "Follow-up question" })).toHaveCount(0);
   expect(messages).toHaveLength(1);
   await page.screenshot({ path: test.info().outputPath("inline-choices-desktop.png"), fullPage: true });
@@ -99,13 +99,13 @@ test("inline choices, short forms and confirmations continue the native conversa
   expect(messages[2]).toMatchObject({ content: "Project details\nProject name: Nanobot interaction\nPriority: High",
     ui_action: { action_id: "conversation.followup", request_id: messages[2].turn_id } });
   await page.getByRole("button", { name: "Confirm plan", exact: true }).click();
-  await expect(page.getByText("Confirmed. We can now prepare the plan in this conversation.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Confirmed. We can now prepare the plan in this conversation.", { exact: true }).filter({ visible: true })).toBeVisible();
   expect(messages).toHaveLength(4);
   expect(messages[3]).toMatchObject({ content: "Confirm the proposed project plan.", ui_action: {
     action_id: "conversation.followup", request_id: messages[3].turn_id,
   } });
   await page.reload();
-  await expect(page.getByText("Confirmed. We can now prepare the plan in this conversation.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Confirmed. We can now prepare the plan in this conversation.", { exact: true }).filter({ visible: true })).toBeVisible();
   expect(messages).toHaveLength(4);
   expect(errors).toEqual([]);
 });

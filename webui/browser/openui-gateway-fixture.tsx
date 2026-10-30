@@ -3,18 +3,23 @@ import { createRoot } from "react-dom/client";
 import { ClientProvider } from "../src/providers/ClientProvider";
 import { NanobotClient } from "../src/lib/nanobot-client";
 import { useNanobotStream } from "../src/hooks/useNanobotStream";
-import { MessageBubble } from "../src/components/MessageBubble";
+import { ThreadMessages } from "../src/components/thread/ThreadMessages";
+import { TooltipProvider } from "../src/components/ui/tooltip";
+import { useReadingTypography } from "../src/hooks/useReadingTypography";
+import { projectWebuiThreadMessages } from "../src/lib/thread-display-projection";
 import { OpenUIChatProvider, OpenUIControls } from "../src/openui/OpenUIChat";
 import { initializeI18n } from "../src/i18n";
 import "../src/globals.css";
 
 const chatId = "gateway-poc";
 function Thread({ client }: { client: NanobotClient }) {
+  useReadingTypography();
   const [question, setQuestion] = useState("Lookup");
   const { messages, send, isStreaming } = useNanobotStream(chatId, undefined, false, undefined, undefined, undefined,
     { key: `websocket:${chatId}` });
-  return <OpenUIChatProvider client={client} chatId={chatId} messages={messages} send={send}>
-    <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-6 py-5">
+  const displayed = projectWebuiThreadMessages(messages);
+  return <OpenUIChatProvider client={client} chatId={chatId} messages={displayed} send={send}>
+    <main style={{ maxWidth: 768, minHeight: "100dvh" }} className="mx-auto flex flex-col gap-6 px-6 py-5">
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-3">
       <h1 className="text-title font-medium">Nanobot</h1>
       <OpenUIControls />
@@ -22,9 +27,9 @@ function Thread({ client }: { client: NanobotClient }) {
         await client.requestMutation("session.delete", { key: `websocket:${chatId}` });
         location.reload();
       }}>Delete conversation</button></header>
-      <ol className="flex flex-1 flex-col gap-8" aria-label="Conversation">{messages.map((message) => <li key={message.id}>
-        <MessageBubble message={message} />
-      </li>)}</ol>
+      <div className="flex-1" role="list" aria-label="Conversation">
+        <ThreadMessages messages={displayed} isStreaming={isStreaming} />
+      </div>
       <form className="sticky bottom-0 flex items-center gap-2 bg-background py-4" onSubmit={(event) => { event.preventDefault(); send(question); }}>
         <input className="h-12 min-w-0 flex-1 rounded-control border border-input bg-background px-4 text-reading-small" aria-label="Question" value={question} onChange={(event) => setQuestion(event.target.value)} />
         <button className="h-10 rounded-control bg-primary px-4 text-reading-small text-primary-foreground disabled:opacity-50" disabled={isStreaming}>Ask</button>
@@ -43,7 +48,7 @@ async function start() {
   client.connect();
   createRoot(document.getElementById("root")!).render(
     <ClientProvider client={client} token={bootstrap.api_token} allowUpdateFlow={false}>
-      <Thread client={client} />
+      <TooltipProvider><Thread client={client} /></TooltipProvider>
     </ClientProvider>);
 }
 void start();

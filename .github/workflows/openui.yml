@@ -42,8 +42,7 @@ jobs:
       - name: Check changed OpenUI code
         run: |
           python -m ruff check nanobot/openui/generator.py nanobot/webui/openui_runtime.py tests/openui/test_gateway.py tests/openui/gateway_fixture.py
-          cd webui
-          bun x eslint src/openui/chat-library.tsx src/openui/OpenUIChat.tsx src/tests/openui/OpenUIChat.test.tsx browser/openui-gateway-fixture.tsx browser/openui-gateway.spec.ts --max-warnings 0
+          bun webui/node_modules/eslint/bin/eslint.js --config webui/eslint.config.js webui/src/openui/chat-library.tsx webui/src/openui/OpenUIChat.tsx webui/src/tests/openui/OpenUIChat.test.tsx webui/browser/openui-gateway-fixture.tsx webui/browser/openui-gateway.spec.ts --max-warnings 0
       - run: bun x vitest run src/tests/openui src/tests/nanobot-client.test.ts src/tests/useNanobotStream.test.tsx
         working-directory: webui
       - run: bun x playwright install --with-deps chromium
