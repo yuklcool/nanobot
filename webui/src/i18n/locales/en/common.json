@@ -2739,6 +2739,17 @@
     "snapshotTime": "Snapshot: {{time}}",
     "showingRows": "Showing {{shown}} of {{total}} records",
     "retryView": "Retry view",
-    "cancelView": "Cancel view"
+    "cancelView": "Cancel view",
+    "refreshData": "Refresh",
+    "viewDetails": "View details",
+    "noRecords": "No matching records.",
+    "loadingData": "Loading data…",
+    "queryFailed": "Could not load data. Please retry.",
+    "retryData": "Retry",
+    "recordDetails": "Conversation details",
+    "closeDetails": "Close details",
+    "historyUser": "User",
+    "historyAssistant": "Assistant",
+    "noMessages": "No visible messages."
   }
 }

@@ -2739,6 +2739,17 @@
     "snapshotTime": "数据截至：{{time}}",
     "showingRows": "显示 {{shown}} 条，共 {{total}} 条记录",
     "retryView": "重试视图",
-    "cancelView": "取消生成"
+    "cancelView": "取消生成",
+    "refreshData": "刷新数据",
+    "viewDetails": "查看详情",
+    "noRecords": "暂无匹配记录。",
+    "loadingData": "正在加载…",
+    "queryFailed": "数据读取失败，请重试。",
+    "retryData": "重新读取",
+    "recordDetails": "会话详情",
+    "closeDetails": "关闭详情",
+    "historyUser": "用户",
+    "historyAssistant": "助手",
+    "noMessages": "暂无可见消息。"
   }
 }

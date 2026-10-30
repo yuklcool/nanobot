@@ -2533,6 +2533,17 @@
     "snapshotTime": "Instantané : {{time}}",
     "showingRows": "{{shown}} enregistrements affichés sur {{total}}",
     "retryView": "Réessayer la vue",
-    "cancelView": "Annuler la vue"
+    "cancelView": "Annuler la vue",
+    "refreshData": "Actualiser",
+    "viewDetails": "Voir les détails",
+    "noRecords": "Aucun résultat correspondant.",
+    "loadingData": "Chargement des données…",
+    "queryFailed": "Impossible de charger les données. Réessayez.",
+    "retryData": "Réessayer",
+    "recordDetails": "Détails de la conversation",
+    "closeDetails": "Fermer les détails",
+    "historyUser": "Utilisateur",
+    "historyAssistant": "Assistant",
+    "noMessages": "Aucun message visible."
   }
 }

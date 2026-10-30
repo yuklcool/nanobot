@@ -24,7 +24,7 @@ const initial: UiSnapshot = {
 function setup(capability: unknown = { protocol: 1, library_hash: manifest.library_hash }, seed = [message], snapshot = initial,
   chatId: string | null = "chat", disabled = false) {
   const frames: Record<string, unknown>[] = [];
-  const failures = { save: false, send: false };
+  const failures = { save: false, send: false, query: false };
   let saved = { ...snapshot };
   const socket = { readyState: 1, onopen: null as (() => void) | null,
     onmessage: null as ((event: MessageEvent) => void) | null,
@@ -33,6 +33,22 @@ function setup(capability: unknown = { protocol: 1, library_hash: manifest.libra
       const frame = JSON.parse(raw); frames.push(frame);
       queueMicrotask(() => {
         if (frame.type === "webui_request") {
+          if (frame.action === "openui.query") {
+            if (failures.query) {
+              failures.query = false;
+              socket.onmessage?.({ data: JSON.stringify({ event: "webui_response", ok: false,
+                request_id: frame.request_id, status: 409, message: "UI_QUERY_UNAVAILABLE" }) } as MessageEvent);
+              return;
+            }
+            if (frame.payload.operation === "refresh") saved = { ...saved, seq: saved.seq + 1,
+              tables: Object.fromEntries(Object.entries(saved.tables ?? {}).map(([key, table]) => [key,
+                { ...table, captured_at: table.captured_at + 1, rows: [], total_rows: 0 }])) };
+            socket.onmessage?.({ data: JSON.stringify({ event: "webui_response", ok: true, request_id: frame.request_id,
+              result: frame.payload.operation === "refresh" ? { snapshot: saved }
+                : { detail: { title: "Planning notes", messages: [{ role: "user", content: '<img src=x onerror="alert(1)">' }] } },
+            }) } as MessageEvent);
+            return;
+          }
           if (frame.action === "openui.form" && failures.save) {
             failures.save = false;
             socket.onmessage?.({ data: JSON.stringify({ event: "webui_response", ok: false, request_id: frame.request_id,
@@ -224,6 +240,43 @@ it("collects the requested details before sending a form through the existing co
       ui_action: { action_id: "conversation.followup", block_id: "block" },
     });
   } finally { view.unmount(); fixture.client.close(); }
+});
+
+it("queries only on clicks, retries a failed detail read, renders text safely and refreshes in place", async () => {
+  const snapshot: UiSnapshot = { ...initial, source: 'root = Panel([data])\ndata = DataTable("data-1")\n',
+    tables: { "data-1": { data_ref: "data-1", title: "Sessions", columns: { title: "Title" },
+      rows: [{ id: "websocket:planning", values: { title: "Planning notes" } }], captured_at: 1,
+      source_tool: "search_sessions", source_call_id: "search-1", session_query: { query: "planning" } } } };
+  const capability = { protocol: 1, library_hash: manifest.library_hash, readonly_query: true };
+  const fixture = setup(capability, [message], snapshot);
+  const view = fixture.mount();
+  try {
+    const details = await screen.findByRole("button", { name: "openui.viewDetails" });
+    expect(fixture.frames.filter((frame) => frame.action === "openui.query")).toHaveLength(0);
+    fixture.failures.query = true;
+    fireEvent.click(details); fireEvent.click(details);
+    await screen.findByRole("alert");
+    expect(fixture.frames.filter((frame) => frame.action === "openui.query")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "openui.retryData" }));
+    const detail = await screen.findByRole("region", { name: "openui.recordDetails" });
+    expect(detail).toHaveTextContent('<img src=x onerror="alert(1)">');
+    expect(detail.querySelector("img")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "openui.refreshData" }));
+    await screen.findByText("openui.noRecords");
+    expect(screen.queryByRole("region", { name: "openui.recordDetails" })).toBeNull();
+    expect(fixture.frames.filter((frame) => frame.type === "message")).toHaveLength(0);
+    view.unmount(); fixture.mount();
+    await screen.findByText("openui.noRecords");
+    expect(fixture.frames.filter((frame) => frame.action === "openui.query")).toHaveLength(3);
+  } finally { cleanup(); fixture.client.close(); }
+  const old = setup({ ...capability, readonly_query: false }, [message], snapshot);
+  const oldView = old.mount();
+  try {
+    await screen.findByRole("table", { name: "Sessions" });
+    expect(screen.queryByRole("button", { name: "openui.refreshData" })).toBeNull();
+    expect(screen.getByRole("button", { name: "openui.analyzeRecord" })).toBeEnabled();
+    expect(old.frames.filter((frame) => frame.action === "openui.query")).toHaveLength(0);
+  } finally { oldView.unmount(); old.client.close(); }
 });
 
 const recoverableForm: UiSnapshot = { ...initial,

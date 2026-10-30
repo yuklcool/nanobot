@@ -2533,6 +2533,17 @@
     "snapshotTime": "데이터 시점: {{time}}",
     "showingRows": "전체 {{total}}개 중 {{shown}}개 표시",
     "retryView": "보기 다시 시도",
-    "cancelView": "생성 취소"
+    "cancelView": "생성 취소",
+    "refreshData": "데이터 새로고침",
+    "viewDetails": "상세 보기",
+    "noRecords": "일치하는 기록이 없습니다.",
+    "loadingData": "불러오는 중…",
+    "queryFailed": "데이터를 불러오지 못했습니다. 다시 시도하세요.",
+    "retryData": "다시 시도",
+    "recordDetails": "대화 상세",
+    "closeDetails": "상세 닫기",
+    "historyUser": "사용자",
+    "historyAssistant": "어시스턴트",
+    "noMessages": "표시할 메시지가 없습니다."
   }
 }

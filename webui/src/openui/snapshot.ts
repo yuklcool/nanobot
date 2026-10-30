@@ -41,13 +41,15 @@ export function acceptSnapshot(
     || next.block_id !== identity.block_id || next.library_hash !== identity.library_hash) return current;
   if (current) {
     if (next.turn_id !== current.turn_id || next.anchor_seq !== current.anchor_seq || next.revision < current.revision) return current;
-    if (JSON.stringify(next.tables ?? {}) !== JSON.stringify(current.tables ?? {})
+    const refreshed = next.revision === current.revision && next.seq > current.seq
+      && current.status === "complete" && next.status === "complete";
+    if ((!refreshed && JSON.stringify(next.tables ?? {}) !== JSON.stringify(current.tables ?? {}))
       || (next.fallback_text ?? "") !== (current.fallback_text ?? "")) return current;
     if (next.revision === current.revision) {
       if (next.seq < current.seq || next.state_version < current.state_version) return current;
       // State saves may follow completion, but the completed source is immutable.
       if (current.status !== "streaming"
-        && (next.source !== current.source || next.status !== current.status || next.seq !== current.seq)) return current;
+        && (next.source !== current.source || next.status !== current.status || (!refreshed && next.seq !== current.seq))) return current;
       if (next.seq === current.seq && (next.source !== current.source || next.status !== current.status)) return current;
       if (next.seq === current.seq && next.state_version === current.state_version) return current;
     }

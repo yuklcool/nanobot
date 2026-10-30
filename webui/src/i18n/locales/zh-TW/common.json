@@ -2533,6 +2533,17 @@
     "snapshotTime": "資料截至：{{time}}",
     "showingRows": "顯示 {{shown}} 筆，共 {{total}} 筆記錄",
     "retryView": "重試檢視",
-    "cancelView": "取消產生"
+    "cancelView": "取消產生",
+    "refreshData": "重新整理",
+    "viewDetails": "查看詳情",
+    "noRecords": "暫無相符記錄。",
+    "loadingData": "正在載入…",
+    "queryFailed": "資料讀取失敗，請重試。",
+    "retryData": "重新讀取",
+    "recordDetails": "對話詳情",
+    "closeDetails": "關閉詳情",
+    "historyUser": "使用者",
+    "historyAssistant": "助理",
+    "noMessages": "暫無可見訊息。"
   }
 }

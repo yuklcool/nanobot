@@ -14,10 +14,11 @@ from nanobot.agent.hook import (
     AgentTurnHookContext,
 )
 from nanobot.agent.tools.context import current_request_context
+from nanobot.agent.tools.sessions import SearchSessionsTool
 from nanobot.bus.events import INBOUND_META_TURN_ID
 from nanobot.bus.queue import MessageBus
 from nanobot.events import AgentEvent
-from nanobot.openui.data import DisplayTable, TableAdapterConfig, capture_table
+from nanobot.openui.data import DisplayTable, SessionQuery, TableAdapterConfig, capture_table
 from nanobot.providers.base import ToolCallRequest
 from nanobot.session.display_history import HISTORY_GENERATION_METADATA_KEY
 from nanobot.utils.llm_runtime import LLMRuntime
@@ -73,6 +74,9 @@ class _Capture(AgentHook):
             return
         try:
             table = capture_table(config, tool_name=tool_call.name, call_id=tool_call.id, result=result)
+            if (isinstance(tool, SearchSessionsTool) and config.records_key == "results"
+                    and config.id_field == "session_key" and isinstance(params, dict)):
+                table = table.model_copy(update={"session_query": SessionQuery(query=params["query"].strip())})
             if sum(len(item.model_dump_json().encode()) for item in self.tables.values()) + len(table.model_dump_json().encode()) <= 64 * 1024:
                 self.tables[table.data_ref] = table
         except (ValueError, TypeError):

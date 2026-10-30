@@ -2533,6 +2533,17 @@
     "snapshotTime": "Cuplikan: {{time}}",
     "showingRows": "Menampilkan {{shown}} dari {{total}} catatan",
     "retryView": "Coba tampilan lagi",
-    "cancelView": "Batalkan tampilan"
+    "cancelView": "Batalkan tampilan",
+    "refreshData": "Muat ulang",
+    "viewDetails": "Lihat detail",
+    "noRecords": "Tidak ada catatan yang cocok.",
+    "loadingData": "Memuat data…",
+    "queryFailed": "Data tidak dapat dimuat. Silakan coba lagi.",
+    "retryData": "Coba lagi",
+    "recordDetails": "Detail percakapan",
+    "closeDetails": "Tutup detail",
+    "historyUser": "Pengguna",
+    "historyAssistant": "Asisten",
+    "noMessages": "Tidak ada pesan yang dapat ditampilkan."
   }
 }

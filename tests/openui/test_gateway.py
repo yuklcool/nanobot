@@ -464,6 +464,74 @@ async def test_auto_skips_plain_answers_but_preserves_explicit_mode_and_followup
     assert gateway.tool.calls == 0
 
 
+async def test_readonly_queries_refresh_live_sessions_and_gate_details_without_agent(gateway):
+    from nanobot.agent.tools.sessions import ReadSessionTool, SearchSessionsTool
+    from nanobot.openui.data import TableAdapterConfig
+    from nanobot.openui.snapshots import UiSnapshotStore
+
+    class SessionProvider(Provider):
+        agent_calls = 0
+
+        async def chat(self, messages, **kwargs):
+            self.agent_calls += 1
+            if messages[-1]["role"] != "tool":
+                return LLMResponse(content=None, tool_calls=[ToolCallRequest(
+                    id=uuid4().hex, name="search_sessions", arguments={"query": "planning"},
+                )])
+            return LLMResponse(content="Saved planning conversations are ready.", tool_calls=[])
+
+    saved = gateway.sessions.get_or_create("websocket:saved-planning")
+    saved.metadata["title"] = "Planning notes"
+    saved.add_message("user", "Visible planning detail")
+    saved.add_message("system", "HIDDEN-SYSTEM")
+    gateway.sessions.save(saved)
+    adapter = TableAdapterConfig(title="Saved conversations", records_key="results", id_field="session_key",
+                                 columns={"title": "Title", "updated_at": "Updated"})
+    gateway.collector.adapters["search_sessions"] = adapter
+    gateway.services.openui.options.tables["search_sessions"] = adapter
+    gateway.loop.tools.register(SearchSessionsTool(gateway.sessions))
+    gateway.loop.tools.register(ReadSessionTool(gateway.sessions))
+    provider = SessionProvider(provider_name="offline-query")
+    gateway.loop.provider = provider
+    block = await first_card(gateway)
+    table = next(iter(block["tables"].values()))
+    assert table["session_query"] == {"query": "planning"}
+    before_calls = provider.agent_calls, provider.ui_calls
+    payload = {"chat_id": "chat", "session_generation": block["session_generation"],
+               "block_id": block["block_id"], "revision": block["revision"], "data_ref": table["data_ref"]}
+    detail = await rpc(gateway, "openui.query", {**payload, "operation": "detail", "record_id": saved.key})
+    assert detail["ok"] and detail["result"]["detail"] == {
+        "title": "Planning notes", "messages": [{"role": "user", "content": "Visible planning detail"}],
+    }
+    for changed in [{"record_id": "websocket:not-listed"}, {"data_ref": "foreign-data"},
+                    {"session_generation": "foreign-generation"}, {"revision": 99}]:
+        rejected = await rpc(gateway, "openui.query", {**payload, "operation": "detail", "record_id": saved.key, **changed})
+        assert not rejected["ok"]
+    rejected = await rpc(gateway, "openui.query", {**payload, "operation": "refresh", "query": "steal another search"})
+    assert not rejected["ok"]
+    other = gateway.sessions.get_or_create("websocket:new-planning")
+    other.metadata["title"] = "Planning newly saved"
+    other.add_message("assistant", "New visible result")
+    gateway.sessions.save(other)
+    refreshed = await rpc(gateway, "openui.query", {**payload, "operation": "refresh"})
+    assert refreshed["ok"]
+    updated = refreshed["result"]["snapshot"]
+    assert updated["seq"] == block["seq"] + 1 and updated["source"] == block["source"]
+    assert {row["id"] for row in updated["tables"][table["data_ref"]]["rows"]} == {saved.key, other.key}
+    scope = await gateway.services.openui.scope("chat")
+    assert UiSnapshotStore(gateway.services.openui.store.path).read(scope, block["block_id"]).seq == updated["seq"]
+    # A previously listed session may become private; membership alone cannot authorize it.
+    saved.metadata["session_type"] = "private-query-test"
+    gateway.sessions.save(saved)
+    hidden = await rpc(gateway, "openui.query", {**payload, "operation": "detail", "record_id": saved.key})
+    assert not hidden["ok"] and hidden["message"] == "UI_QUERY_UNAVAILABLE"
+    await gateway.services.openui.retire_session("websocket:chat")
+    retired = await rpc(gateway, "openui.query", {**payload, "operation": "refresh"})
+    assert not retired["ok"]
+    assert (provider.agent_calls, provider.ui_calls) == before_calls
+    assert gateway.bus.inbound_size == 0 and gateway.tool.calls == 0
+
+
 async def test_invalid_mode_is_rejected_before_agent_admission(gateway):
     await rpc(gateway, "openui.subscribe", {"chat_id": "chat"})
     await dispatch(gateway, {"type": "message", "chat_id": "chat", "turn_id": "bad-mode",

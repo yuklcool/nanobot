@@ -9,7 +9,8 @@ import type { UIMessage } from "@/lib/types";
 import type { SendOptions, SubmittedTurn } from "@/hooks/useNanobotStream";
 import { acceptSnapshot, uiSnapshotSchema, type UiSnapshot } from "./snapshot";
 import type { OpenUIAction, OpenUIMode } from "../../../packages/client-events/openui";
-import { ChatInteraction, DisplayDataContext, FormRecovery, chatLibrary, followupSchema, isQuestionnaire } from "./chat-library";
+import { ChatInteraction, DisplayDataContext, ReadonlyQuery, FormRecovery, chatLibrary, followupSchema, isQuestionnaire } from "./chat-library";
+import { sessionDetailSchema, type DataQuery, type SessionDetail } from "./data-contract";
 import { formContent, formStateSchema, type FormInput, type FormState } from "./form-contract";
 
 interface ChatViews {
@@ -23,6 +24,8 @@ interface ChatViews {
   control: (snapshot: UiSnapshot, action: "cancel" | "retry") => Promise<void>;
   prepareRecord: (snapshot: UiSnapshot, dataRef: string, recordId: string) => Promise<string>;
   formRecovery: boolean;
+  readonlyQuery: boolean;
+  query: (snapshot: UiSnapshot, request: DataQuery) => Promise<SessionDetail | null>;
   updateForm: (snapshot: UiSnapshot, form: FormInput) => Promise<UiSnapshot>;
 }
 const Views = createContext<ChatViews | null>(null);
@@ -41,6 +44,7 @@ export function OpenUIChatProvider({ client, chatId, disabled = false, messages,
   const [selectedMode, setSelectedMode] = useState<OpenUIMode>("markdown");
   const [autoAvailable, setAutoAvailable] = useState(false);
   const [formRecovery, setFormRecovery] = useState(false);
+  const [readonlyQuery, setReadonlyQuery] = useState(false);
   const latestBlocks = useRef(new Map<string, UiSnapshot>());
   const stateQueue = useRef<Promise<unknown>>(Promise.resolve());
   const generation = useRef<string | null>(null);
@@ -70,6 +74,7 @@ export function OpenUIChatProvider({ client, chatId, disabled = false, messages,
     setSelectedMode(mode.current);
     setAutoAvailable(false);
     setFormRecovery(false);
+    setReadonlyQuery(false);
   }, [client, chatId, disabled]);
 
   useEffect(() => {
@@ -80,6 +85,7 @@ export function OpenUIChatProvider({ client, chatId, disabled = false, messages,
       const supportsAuto = client.getOpenUI()?.modes?.includes("auto") === true;
       setAutoAvailable(supportsAuto);
       setFormRecovery(client.getOpenUI()?.form_recovery === true);
+      setReadonlyQuery(client.getOpenUI()?.readonly_query === true);
       if (mode.current === "auto" && !supportsAuto) {
         mode.current = "markdown";
         setSelectedMode("markdown");
@@ -120,6 +126,7 @@ export function OpenUIChatProvider({ client, chatId, disabled = false, messages,
         setBlocks([]);
         setAvailable(false);
         setFormRecovery(false);
+        setReadonlyQuery(false);
       }
     });
     const unevent = client.onOpenUI((value) => {
@@ -178,9 +185,27 @@ export function OpenUIChatProvider({ client, chatId, disabled = false, messages,
     mode.current = next;
     setSelectedMode(next);
   }, [chatId, client]);
-  const value = useMemo(() => ({ blocks, available, mode: selectedMode, autoAvailable, formRecovery, updateForm, selectMode, save, control, prepareRecord,
+  const query = useCallback(async (snapshot: UiSnapshot, request: DataQuery) => {
+    if (client.getOpenUI()?.readonly_query !== true) throw new Error("Query unavailable");
+    const requestEpoch = epoch.current;
+    const response = await client.requestMutation("openui.query", {
+      chat_id: snapshot.chat_id, session_generation: snapshot.session_generation,
+      block_id: snapshot.block_id, revision: snapshot.revision, ...request,
+    });
+    const current = latestBlocks.current.get(snapshot.block_id);
+    if (requestEpoch !== epoch.current || current?.session_generation !== snapshot.session_generation
+      || current.revision !== snapshot.revision
+      || (request.operation === "detail" && current.seq !== snapshot.seq)) throw new Error("View changed");
+    if (request.operation === "refresh") {
+      const result = z.object({ snapshot: uiSnapshotSchema }).strict().parse(response);
+      merge(result.snapshot);
+      return null;
+    }
+    return z.object({ detail: sessionDetailSchema }).strict().parse(response).detail;
+  }, [client, merge]);
+  const value = useMemo(() => ({ blocks, available, mode: selectedMode, autoAvailable, formRecovery, readonlyQuery, query, updateForm, selectMode, save, control, prepareRecord,
     send: (question: string, options: SendOptions) => send(question, undefined, options),
-  }), [blocks, available, selectedMode, autoAvailable, formRecovery, updateForm, selectMode, save, control, prepareRecord, send]);
+  }), [blocks, available, selectedMode, autoAvailable, formRecovery, readonlyQuery, query, updateForm, selectMode, save, control, prepareRecord, send]);
   return <Views.Provider value={value}>{children}</Views.Provider>;
 }
 
@@ -285,6 +310,7 @@ function Block({ snapshot, views, answer }: { snapshot: UiSnapshot; views: ChatV
   return <Boundary fallback={fallback}>
     <ChatInteraction.Provider value={editable}>
     <DisplayDataContext.Provider value={snapshot.tables ?? {}}>
+    <ReadonlyQuery.Provider value={views.readonlyQuery ? (request) => views.query(snapshot, request) : null}>
     <FormRecovery.Provider value={views.formRecovery && storedForms.success ? { forms: storedForms.data, update: updateForm } : null}>
       {failed || !storedForms.success || (parseFailed && snapshot.status === "complete") ? fallback : <Renderer library={chatLibrary}
         response={snapshot.source} isStreaming={snapshot.status === "streaming"} initialState={snapshot.state}
@@ -297,6 +323,7 @@ function Block({ snapshot, views, answer }: { snapshot: UiSnapshot; views: ChatV
         <div className="mt-3">{answer}</div>
       </details>}
     </FormRecovery.Provider>
+    </ReadonlyQuery.Provider>
     </DisplayDataContext.Provider>
     </ChatInteraction.Provider>
   </Boundary>;

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import time
@@ -12,12 +13,15 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from nanobot.agent.tools.base import ToolResult
+from nanobot.agent.tools.context import RequestContext, request_context
+from nanobot.agent.tools.sessions import ReadSessionTool, SearchSessionsTool
 from nanobot.bus.queue import MessageBus
 from nanobot.openui.actions import UiActionLedger
 from nanobot.openui.collector import UITurnPrepared
 from nanobot.openui.config import OpenUIOptions
 from nanobot.openui.coordinator import JobFailure, JobKey, UIJobCoordinator, store_call
-from nanobot.openui.data import DisplayRow
+from nanobot.openui.data import DisplayRow, SessionDetail, capture_table
 from nanobot.openui.forms import ConversationForm, save_form
 from nanobot.openui.generator import generate_view
 from nanobot.openui.policy import should_generate_view
@@ -91,6 +95,18 @@ class UiRecordRequest(UiBlockRequest):
     record_id: Identifier
 
 
+class UiQueryRequest(UiBlockRequest):
+    data_ref: Identifier
+    operation: Literal["refresh", "detail"]
+    record_id: Identifier | None = None
+
+    @model_validator(mode="after")
+    def query_fields(self) -> UiQueryRequest:
+        if (self.operation == "detail") != (self.record_id is not None):
+            raise ValueError("INVALID_PARAMS")
+        return self
+
+
 def record_intent(snapshot: UiSnapshot, data_ref: str, record_id: str) -> tuple[str, RuntimeContextBlock]:
     table = snapshot.tables.get(data_ref)
     row: DisplayRow | None = next((item for item in table.rows if item.id == record_id), None) if table else None
@@ -126,11 +142,12 @@ class OpenUIRuntime:
         self._runtimes: OrderedDict[tuple[str, str, str, str], LLMRuntime] = OrderedDict()
         self._unsubscribe = bus.subscribe(self._prepare, UITurnPrepared)
         self._closed = False
+        self._queries = asyncio.Semaphore(2)
 
     @staticmethod
     def capability() -> dict[str, object]:
         return {"protocol": 1, "library_hash": LIBRARY_HASH, "modes": ["markdown", "openui", "auto"],
-                "form_recovery": True}
+                "form_recovery": True, "readonly_query": True}
 
     def _prepare(self, event: UITurnPrepared) -> None:
         if self._closed:
@@ -198,6 +215,46 @@ class OpenUIRuntime:
         if snapshot.revision != request.revision or snapshot.status != "complete":
             raise UiConflictError("STALE_REVISION")
         return record_intent(snapshot, request.data_ref, request.record_id)[0]
+
+    async def query(self, request: UiQueryRequest, *, emit: EmitSnapshot) -> dict[str, object]:
+        scope, snapshot = await self.block(request)
+        table = snapshot.tables.get(request.data_ref)
+        adapter = self.options.tables.get("search_sessions")
+        if snapshot.revision != request.revision or snapshot.status != "complete":
+            raise UiConflictError("STALE_REVISION")
+        if (table is None or table.source_tool != "search_sessions" or table.session_query is None
+                or adapter is None or adapter.records_key != "results" or adapter.id_field != "session_key"
+                or table.columns != adapter.columns):
+            raise UiConflictError("ACTION_NOT_ALLOWED")
+        if request.operation == "detail" and not any(row.id == request.record_id for row in table.rows):
+            raise UiConflictError("ACTION_NOT_ALLOWED")
+        try:
+            async with asyncio.timeout(10), self._queries:
+                with request_context(RequestContext(channel="websocket", chat_id=request.chat_id,
+                                                    session_key=scope.session_key, log_content=False)):
+                    if request.operation == "refresh":
+                        result = await SearchSessionsTool(self.sessions).execute(query=table.session_query.query)
+                    else:
+                        result = await ReadSessionTool(self.sessions).execute(session_key=request.record_id or "")
+                if isinstance(result, ToolResult) and result.is_error:
+                    raise UiConflictError("UI_QUERY_UNAVAILABLE")
+                current_scope, current = await self.block(request)
+                if current_scope != scope or current.revision != snapshot.revision or current.seq != snapshot.seq:
+                    raise UiConflictError("STALE_REVISION")
+                if request.operation == "detail":
+                    detail = SessionDetail.model_validate_json(result)
+                    return {"detail": detail.model_dump()}
+                refreshed = capture_table(adapter, tool_name=table.source_tool,
+                                          call_id=table.source_call_id, result=result)
+                refreshed = refreshed.model_copy(update={"session_query": table.session_query})
+                updated = await store_call(self.store.refresh_table, scope, snapshot.block_id,
+                                           revision=snapshot.revision, expected_seq=snapshot.seq, table=refreshed)
+                await emit(updated)
+                return {"snapshot": updated.model_dump()}
+        except TimeoutError:
+            raise UiConflictError("UI_QUERY_TIMEOUT") from None
+        except OSError:
+            raise UiConflictError("UI_QUERY_UNAVAILABLE") from None
 
     async def admit_action(
         self, chat_id: str, turn_id: str | None, content: str, raw: object,
