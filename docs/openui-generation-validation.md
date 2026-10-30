@@ -1,6 +1,6 @@
 # OpenUI 第三批：独立生成任务与数据快照
 
-关联 Issue #1、草稿 PR #3。基于第二批 `ab30eaf553f40eae0b43f05603a33ff94e06969f`，继续使用 `feature/openui-p0 → develop`。本批交付独立 UI 任务、当前模型适配、表格与记录分析的可验证增量；P0/P1 仍未整体放行，不替代真实模型/MCP、移动端、Docker 或 main 合并候选验收。前两批记录保留为历史证据。
+关联 Issue #1、PR #3（已于 2026-10-30 合入 develop）。本文保留第三批历史验证，当前分支规则以详细设计第 14.4 节为准。基于第二批 `ab30eaf553f40eae0b43f05603a33ff94e06969f`，继续使用 `feature/openui-p0 → develop`。本批交付独立 UI 任务、当前模型适配、表格与记录分析的可验证增量；P0/P1 仍未整体放行，不替代真实模型/MCP、移动端、Docker 或 develop 发布候选验收。前两批记录保留为历史证据。
 
 ## 当前行为
 
@@ -74,4 +74,4 @@ NANOBOT_OPENUI_GATEWAY_PYTHON=/absolute/path/to/nanobot/.venv/bin/python bun run
 
 SDK 1.0.2 的 Query/Mutation 兼容测试直接使用真实 createQueryManager，验证快照 Query、显式 Mutation 和应用工具白名单；注册 Mutation 不执行，未允许的业务写入返回失败。**这只是 SDK API 验证，生产 Renderer 仍不传 toolProvider，没有开放 Query/Mutation 后端。**
 
-对应设计 AT03/AT04/AT05/AT08/AT10/AT11/AT12/AT13/AT16/AT18/AT20/AT22 的部分断言已覆盖；完整判定仍以设计矩阵为准。下一步保留真实模型与真实 MCP 演示、auto、图表、资源级数据权限和写操作确认、事件 outbox/崩溃对账、命令重置/截断物理清理、复杂历史与移动端、Docker、main 无损合并候选验收。此批不关闭 Issue，不自动发布。
+对应设计 AT03/AT04/AT05/AT08/AT10/AT11/AT12/AT13/AT16/AT18/AT20/AT22 的部分断言已覆盖；完整判定仍以设计矩阵为准。下一步保留真实模型与真实 MCP 演示、auto、图表、资源级数据权限和写操作确认、事件 outbox/崩溃对账、命令重置/截断物理清理、复杂历史与移动端、Docker、develop 固定发布候选验收。此批不关闭 Issue，不自动发布。
