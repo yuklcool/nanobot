@@ -13,6 +13,7 @@ from loguru import logger
 from nanobot.agent.loop import AgentLoop
 from nanobot.agent.tools.base import Tool
 from nanobot.bus.queue import MessageBus
+from nanobot.channels.manager import ChannelManager
 from nanobot.channels.websocket.runtime import WebSocketChannel, WebSocketConfig
 from nanobot.config.home import set_home_path
 from nanobot.config.loader import save_config, set_config_path
@@ -126,7 +127,7 @@ async def run(port):
 
         async def outbound():
             while True:
-                await channel.send(await bus.consume_outbound())
+                await ChannelManager._send_once(channel, await bus.consume_outbound())
 
         tasks = [asyncio.create_task(channel.start()), asyncio.create_task(agent.run()),
                  asyncio.create_task(outbound())]
