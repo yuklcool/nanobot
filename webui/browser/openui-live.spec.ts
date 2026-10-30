@@ -48,7 +48,7 @@ test("live model searches, selects and reads a saved conversation without refres
     stages.plain_ms = Date.now() - started;
 
     const searchStarted = Date.now();
-    await question.fill('Search saved conversations for the exact word "planning". List the matches and let me choose a record first. After I select one, read that conversation, tell me its acceptance code and next step, then ask me to choose between "Summarize notes" and "Review risks". Do not read any record before I select it. Reply in English.');
+    await question.fill('Search saved conversations for the exact word "planning". Show the matches in a filterable table and let me choose a record first. After I select one, read that conversation, tell me its acceptance code and next step, then ask me to choose between "Summarize notes" and "Review risks". Do not read any record before I select it. Reply in English.');
     await ask.click();
     const table = page.getByRole("table", { name: "Saved conversations" });
     await expect(table).toContainText("Planning notes", { timeout: 90_000 });
