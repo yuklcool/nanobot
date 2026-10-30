@@ -527,7 +527,7 @@ async def test_readonly_queries_refresh_live_sessions_and_gate_details_without_a
     # A previously listed session may become private; membership alone cannot authorize it.
     await gateway.sessions.state.update_metadata(saved.key, {"session_type": "private-query-test"})
     hidden = await rpc(gateway, "openui.query", {**payload, "operation": "detail", "record_id": saved.key})
-    assert not hidden["ok"] and hidden["message"] == "UI_QUERY_UNAVAILABLE"
+    assert not hidden["ok"] and hidden["error"]["message"] == "UI_QUERY_UNAVAILABLE"
     started, release = asyncio.Event(), asyncio.Event()
     original_read = ReadSessionTool.execute
 

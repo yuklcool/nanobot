@@ -37,7 +37,7 @@ function setup(capability: unknown = { protocol: 1, library_hash: manifest.libra
             if (failures.query) {
               failures.query = false;
               socket.onmessage?.({ data: JSON.stringify({ event: "webui_response", ok: false,
-                request_id: frame.request_id, status: 409, message: "UI_QUERY_UNAVAILABLE" }) } as MessageEvent);
+                request_id: frame.request_id, error: { status: 409, message: "UI_QUERY_UNAVAILABLE" } }) } as MessageEvent);
               return;
             }
             if (frame.payload.operation === "refresh") saved = { ...saved, seq: saved.seq + 1,

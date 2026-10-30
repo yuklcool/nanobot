@@ -46,8 +46,6 @@ jobs:
           bun-version: 1.3.13
       - name: Install runtime and test dependencies
         run: uv pip install --system -e '.[dev]' websockets aiohttp
-      - run: python -m pytest tests/openui -q
-      - run: python -m scripts.check_import_boundaries
       - run: bun install --frozen-lockfile
         working-directory: webui
       - name: Generate requested OpenUI manifest
@@ -61,6 +59,8 @@ jobs:
           path: nanobot/openui/generated/chat-library.json
       - run: bun run openui:check
         working-directory: webui
+      - run: python -m pytest tests/openui -q
+      - run: python -m scripts.check_import_boundaries
       - run: bun run typecheck
         working-directory: webui
       - name: Check changed OpenUI code
