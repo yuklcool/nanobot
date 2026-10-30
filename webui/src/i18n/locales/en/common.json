@@ -2711,5 +2711,21 @@
       "cancel": "Cancel",
       "switchDirectory": "Switch directory"
     }
+  },
+  "openui": {
+    "enable": "Interactive view (preview)",
+    "followup": "Follow-up question",
+    "submit": "Send",
+    "saveDraft": "Save draft",
+    "saved": "Draft saved",
+    "submitted": "Submitted",
+    "checkConversation": "Submission could not be confirmed. Check the conversation.",
+    "unavailable": "Interactive view unavailable. The text answer is preserved.",
+    "filterRecords": "Filter records",
+    "analyzeRecord": "Analyze snapshot",
+    "snapshotTime": "Snapshot: {{time}}",
+    "showingRows": "Showing {{shown}} of {{total}} records",
+    "retryView": "Retry view",
+    "cancelView": "Cancel view"
   }
 }

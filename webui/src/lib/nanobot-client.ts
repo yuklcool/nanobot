@@ -1,3 +1,4 @@
+import { openUICapability, type OpenUICapability, type OpenUIAction } from "../../../packages/client-events/openui";
 import { uploadAttachments, uploadCapability, type AttachmentReference, type UploadCapability } from "../../../packages/client-events/attachments";
 import { DeliveryReceipts } from "../../../packages/client-events/delivery";
 import { decodeNotification } from "../../../packages/client-events/notifications";
@@ -132,6 +133,7 @@ interface PendingRequest<T> {
 
 interface PendingWebUIRequest extends PendingRequest<unknown> {
   serializedFrame: string;
+  reconnectable: boolean;
 }
 
 class WebUIMutationError extends Error {
@@ -270,6 +272,26 @@ export class NanobotClient {
   private currentUrl: string;
   private status_: ConnectionStatus = "idle";
   private readyChatId: string | null = null;
+  private openui: OpenUICapability | null = null;
+  private openuiHandlers = new Set<(event: unknown) => void>();
+  private openuiModes = new Set<string>();
+
+  getOpenUI(): OpenUICapability | null { return this.openui; }
+  setOpenUIMode(chatId: string, enabled: boolean): void {
+    if (enabled) this.openuiModes.add(chatId); else this.openuiModes.delete(chatId);
+  }
+  onOpenUI(handler: (event: unknown) => void): Unsubscribe {
+    this.openuiHandlers.add(handler);
+    return () => { this.openuiHandlers.delete(handler); };
+  }
+  sendUIAction(chatId: string, content: string, action: OpenUIAction): Promise<void> {
+    if (this.socket?.readyState !== WS_OPEN || !this.openui) return Promise.reject(new Error("UI_DISABLED"));
+    return this.receipts.wait(action.request_id, () => {
+      if (!this.sendMessage(chatId, content, undefined, { turnId: action.request_id, uiAction: action })) {
+        throw new Error("UI action was not sent");
+      }
+    });
+  }
   // Set by ``close()`` so the onclose handler knows the drop was intentional
   // and must not schedule a reconnect or flip status back to "reconnecting".
   private intentionallyClosed = false;
@@ -553,10 +575,14 @@ export class NanobotClient {
     this.setStatus("connecting");
     const sock = this.socketFactory(this.currentUrl);
     this.socket = sock;
-    sock.onopen = () => this.handleOpen();
-    sock.onmessage = (ev) => this.handleMessage(ev);
-    sock.onerror = () => this.setStatus("error");
-    sock.onclose = (ev) => this.handleClose(ev);
+    // A replaced socket can still deliver queued browser events. Never let it
+    // mutate the active host's capability, requests, or connection state.
+    sock.onopen = () => { if (this.socket === sock) this.handleOpen(); };
+    sock.onmessage = (ev) => { if (this.socket === sock) this.handleMessage(ev); };
+    sock.onerror = () => { if (this.socket === sock) this.setStatus("error"); };
+    sock.onclose = (ev) => {
+      if (this.socket === sock || (this.socket === null && this.intentionallyClosed)) this.handleClose(ev);
+    };
   }
 
   close(): void {
@@ -643,7 +669,8 @@ export class NanobotClient {
   /**
    * Send one WebUI mutation over the authenticated socket. Pending requests are
    * replayed with the same request_id after reconnect so the gateway can join or
-   * replay the original operation. A client-side timeout still ends all retries.
+   * replay the original operation. OpenUI requests stay bound to their negotiated
+   * connection and are rejected on disconnect. Timeouts end all retries.
    */
   requestMutation<T>(
     action: string,
@@ -691,6 +718,8 @@ export class NanobotClient {
         reject,
         timer,
         serializedFrame,
+        // Snapshot operations are scoped to the socket that negotiated them.
+        reconnectable: !action.startsWith("openui."),
       });
       try {
         socket.send(serializedFrame);
@@ -799,9 +828,11 @@ export class NanobotClient {
       turnId?: string;
       /** False for side-channel or injected messages that do not own a lifecycle. */
       startsNewRun?: boolean;
+      uiAction?: OpenUIAction;
     },
   ): boolean {
     if (options?.userShell && this.socket?.readyState !== WS_OPEN) return false;
+    if (options?.uiAction && (this.socket?.readyState !== WS_OPEN || !this.openui)) return false;
     const temporary = this.temporaryChatIds.has(chatId);
     if (!temporary) this.knownChats.add(chatId);
     const frame: Outbound = {
@@ -820,6 +851,8 @@ export class NanobotClient {
       ...(options?.workspaceScope ? { workspace_scope: options.workspaceScope } : {}),
       ...(options?.turnId ? { turn_id: options.turnId } : {}),
       webui: true,
+      ...(this.openui && this.openuiModes.has(chatId) && !options?.userShell ? { ui_mode: "openui" as const } : {}),
+      ...(options?.uiAction ? { ui_action: options.uiAction } : {}),
     };
     if (!this.frameFitsTransport(frame)) {
       if (options?.turnId && isSystemCommandTurnId(options.turnId)) {
@@ -840,7 +873,13 @@ export class NanobotClient {
         role: options.startsNewRun === false ? "supplement" : "candidate-owner",
       }));
     }
-    if (options?.userShell) return this.rawSend(frame);
+    if (options?.userShell || options?.uiAction) {
+      const sent = this.rawSend(frame);
+      if (!sent && options.uiAction && options.turnId) {
+        this.applyRunEffects(this.runs.transition({ kind: "reject", chatId, turnId: options.turnId }));
+      }
+      return sent;
+    }
     this.queueSend(frame);
     return true;
   }
@@ -899,6 +938,10 @@ export class NanobotClient {
     let parsed: InboundEvent;
     try {
       parsed = JSON.parse(typeof ev.data === "string" ? ev.data : "") as InboundEvent;
+      if ((parsed as { event?: unknown }).event === "openui.snapshot") {
+        if (this.openui) for (const handler of this.openuiHandlers) handler(parsed);
+        return;
+      }
       if (decodeNotification(parsed) === null) return;
     } catch {
       if (wsInboundDebugEnabled()) {
@@ -998,6 +1041,8 @@ export class NanobotClient {
     }
 
     if (parsed.event === "ready") {
+      this.openui = openUICapability(parsed.openui);
+      if (!this.openui) this.openuiModes.clear();
       this.upload = uploadCapability(parsed.upload);
       this.readyChatId = parsed.chat_id;
       this.knownChats.add(parsed.chat_id);
@@ -1142,6 +1187,7 @@ export class NanobotClient {
   }
 
   private handleClose(event?: { code?: number }): void {
+    this.openui = null;
     this.upload = null;
     this.receipts.close();
     this.socket = null;
@@ -1153,14 +1199,11 @@ export class NanobotClient {
       this.pendingNewChat = null;
     }
     this.rejectAllTranscriptions("socket closed");
-    if (!willReconnect) {
-      for (const pending of this.pendingWebUIRequests.values()) {
-        clearTimeout(pending.timer);
-        pending.reject(
-          new WebUIMutationError(503, "Socket closed before WebUI response"),
-        );
-      }
-      this.pendingWebUIRequests.clear();
+    for (const [requestId, pending] of this.pendingWebUIRequests) {
+      if (willReconnect && pending.reconnectable) continue;
+      clearTimeout(pending.timer);
+      pending.reject(new WebUIMutationError(503, "Socket closed before WebUI response"));
+      this.pendingWebUIRequests.delete(requestId);
     }
     for (const pending of this.pendingSystemCommands.values()) {
       clearTimeout(pending.timer);
@@ -1321,8 +1364,8 @@ export class NanobotClient {
       }
       return true;
     } catch {
-      // Shell commands require a new explicit submission, never reconnect replay.
-      if (frame.type !== "message" || !frame.user_shell) this.sendQueue.push(frame);
+      // Shell commands and negotiated UI actions require an explicit retry.
+      if (frame.type !== "message" || (!frame.user_shell && !frame.ui_action)) this.sendQueue.push(frame);
       return false;
     }
   }

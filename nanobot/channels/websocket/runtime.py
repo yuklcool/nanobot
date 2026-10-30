@@ -32,6 +32,7 @@ from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.channels.websocket.binary_http import BinaryHTTPBridge
 from nanobot.config_base import Base
+from nanobot.openui.config import OpenUIOptions
 from nanobot.pairing.events import PairingChanged
 from nanobot.runtime_admission import RuntimeMaintenanceError
 from nanobot.session.webui_turns import (
@@ -213,6 +214,8 @@ class WebSocketConfig(Base):
     token_ttl_s: int = Field(default=300, ge=30, le=86_400)
     websocket_requires_token: bool = True
     allow_from: list[str] = Field(default_factory=lambda: ["*"])
+    openui_enabled: bool = False
+    openui: OpenUIOptions = Field(default_factory=OpenUIOptions)
     streaming: bool = True
     # Keep the existing configurable guard (also used for non-attachment
     # frames and older clients). HTTP attachments are outside this limit.
@@ -873,6 +876,8 @@ class WebSocketChannel(BaseChannel):
                         "event": "ready",
                         "chat_id": default_chat_id,
                         "client_id": client_id,
+                        **({"openui": self.gateway.openui.capability()}
+                           if self.gateway.openui is not None and self.is_allowed(client_id) else {}),
                         **({"upload": self._uploads.issue(connection)}
                            if self.is_allowed(client_id) else {}),
                         **({"terminal": gateway_identity(self.gateway.tokens.instance_id)}
@@ -1469,6 +1474,7 @@ class WebSocketChannel(BaseChannel):
         """Persist as requested, frame, and fan out one encoded WebUI payload."""
         conns = list(self._subs.get(chat_id, ()))
         body: dict[str, Any] = dict(payload)
+        persisted = False
         if persistence == "turn_activity":
             await self._persist_turn_transcript_event(
                 chat_id,
@@ -1500,10 +1506,10 @@ class WebSocketChannel(BaseChannel):
                 clear_websocket_turn_if_current(chat_id, turn_owner)
             self._clear_stream_buffers(chat_id)
         raw = json.dumps(body, ensure_ascii=False)
-        if not conns:
-            return
         for connection in conns:
             await self._safe_send_to(connection, raw, label=f" {body['event']} ")
+        if persistence == "turn_complete" and persisted:
+            await self._commands.capture_openui_turn(chat_id, body, metadata=metadata)
 
     async def send_goal_state(self, chat_id: str, blob: dict[str, Any]) -> None:
         """Push persisted goal-state snapshot for *chat_id* (multi-chat isolation)."""

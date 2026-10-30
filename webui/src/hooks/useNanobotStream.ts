@@ -1,3 +1,4 @@
+import type { OpenUIAction } from "../../../packages/client-events/openui";
 import { acceptsCompactionPhase } from "../../../packages/client-events/notifications";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useThreadVisibility } from "@/hooks/useThreadVisibility";
@@ -62,6 +63,7 @@ export interface SendAttachment {
 }
 
 export interface SendOptions {
+  uiAction?: OpenUIAction;
   intent?: "create_automation";
   cliApps?: OutboundCliAppMention[];
   mcpPresets?: OutboundMcpPresetMention[];
@@ -975,7 +977,7 @@ export function useNanobotStream(
         client.finishRunLocally(chatId);
         setRetryStatus(null);
       }
-      const turnId = crypto.randomUUID();
+      const turnId = options?.uiAction?.request_id ?? crypto.randomUUID();
       const userMessageId = crypto.randomUUID();
       if (sideChannel) transcriptRef.current.sideChannelTurnIds.add(turnId);
       const previews = hasAttachments ? images!.map(({ preview }) => (
@@ -984,6 +986,10 @@ export function useNanobotStream(
           : preview
       )) : undefined;
       setMessages((prev) => {
+        if (options?.uiAction && prev.some((row) => row.role === "user" && row.turnId === turnId)) {
+          return prev.map((row) => row.role === "user" && row.turnId === turnId
+            ? { ...row, deliveryStatus: "sending" as const, deliveryErrorKind: undefined } : row);
+        }
         let projection = { ...transcriptRef.current.projection, messages: prev };
         if ((!sideChannel && !continueActiveTurn) || finalizeActiveTurn) {
           projection = resetThreadProjectionCursor(projection, prev);
@@ -1027,7 +1033,9 @@ export function useNanobotStream(
       delete clientOptions.sideChannel;
       delete clientOptions.finalizeActiveTurn;
       delete clientOptions.continueActiveTurn;
-      const delivery = options?.userShell
+      const delivery = options?.uiAction
+        ? client.sendUIAction(chatId, outboundContent, options.uiAction)
+        : options?.userShell
         ? client.sendUserShellCommand(chatId, outboundContent, clientOptions)
         : wireMedia?.length
           ? client.sendAttachments(chatId, outboundContent, wireMedia, clientOptions)

@@ -17,6 +17,7 @@ from nanobot.webui.gateway_endpoint import WebUIGatewayEndpoint
 from nanobot.webui.gateway_tokens import GatewayTokenStore
 from nanobot.webui.ingress_policy import DEFAULT_WEBUI_INGRESS_POLICY, WebUIIngressPolicy
 from nanobot.webui.media_gateway import WebUIMediaGateway
+from nanobot.webui.openui_runtime import OpenUIRuntime
 from nanobot.webui.session_projection import WebUISessionProjection
 from nanobot.webui.settings_services import WebUISettingsServices
 from nanobot.webui.temporary_chats import WebUITemporaryChats
@@ -54,6 +55,7 @@ class GatewayServices:
     cron_pending_job_ids: Callable[[str], set[str]] | None
     local_trigger_pending_ids: Callable[[str], set[str]] | None
     unified_session: bool = False
+    openui: OpenUIRuntime | None = None
 
 
 def build_gateway_services(
@@ -125,6 +127,17 @@ def build_gateway_services(
         logger=logger,
     )
     session_projection = WebUISessionProjection(session_manager, subagent_manager=subagent_manager, log=logger)
+    openui = (OpenUIRuntime(session_manager, bus, options=config.openui)
+              if config.openui_enabled and session_manager is not None else None)
+
+    async def discard_with_openui(session_key: str) -> None:
+        if openui is not None:
+            await openui.retire_session(session_key)
+        if discard_session is not None:
+            await discard_session(session_key)
+        elif subagent_manager is not None:
+            await subagent_manager.cancel_by_session(session_key)
+
     http = GatewayHTTPHandler(
         config=config,
         session_manager=session_manager,
@@ -152,7 +165,7 @@ def build_gateway_services(
         skill_state_action=skill_state_action,
         recovery_action=recovery_action,
         subagent_manager=subagent_manager,
-        discard_session=discard_session,
+        discard_session=discard_with_openui if openui is not None else discard_session,
         log=logger,
     )
     endpoint = WebUIGatewayEndpoint(config=config, http=http, tokens=tokens)
@@ -174,4 +187,5 @@ def build_gateway_services(
         cron_pending_job_ids=cron_pending_job_ids,
         local_trigger_pending_ids=local_trigger_pending_ids,
         unified_session=unified_session,
+        openui=openui,
     )

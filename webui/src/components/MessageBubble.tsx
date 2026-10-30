@@ -1,3 +1,4 @@
+import { OpenUIMessage } from "@/openui/OpenUIChat";
 import {
   useCallback,
   useEffect,
@@ -567,6 +568,7 @@ export function MessageBubble({
           {media.length > 0 ? <MessageMedia media={media} align="left" /> : null}
         </InlineImageProvider>
       )}
+      <OpenUIMessage message={message} />
     </div>
   );
 }

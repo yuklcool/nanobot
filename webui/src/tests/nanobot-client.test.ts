@@ -345,6 +345,56 @@ describe("NanobotClient", () => {
     await settled;
   });
 
+  it("does not replay OpenUI requests or queue actions after a connection change", async () => {
+    const client = new NanobotClient({ url: "ws://first", reconnect: true, maxBackoffMs: 10,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket });
+    client.connect();
+    const first = lastSocket(); first.fakeOpen();
+    first.fakeMessage({ event: "ready", chat_id: "chat", openui: { protocol: 1, library_hash: "a".repeat(64) } });
+    const originalSend = first.send;
+    first.send = () => { throw new Error("socket write failed"); };
+    await expect(client.sendUIAction("chat", "failed write", {
+      session_generation: "g", block_id: "b", revision: 1, request_id: "failed-write", action_id: "conversation.followup",
+    })).rejects.toThrow("UI action was not sent");
+    expect(client.hasUnsettledRun("chat")).toBe(false);
+    first.send = originalSend;
+    const pending = expect(client.requestMutation("openui.state", { chat_id: "chat", question: "draft" }))
+      .rejects.toMatchObject({ status: 503 });
+    first.fakeCloseWithCode(1006);
+    await pending;
+    expect(client.sendMessage("chat", "stale", undefined, { turnId: "stale", uiAction: {
+      session_generation: "g", block_id: "b", revision: 1, request_id: "stale", action_id: "conversation.followup",
+    } })).toBe(false);
+    client.updateUrl("ws://second");
+    await vi.advanceTimersByTimeAsync(20);
+    const second = lastSocket(); second.fakeOpen();
+    expect(second.sent.some((frame) => frame.includes("openui.state") || frame.includes("stale") || frame.includes("failed-write"))).toBe(false);
+    client.close();
+  });
+
+  it("ignores old socket events after connecting to another host", async () => {
+    const client = new NanobotClient({ url: "ws://first", reconnect: true, maxBackoffMs: 10,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket });
+    const views = vi.fn(); client.onOpenUI(views);
+    client.connect();
+    const first = lastSocket(); first.fakeOpen();
+    first.fakeMessage({ event: "ready", chat_id: "chat", openui: { protocol: 1, library_hash: "a".repeat(64) } });
+    first.fakeCloseWithCode(1006);
+    client.updateUrl("ws://second");
+    await vi.advanceTimersByTimeAsync(20);
+    const second = lastSocket(); second.fakeOpen();
+    second.fakeMessage({ event: "ready", chat_id: "chat", openui: { protocol: 1, library_hash: "b".repeat(64) } });
+    first.fakeMessage({ event: "ready", chat_id: "chat", openui: { protocol: 1, library_hash: "a".repeat(64) } });
+    first.fakeMessage({ event: "openui.snapshot", chat_id: "chat", snapshot: { source: "old" } });
+    first.onclose?.({ code: 1006 });
+    expect(client.getOpenUI()).toEqual({ protocol: 1, library_hash: "b".repeat(64) });
+    expect(client.status).toBe("open");
+    expect(views).not.toHaveBeenCalled();
+    second.fakeMessage({ event: "openui.snapshot", chat_id: "chat", snapshot: { source: "new" } });
+    expect(views).toHaveBeenCalledTimes(1);
+    client.close();
+  });
+
   it("does not retry a WebUI mutation after its timeout expires", async () => {
     const client = new NanobotClient({
       url: "ws://test",

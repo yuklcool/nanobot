@@ -2519,5 +2519,21 @@
       "cancel": "Cancelar",
       "switchDirectory": "Trocar diretório"
     }
+  },
+  "openui": {
+    "enable": "Visualização interativa (prévia)",
+    "followup": "Pergunta de acompanhamento",
+    "submit": "Enviar",
+    "saveDraft": "Salvar rascunho",
+    "saved": "Rascunho salvo",
+    "submitted": "Enviado",
+    "checkConversation": "Não foi possível confirmar o envio. Confira a conversa.",
+    "unavailable": "Visualização indisponível. A resposta em texto foi preservada.",
+    "filterRecords": "Filtrar registros",
+    "analyzeRecord": "Analisar captura",
+    "snapshotTime": "Captura: {{time}}",
+    "showingRows": "Exibindo {{shown}} de {{total}} registros",
+    "retryView": "Tentar visualização novamente",
+    "cancelView": "Cancelar visualização"
   }
 }

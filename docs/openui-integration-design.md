@@ -31,7 +31,7 @@
 
 说明：解决的具体问题、对应阶段/验收编号、变更文件与上游冲突风险、实际运行的命令及结果、未完成事项和下一步。修改宿主接入点时记录必要性和改动范围；涉及会话、权限、写操作或恢复时，附对应真实链路验证证据。
 
-建议将 P0 的结果整理为 docs/openui-p0-validation.md，后续运行与维护说明整理为 docs/openui-integration.md；这些文件尚待相应开发阶段产生，不应预先声明其内容或验证成功。
+P0 的首批实现、实测结果和剩余阻断项见 [docs/openui-p0-validation.md](openui-p0-validation.md)。P0 尚未全部通过；后续运行与维护说明 docs/openui-integration.md 待相应开发阶段产生，不应预先声明其内容或验证成功。
 
 ## 1. 设计结论
 
@@ -775,3 +775,9 @@ E2E 的业务测试工具应提供可观测计数器、资源版本和幂等回�
 - Component library reference：https://github.com/thesysdev/skills/blob/main/skills/openui/references/component-library.md
 
 后续编码的第一步：在 develop 的短期功能分支完成 P0，提交带演示和兼容矩阵的架构 PR。只有三个最小闭环都证实后，才按本文模块分工展开完整实现。
+
+
+开发进度补充：Gateway 第二批接入、最小确定性视图的阶段边界、动作至多一次放行及剩余验收见 [openui-gateway-validation.md](openui-gateway-validation.md)。该增量不代表模型生成 UI、Query/Mutation 或全部 P0 验收已经完成。
+
+
+开发进度补充（第三批）：独立 UI 任务、冻结模型配置、受控表格数据、记录分析、取消/重试及其限制见 [openui-generation-validation.md](openui-generation-validation.md)。这是原设计的增量实现，真实模型/MCP 与完整阶段验收仍未完成。
