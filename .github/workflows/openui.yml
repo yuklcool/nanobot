@@ -20,10 +20,19 @@ on:
         description: Generate the component manifest on GitHub and upload it for review
         type: boolean
         default: false
+      run_live:
+        description: Run opt-in real model acceptance on a disposable Codespace runner
+        type: boolean
+        default: false
+      live_runner_label:
+        description: Unique openui-live-* label of a pre-provisioned ephemeral runner
+        type: string
+        default: ''
 permissions:
   contents: read
 jobs:
   gateway-browser:
+    if: ${{ !inputs.run_live }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -56,8 +65,8 @@ jobs:
         working-directory: webui
       - name: Check changed OpenUI code
         run: |
-          python -m ruff check nanobot/openui/forms.py nanobot/openui/actions.py tests/openui/test_forms.py nanobot/openui/generator.py nanobot/openui/policy.py nanobot/openui/collector.py nanobot/webui/openui_runtime.py nanobot/webui/inbound_commands.py tests/openui/test_gateway.py tests/openui/test_policy.py tests/openui/gateway_fixture.py tests/openui/container_gateway_probe.py tests/openui/packaged_gateway_smoke.py
-          bun webui/node_modules/eslint/bin/eslint.js --config webui/eslint.config.js webui/src/openui/chat-library.tsx webui/src/openui/form-contract.ts webui/src/components/MessageBubble.tsx webui/src/openui/OpenUIChat.tsx webui/src/lib/nanobot-client.ts webui/src/lib/types.ts webui/src/components/thread/ThreadShell.tsx webui/src/tests/openui/OpenUIChat.test.tsx webui/src/tests/openui/form-contract.test.ts webui/src/tests/nanobot-client.test.ts webui/browser/openui-gateway-fixture.tsx webui/browser/openui-gateway.spec.ts --max-warnings 0
+          python -m ruff check nanobot/openui/forms.py nanobot/openui/actions.py tests/openui/test_forms.py nanobot/openui/generator.py nanobot/openui/policy.py nanobot/openui/collector.py nanobot/webui/openui_runtime.py nanobot/webui/inbound_commands.py tests/openui/test_gateway.py tests/openui/test_policy.py tests/openui/gateway_fixture.py tests/openui/test_live_fixture.py tests/openui/container_gateway_probe.py tests/openui/packaged_gateway_smoke.py
+          bun webui/node_modules/eslint/bin/eslint.js --config webui/eslint.config.js webui/src/openui/chat-library.tsx webui/src/openui/form-contract.ts webui/src/components/MessageBubble.tsx webui/src/openui/OpenUIChat.tsx webui/src/lib/nanobot-client.ts webui/src/lib/types.ts webui/src/components/thread/ThreadShell.tsx webui/src/tests/openui/OpenUIChat.test.tsx webui/src/tests/openui/form-contract.test.ts webui/src/tests/nanobot-client.test.ts webui/browser/openui-gateway-fixture.tsx webui/browser/openui-gateway.spec.ts webui/browser/openui-live.spec.ts --max-warnings 0
       - run: bun run check:imports
         working-directory: webui
       - run: bun x vitest run src/tests/openui src/tests/nanobot-client.test.ts src/tests/useNanobotStream.test.tsx src/tests/i18n.test.tsx src/tests/i18n-chat-resources.test.ts
@@ -94,6 +103,7 @@ jobs:
           path: ${{ runner.temp }}/openui-test-package/
           retention-days: 7
   container-runtime:
+    if: ${{ !inputs.run_live }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -131,3 +141,48 @@ jobs:
           curl -fs -H 'Authorization: Bearer test-only-secret' http://127.0.0.1:18765/webui/bootstrap >/dev/null
           docker exec -i --user 1000:1000 -e NANOBOT_TEST_WEB_SECRET=test-only-secret nanobot-openui-smoke \
             python - < tests/openui/container_gateway_probe.py
+  live-model:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_live && startsWith(inputs.live_runner_label, 'openui-live-') }}
+    runs-on: ${{ inputs.live_runner_label }}
+    timeout-minutes: 15
+    env:
+      NANOBOT_OPENUI_LIVE_CONFIG: /tmp/nanobot-openui-live-${{ inputs.live_runner_label }}/provider.json
+      NANOBOT_OPENUI_LIVE_EVIDENCE: /tmp/nanobot-openui-live-${{ inputs.live_runner_label }}/evidence.json
+      NANOBOT_OPENUI_GATEWAY_PORT: '18769'
+      NANOBOT_BROWSER_TEST_PORT: '4189'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+      - name: Install isolated runtime
+        run: |
+          test -s "$NANOBOT_OPENUI_LIVE_CONFIG"
+          uv venv "$RUNNER_TEMP/openui-live-python"
+          uv pip install --python "$RUNNER_TEMP/openui-live-python/bin/python" -e . websockets aiohttp
+          echo "NANOBOT_OPENUI_GATEWAY_PYTHON=$RUNNER_TEMP/openui-live-python/bin/python" >> "$GITHUB_ENV"
+      - run: bun install --frozen-lockfile
+        working-directory: webui
+      - run: bun x playwright install --with-deps chromium
+        working-directory: webui
+      - name: Real provider and native read-only session tools
+        run: bun run test:browser -- browser/openui-live.spec.ts --workers=1
+        working-directory: webui
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openui-live-results-${{ github.sha }}
+          path: |
+            webui/test-results/browser/
+            ${{ env.NANOBOT_OPENUI_LIVE_EVIDENCE }}
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Remove temporary model credentials
+        if: always()
+        run: rm -f -- "$NANOBOT_OPENUI_LIVE_CONFIG"

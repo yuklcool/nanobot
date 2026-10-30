@@ -1,15 +1,18 @@
-"""Disposable real Gateway for browser CI; never loads user config or credentials."""
+"""Disposable browser Gateway; real credentials require an explicit live opt-in."""
 
 import argparse
 import asyncio
 import json
+import os
 import signal
+from dataclasses import asdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from loguru import logger
 
+from nanobot.agent.hook import AgentHook
 from nanobot.agent.loop import AgentLoop
 from nanobot.agent.tools.base import Tool
 from nanobot.agent.tools.sessions import ReadSessionTool, SearchSessionsTool
@@ -17,13 +20,15 @@ from nanobot.bus.queue import MessageBus
 from nanobot.channels.manager import ChannelManager
 from nanobot.channels.websocket.runtime import WebSocketChannel, WebSocketConfig
 from nanobot.config.home import set_home_path
-from nanobot.config.loader import save_config, set_config_path
+from nanobot.config.loader import load_config, resolve_config_env_vars, save_config, set_config_path
 from nanobot.config.schema import Config
 from nanobot.openui.collector import OpenUICollector
 from nanobot.openui.config import OpenUIOptions
 from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+from nanobot.providers.factory import make_provider
 from nanobot.session.manager import SessionManager
 from nanobot.session.webui_turns import WebuiTurnCoordinator
+from nanobot.utils.file_io import write_text_atomic
 from nanobot.webui.gateway_services import build_gateway_services
 
 SURVEY_TITLE = "公司员工就业情况调查表"
@@ -151,26 +156,97 @@ class FixtureProvider(LLMProvider):
         return LLMResponse(content=source, tool_calls=[])
 
 
-async def run(port):
+def isolated_live_config(path: Path, workspace: Path) -> Config:
+    # Keep credentials/generation settings, never production sessions, tools or channels.
+    if not path.is_file():
+        raise ValueError("LIVE_CONFIG_REQUIRED")
+    source = resolve_config_env_vars(load_config(path), config_path=path)
+    return Config.model_validate({
+        "agents": {"defaults": {"workspace": str(workspace), "modelPreset": "acceptance"}},
+        "modelPresets": {"acceptance": source.resolve_preset()},
+        "providers": source.providers,
+        "network": source.network,
+    })
+
+
+class LiveEvidence(AgentHook):
+    """Content-free evidence; the browser can compare counters across refreshes."""
+
+    def __init__(self, path: Path):
+        super().__init__()
+        self.path = path
+        self.data = {"calls": [], "tools": [], "runs": []}
+        self.save()
+
+    def save(self):
+        write_text_atomic(self.path, json.dumps(self.data, ensure_ascii=False))
+
+    def observe(self, record):
+        self.data["calls"].append(asdict(record))
+        self.save()
+
+    async def after_execute_tool(self, context, tool_call, tool, params, result):
+        self.data["tools"].append({
+            "name": tool_call.name,
+            "selected_planning": params.get("session_key") == "websocket:saved-planning",
+            "error": bool(getattr(result, "is_error", False)),
+        })
+        self.save()
+
+    async def on_execute_tool_error(self, context, tool_call, tool, params, error):
+        self.data["tools"].append({
+            "name": tool_call.name, "error": True, "iteration": context.iteration,
+            "parameter_keys": sorted(params), "error_type": type(error).__name__,
+            "selected_planning": params.get("session_key") == "websocket:saved-planning",
+        })
+        self.save()
+
+    async def after_run(self, context):
+        self.data["runs"].append({"error": bool(context.error or context.exception),
+                                  "stop_reason": context.stop_reason})
+        self.save()
+
+
+async def run(port, live_config=None, evidence_path=None):
+    if bool(live_config) != bool(evidence_path):
+        raise ValueError("LIVE_CONFIG_AND_EVIDENCE_REQUIRED")
     logger.remove()
-    logger.add(lambda line: print(line, end="", flush=True), level="WARNING")
+    if not live_config:
+        logger.add(lambda line: print(line, end="", flush=True), level="WARNING")
     with TemporaryDirectory(prefix="nanobot-openui-browser-") as temporary:
         root = Path(temporary)
-        set_home_path(root)
-        set_config_path(root / "config.json")
         workspace = root / "workspace"
-        config = Config.model_validate({
+        config = isolated_live_config(Path(live_config), workspace) if live_config else Config.model_validate({
             "agents": {"defaults": {"workspace": str(workspace),
                 "model": "openai/offline-openui-browser", "provider": "openai"}},
             "providers": {"openai": {"apiKey": "test-only", "apiBase": "http://127.0.0.1:9/v1"}},
         })
+        set_home_path(root)
+        set_config_path(root / "config.json")
         save_config(config)
+        if live_config:
+            (root / "config.json").chmod(0o600)
+        preset = config.resolve_preset()
+        provider = make_provider(config) if live_config else FixtureProvider(provider_name="offline-browser")
+        evidence = LiveEvidence(Path(evidence_path)) if live_config else None
+        if evidence:
+            provider.set_llm_call_observer(evidence.observe)
         bus = MessageBus()
         sessions = SessionManager(workspace)
         saved = sessions.get_or_create("websocket:saved-planning")
         saved.metadata["title"] = "Planning notes"
         saved.add_message("user", "Planning detail: Ship the read-only workflow.")
+        if live_config:
+            saved.add_message("assistant", "Acceptance code: ORBIT-742. The next step is a read-only release review.")
         sessions.save(saved)
+        if live_config:
+            current = sessions.get_or_create("websocket:gateway-poc")
+            current.metadata["title"] = "Live acceptance"
+            sessions.save(current)
+            other = sessions.get_or_create("websocket:saved-planning-other")
+            other.metadata["title"] = "Planning archive"
+            other.add_message("user", "Planning archive: this unrelated record has acceptance code COMET-319.")
+            sessions.save(other)
         ws_config = WebSocketConfig(port=port, openui_enabled=True, openui=OpenUIOptions.model_validate({
             "generation": "model", "tables": {"lookup": {"title": "Tasks",
                 "columns": {"name": "Name", "energy": "Energy", "status": "Status"}},
@@ -181,14 +257,18 @@ async def run(port):
         services = build_gateway_services(
             config=ws_config, bus=bus, session_manager=sessions, static_dist_path=None,
             workspace_path=workspace, default_restrict_to_workspace=True,
-            runtime_model_name=lambda: "offline-openui-browser", runtime_surface="browser",
+            runtime_model_name=lambda: preset.model, runtime_surface="browser",
             runtime_capabilities_overrides=None, config_path=root / "config.json",
         )
         channel = WebSocketChannel(ws_config, bus, gateway=services)
-        agent = AgentLoop(bus=bus, provider=FixtureProvider(provider_name="offline-browser"),
+        agent = AgentLoop(bus=bus, provider=provider, model=preset.model,
                           workspace=workspace, session_manager=sessions, max_iterations=5,
-                          hook_factories=[collector.hook])
-        agent.tools.register(Lookup())
+                          hooks=[evidence] if evidence else [], hook_factories=[collector.hook])
+        if live_config:
+            for name in agent.tools.tool_names:
+                agent.tools.unregister(name)
+        else:
+            agent.tools.register(Lookup())
         agent.tools.register(SearchSessionsTool(sessions))
         agent.tools.register(ReadSessionTool(sessions))
         disconnect = WebuiTurnCoordinator(bus, sessions, schedule_background=asyncio.ensure_future).subscribe()
@@ -217,4 +297,11 @@ async def run(port):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=18765)
-    asyncio.run(run(parser.parse_args().port))
+    args = parser.parse_args()
+    live_config = os.environ.get("NANOBOT_OPENUI_LIVE_CONFIG")
+    try:
+        asyncio.run(run(args.port, live_config, os.environ.get("NANOBOT_OPENUI_LIVE_EVIDENCE")))
+    except Exception as error:
+        if not live_config:
+            raise
+        raise SystemExit(f"Live Gateway failed ({type(error).__name__}); configuration and provider details withheld.") from None
