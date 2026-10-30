@@ -775,3 +775,6 @@ E2E 的业务测试工具应提供可观测计数器、资源版本和幂等回�
 - Component library reference：https://github.com/thesysdev/skills/blob/main/skills/openui/references/component-library.md
 
 后续编码的第一步：在 develop 的短期功能分支完成 P0，提交带演示和兼容矩阵的架构 PR。只有三个最小闭环都证实后，才按本文模块分工展开完整实现。
+
+
+开发进度补充：Gateway 第二批接入、最小确定性视图的阶段边界、动作至多一次放行及剩余验收见 [openui-gateway-validation.md](openui-gateway-validation.md)。该增量不代表模型生成 UI、Query/Mutation 或全部 P0 验收已经完成。

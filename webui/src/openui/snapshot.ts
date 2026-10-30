@@ -11,6 +11,7 @@ export const uiSnapshotSchema = z.object({
   session_generation: id,
   turn_id: id,
   block_id: id,
+  anchor_seq: z.number().int().min(0).nullable().optional(),
   revision: z.number().int().min(1),
   seq: z.number().int().min(0),
   library_hash: id,

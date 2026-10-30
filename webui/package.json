@@ -15,7 +15,9 @@
     "test:browser": "tsc -p tsconfig.browser.json && playwright test",
     "check:imports": "bun ../scripts/check_client_import_boundaries.mjs --project webui",
     "test:imports": "bun test ../scripts/check_client_import_boundaries.test.mjs",
-    "lint": "cd .. && eslint --config webui/eslint.config.js webui/src webui/browser \"nanobot/channels/*/webui/**/*.{ts,tsx}\" \"nanobot/channels/*/tests/webui/**/*.{ts,tsx}\" \"scripts/check_client_import_boundaries*.mjs\" --max-warnings 0"
+    "lint": "cd .. && eslint --config webui/eslint.config.js webui/src webui/browser \"nanobot/channels/*/webui/**/*.{ts,tsx}\" \"nanobot/channels/*/tests/webui/**/*.{ts,tsx}\" \"scripts/check_client_import_boundaries*.mjs\" --max-warnings 0",
+    "openui:generate": "node scripts-openui-manifest.mjs",
+    "openui:check": "node scripts-openui-manifest.mjs --check"
   },
   "dependencies": {
     "@openuidev/lang-core": "1.0.2",

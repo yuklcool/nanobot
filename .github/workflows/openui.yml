@@ -1,0 +1,43 @@
+name: OpenUI Gateway acceptance
+on:
+  pull_request:
+    paths:
+      - 'nanobot/openui/**'
+      - 'nanobot/webui/**'
+      - 'nanobot/channels/websocket/**'
+      - 'webui/**'
+      - 'packages/client-events/**'
+      - 'tests/openui/**'
+      - '.github/workflows/openui.yml'
+  push:
+    branches: ['feature/openui-*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  gateway-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+      - name: Install runtime and test dependencies
+        run: uv pip install --system -e '.[dev]' websockets aiohttp
+      - run: python -m pytest tests/openui -q
+      - run: bun install --frozen-lockfile
+        working-directory: webui
+      - run: bun run openui:check
+        working-directory: webui
+      - run: bun x playwright install --with-deps chromium
+        working-directory: webui
+      - name: Browser to native Gateway and tools
+        working-directory: webui
+        env:
+          NANOBOT_OPENUI_GATEWAY_PYTHON: python
+        run: bun run test:browser -- browser/openui.spec.ts browser/openui-gateway.spec.ts

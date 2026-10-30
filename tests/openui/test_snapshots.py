@@ -100,6 +100,6 @@ def test_future_schema_is_not_silently_rewritten(store, scope):
     import sqlite3
 
     with sqlite3.connect(store.path) as db:
-        db.execute("PRAGMA user_version = 2")
+        db.execute("PRAGMA user_version = 999")
     with pytest.raises(UiConflictError, match="unsupported"):
         UiSnapshotStore(store.path)

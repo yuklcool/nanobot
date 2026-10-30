@@ -1,5 +1,7 @@
 # OpenUI P0：首批实现与验证记录
 
+> 本文保留首批 `48da899` 的历史验证。第二批已接入可选的正式聊天入口和原生 Gateway，当前状态与剩余边界见 [Gateway 接入验证](openui-gateway-validation.md)；下文“尚未接通”等描述仅针对首批提交。
+
 关联：[#1](https://github.com/yuklcool/nanobot/issues/1)、[详细设计](openui-integration-design.md)。验证日期：2026-10-29 UTC。状态：**P0 进行中，尚未满足完整 P0 放行条件，不进入 P1 发布集成**。
 
 本批代码交付可执行的 SDK 演示、快照存储和自动化测试。正式聊天界面尚未挂载 Renderer，Gateway 尚未注册 OpenUI 协议或启动 UI 生成任务。下面分别列出已执行证据与未验证部分，不能将分层测试视为真实浏览器到模型的完整闭环。

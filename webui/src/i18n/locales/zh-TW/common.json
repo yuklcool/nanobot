@@ -2505,5 +2505,15 @@
       "cancel": "取消",
       "switchDirectory": "切換目錄"
     }
+  },
+  "openui": {
+    "enable": "互動檢視（預覽）",
+    "followup": "繼續提問",
+    "submit": "提交",
+    "saveDraft": "儲存草稿",
+    "saved": "草稿已儲存",
+    "submitted": "已提交",
+    "checkConversation": "無法確認提交狀態，請查看對話。",
+    "unavailable": "互動檢視無法使用，文字回答已保留。"
   }
 }

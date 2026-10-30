@@ -1,3 +1,4 @@
+import { openUICapability, type OpenUICapability, type OpenUIAction } from "../../../packages/client-events/openui";
 import { uploadAttachments, uploadCapability, type AttachmentReference, type UploadCapability } from "../../../packages/client-events/attachments";
 import { DeliveryReceipts } from "../../../packages/client-events/delivery";
 import { decodeNotification } from "../../../packages/client-events/notifications";
@@ -270,6 +271,26 @@ export class NanobotClient {
   private currentUrl: string;
   private status_: ConnectionStatus = "idle";
   private readyChatId: string | null = null;
+  private openui: OpenUICapability | null = null;
+  private openuiHandlers = new Set<(event: unknown) => void>();
+  private openuiModes = new Set<string>();
+
+  getOpenUI(): OpenUICapability | null { return this.openui; }
+  setOpenUIMode(chatId: string, enabled: boolean): void {
+    if (enabled) this.openuiModes.add(chatId); else this.openuiModes.delete(chatId);
+  }
+  onOpenUI(handler: (event: unknown) => void): Unsubscribe {
+    this.openuiHandlers.add(handler);
+    return () => { this.openuiHandlers.delete(handler); };
+  }
+  sendUIAction(chatId: string, content: string, action: OpenUIAction): Promise<void> {
+    if (this.socket?.readyState !== WS_OPEN || !this.openui) return Promise.reject(new Error("UI_DISABLED"));
+    return this.receipts.wait(action.request_id, () => {
+      if (!this.sendMessage(chatId, content, undefined, { turnId: action.request_id, uiAction: action })) {
+        throw new Error("UI action was not sent");
+      }
+    });
+  }
   // Set by ``close()`` so the onclose handler knows the drop was intentional
   // and must not schedule a reconnect or flip status back to "reconnecting".
   private intentionallyClosed = false;
@@ -799,6 +820,7 @@ export class NanobotClient {
       turnId?: string;
       /** False for side-channel or injected messages that do not own a lifecycle. */
       startsNewRun?: boolean;
+      uiAction?: OpenUIAction;
     },
   ): boolean {
     if (options?.userShell && this.socket?.readyState !== WS_OPEN) return false;
@@ -820,6 +842,8 @@ export class NanobotClient {
       ...(options?.workspaceScope ? { workspace_scope: options.workspaceScope } : {}),
       ...(options?.turnId ? { turn_id: options.turnId } : {}),
       webui: true,
+      ...(this.openui && this.openuiModes.has(chatId) && !options?.userShell ? { ui_mode: "openui" as const } : {}),
+      ...(options?.uiAction ? { ui_action: options.uiAction } : {}),
     };
     if (!this.frameFitsTransport(frame)) {
       if (options?.turnId && isSystemCommandTurnId(options.turnId)) {
@@ -899,6 +923,10 @@ export class NanobotClient {
     let parsed: InboundEvent;
     try {
       parsed = JSON.parse(typeof ev.data === "string" ? ev.data : "") as InboundEvent;
+      if ((parsed as { event?: unknown }).event === "openui.snapshot") {
+        if (this.openui) for (const handler of this.openuiHandlers) handler(parsed);
+        return;
+      }
       if (decodeNotification(parsed) === null) return;
     } catch {
       if (wsInboundDebugEnabled()) {
@@ -998,6 +1026,8 @@ export class NanobotClient {
     }
 
     if (parsed.event === "ready") {
+      this.openui = openUICapability(parsed.openui);
+      if (!this.openui) this.openuiModes.clear();
       this.upload = uploadCapability(parsed.upload);
       this.readyChatId = parsed.chat_id;
       this.knownChats.add(parsed.chat_id);
@@ -1142,6 +1172,7 @@ export class NanobotClient {
   }
 
   private handleClose(event?: { code?: number }): void {
+    this.openui = null;
     this.upload = null;
     this.receipts.close();
     this.socket = null;

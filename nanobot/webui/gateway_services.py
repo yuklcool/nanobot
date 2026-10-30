@@ -17,6 +17,7 @@ from nanobot.webui.gateway_endpoint import WebUIGatewayEndpoint
 from nanobot.webui.gateway_tokens import GatewayTokenStore
 from nanobot.webui.ingress_policy import DEFAULT_WEBUI_INGRESS_POLICY, WebUIIngressPolicy
 from nanobot.webui.media_gateway import WebUIMediaGateway
+from nanobot.webui.openui_runtime import OpenUIRuntime
 from nanobot.webui.session_projection import WebUISessionProjection
 from nanobot.webui.settings_services import WebUISettingsServices
 from nanobot.webui.temporary_chats import WebUITemporaryChats
@@ -54,6 +55,7 @@ class GatewayServices:
     cron_pending_job_ids: Callable[[str], set[str]] | None
     local_trigger_pending_ids: Callable[[str], set[str]] | None
     unified_session: bool = False
+    openui: OpenUIRuntime | None = None
 
 
 def build_gateway_services(
@@ -174,4 +176,6 @@ def build_gateway_services(
         cron_pending_job_ids=cron_pending_job_ids,
         local_trigger_pending_ids=local_trigger_pending_ids,
         unified_session=unified_session,
+        openui=(OpenUIRuntime(session_manager)
+                if config.openui_enabled and session_manager is not None else None),
     )

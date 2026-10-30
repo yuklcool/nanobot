@@ -2505,5 +2505,15 @@
       "cancel": "Hủy",
       "switchDirectory": "Đổi thư mục"
     }
+  },
+  "openui": {
+    "enable": "Chế độ tương tác (xem trước)",
+    "followup": "Câu hỏi tiếp theo",
+    "submit": "Gửi",
+    "saveDraft": "Lưu bản nháp",
+    "saved": "Đã lưu bản nháp",
+    "submitted": "Đã gửi",
+    "checkConversation": "Không thể xác nhận việc gửi. Hãy kiểm tra cuộc trò chuyện.",
+    "unavailable": "Chế độ tương tác không khả dụng. Câu trả lời văn bản được giữ lại."
   }
 }

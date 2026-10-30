@@ -2505,5 +2505,15 @@
       "cancel": "Batal",
       "switchDirectory": "Ganti direktori"
     }
+  },
+  "openui": {
+    "enable": "Tampilan interaktif (pratinjau)",
+    "followup": "Pertanyaan lanjutan",
+    "submit": "Kirim",
+    "saveDraft": "Simpan draf",
+    "saved": "Draf disimpan",
+    "submitted": "Terkirim",
+    "checkConversation": "Pengiriman belum terkonfirmasi. Periksa percakapan.",
+    "unavailable": "Tampilan interaktif tidak tersedia. Jawaban teks tetap tersimpan."
   }
 }

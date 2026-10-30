@@ -1,3 +1,4 @@
+import { OpenUIChatProvider, OpenUIControls } from "@/openui/OpenUIChat";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -1468,6 +1469,7 @@ export function ThreadShell({
   ) : null;
 
   return (
+    <OpenUIChatProvider key={chatId ?? "none"} client={client} chatId={temporary ? null : chatId} messages={displayMessages} send={send}>
     <SubagentTasksProvider client={client} token={token}
       sessionKey={session?.key ?? null}
       liveEvents={webuiCapabilities.includes("webui.subagents.events.v1")}
@@ -1494,6 +1496,7 @@ export function ThreadShell({
           </div>
         ) : null}
         {headerPortalTarget === undefined ? threadHeader : null}
+        <OpenUIControls />
         <FilePreviewAvailabilityProvider
           resolve={previewSessionKey ? resolveFilePreviewAvailability : undefined}
         >
@@ -1574,5 +1577,6 @@ export function ThreadShell({
       ) : null}
     </section>
     </SubagentTasksProvider>
+    </OpenUIChatProvider>
   );
 }

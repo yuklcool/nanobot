@@ -37,6 +37,7 @@ class UiSnapshot(BaseModel):
     session_generation: Identifier
     turn_id: Identifier
     block_id: Identifier
+    anchor_seq: Annotated[int, Field(ge=0)] | None = None
     revision: Annotated[int, Field(ge=1)] = 1
     seq: Annotated[int, Field(ge=0)] = 0
     library_hash: Identifier
@@ -71,9 +72,9 @@ class UiSnapshotStore:
     def __init__(self, path: Path) -> None:
         # The host owns path selection, directory creation and access control.
         self.path = path
-        with self._transaction() as db:
+        with self.transaction() as db:
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1):
+            if version not in (0, 1, 2):
                 raise UiConflictError("unsupported UI database version")
             db.execute("""CREATE TABLE IF NOT EXISTS ui_snapshots (
                 owner TEXT NOT NULL, session_key TEXT NOT NULL, generation TEXT NOT NULL,
@@ -82,10 +83,14 @@ class UiSnapshotStore:
             db.execute("""CREATE TABLE IF NOT EXISTS ui_tombstones (
                 owner TEXT NOT NULL, session_key TEXT NOT NULL, generation TEXT NOT NULL,
                 PRIMARY KEY(owner, session_key, generation))""")
-            db.execute("PRAGMA user_version = 1")
+            db.execute("""CREATE TABLE IF NOT EXISTS ui_actions (
+                owner TEXT NOT NULL, session_key TEXT NOT NULL, generation TEXT NOT NULL,
+                request_id TEXT NOT NULL, digest TEXT NOT NULL, status TEXT NOT NULL,
+                PRIMARY KEY(owner, session_key, generation, request_id))""")
+            db.execute("PRAGMA user_version = 2")
 
     @contextmanager
-    def _transaction(self) -> Generator[sqlite3.Connection]:
+    def transaction(self) -> Generator[sqlite3.Connection]:
         db = sqlite3.connect(self.path, timeout=5)
         try:
             db.execute("PRAGMA journal_mode = WAL")
@@ -100,7 +105,7 @@ class UiSnapshotStore:
             db.close()
 
     @staticmethod
-    def _key(scope: UiScope) -> tuple[str, str, str]:
+    def key(scope: UiScope) -> tuple[str, str, str]:
         return scope.owner, scope.session_key, scope.generation
 
     def _read(
@@ -108,7 +113,7 @@ class UiSnapshotStore:
     ) -> UiSnapshot:
         row = db.execute(
             "SELECT snapshot FROM ui_snapshots WHERE owner=? AND session_key=? "
-            "AND generation=? AND block_id=?", (*self._key(scope), block_id),
+            "AND generation=? AND block_id=?", (*self.key(scope), block_id),
         ).fetchone()
         if row is None:
             raise KeyError("UI block unavailable")
@@ -118,7 +123,7 @@ class UiSnapshotStore:
         db.execute(
             "UPDATE ui_snapshots SET snapshot=? WHERE owner=? AND session_key=? "
             "AND generation=? AND block_id=?",
-            (snapshot.model_dump_json(), *self._key(scope), snapshot.block_id),
+            (snapshot.model_dump_json(), *self.key(scope), snapshot.block_id),
         )
 
     def create(
@@ -132,29 +137,29 @@ class UiSnapshotStore:
             raise UiConflictError("new block cannot contain persisted state")
         if len(state_keys) > 64 or any(not key or len(key) > 128 for key in state_keys):
             raise ValueError("invalid state allowlist")
-        with self._transaction() as db:
+        with self.transaction() as db:
             if db.execute(
                 "SELECT 1 FROM ui_tombstones WHERE owner=? AND session_key=? AND generation=?",
-                self._key(scope),
+                self.key(scope),
             ).fetchone():
                 raise UiConflictError("session generation was deleted")
             try:
                 db.execute("INSERT INTO ui_snapshots VALUES (?, ?, ?, ?, ?, ?)", (
-                    *self._key(scope), snapshot.block_id, snapshot.model_dump_json(),
+                    *self.key(scope), snapshot.block_id, snapshot.model_dump_json(),
                     json.dumps(sorted(state_keys)),
                 ))
             except sqlite3.IntegrityError as exc:
                 raise UiConflictError("UI block already exists") from exc
 
     def read(self, scope: UiScope, block_id: str) -> UiSnapshot:
-        with self._transaction() as db:
+        with self.transaction() as db:
             return self._read(db, scope, block_id)
 
     def advance(
         self, scope: UiScope, block_id: str, *, revision: int, expected_seq: int,
         delta: str = "", status: Status = "streaming",
     ) -> UiSnapshot:
-        with self._transaction() as db:
+        with self.transaction() as db:
             current = self._read(db, scope, block_id)
             if (current.revision != revision or current.seq != expected_seq
                     or current.status != "streaming"):
@@ -173,14 +178,14 @@ class UiSnapshotStore:
         self, scope: UiScope, block_id: str, *, revision: int,
         expected_state_version: int, state: dict[str, JsonValue],
     ) -> UiSnapshot:
-        with self._transaction() as db:
+        with self.transaction() as db:
             current = self._read(db, scope, block_id)
             if (current.revision != revision or current.state_version != expected_state_version
                     or current.status != "complete"):
                 raise UiConflictError("UI state changed or is not editable")
             row = db.execute(
                 "SELECT state_keys FROM ui_snapshots WHERE owner=? AND session_key=? "
-                "AND generation=? AND block_id=?", (*self._key(scope), block_id),
+                "AND generation=? AND block_id=?", (*self.key(scope), block_id),
             ).fetchone()
             allowed = json.loads(row[0])
             if any(key not in allowed for key in state):
@@ -193,9 +198,34 @@ class UiSnapshotStore:
             return updated
 
     def delete_generation(self, scope: UiScope) -> None:
-        with self._transaction() as db:
-            db.execute("INSERT OR IGNORE INTO ui_tombstones VALUES (?, ?, ?)", self._key(scope))
+        with self.transaction() as db:
+            db.execute("INSERT OR IGNORE INTO ui_tombstones VALUES (?, ?, ?)", self.key(scope))
             db.execute(
                 "DELETE FROM ui_snapshots WHERE owner=? AND session_key=? AND generation=?",
-                self._key(scope),
+                self.key(scope),
             )
+
+    def for_turns(self, scope: UiScope, turn_ids: list[str]) -> list[UiSnapshot]:
+        if not turn_ids:
+            return []
+        placeholders = ",".join("?" for _ in turn_ids)
+        with self.transaction() as db:
+            rows = db.execute(
+                "SELECT snapshot FROM ui_snapshots WHERE owner=? AND session_key=? "
+                f"AND generation=? AND json_extract(snapshot, '$.turn_id') IN ({placeholders}) "
+                "ORDER BY rowid LIMIT 100", (*self.key(scope), *turn_ids),
+            ).fetchall()
+            return [UiSnapshot.model_validate_json(row[0]) for row in rows]
+
+    def interrupt_streams(self) -> None:
+        """Startup recovery: unfinished displays cannot become writable cards."""
+        with self.transaction() as db:
+            rows = db.execute("SELECT rowid, snapshot FROM ui_snapshots "
+                              "WHERE json_extract(snapshot, '$.status')='streaming'").fetchall()
+            for rowid, raw in rows:
+                current = UiSnapshot.model_validate_json(raw)
+                updated = UiSnapshot.model_validate({
+                    **current.model_dump(), "status": "failed", "seq": current.seq + 1,
+                })
+                db.execute("UPDATE ui_snapshots SET snapshot=? WHERE rowid=?",
+                           (updated.model_dump_json(), rowid))

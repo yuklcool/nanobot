@@ -2505,5 +2505,15 @@
       "cancel": "Annuler",
       "switchDirectory": "Changer de dossier"
     }
+  },
+  "openui": {
+    "enable": "Vue interactive (aperçu)",
+    "followup": "Question complémentaire",
+    "submit": "Envoyer",
+    "saveDraft": "Enregistrer le brouillon",
+    "saved": "Brouillon enregistré",
+    "submitted": "Envoyé",
+    "checkConversation": "Envoi non confirmé. Consultez la conversation.",
+    "unavailable": "Vue interactive indisponible. La réponse texte est conservée."
   }
 }
