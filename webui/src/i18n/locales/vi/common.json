@@ -2537,6 +2537,8 @@
     "refreshData": "Làm mới",
     "viewDetails": "Xem chi tiết",
     "noRecords": "Không có bản ghi phù hợp.",
+    "emptyData": "Chưa có bản ghi.",
+    "clearFilter": "Xóa bộ lọc",
     "loadingData": "Đang tải dữ liệu…",
     "queryFailed": "Không thể tải dữ liệu. Vui lòng thử lại.",
     "retryData": "Thử lại",

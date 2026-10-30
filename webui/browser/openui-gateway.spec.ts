@@ -2,6 +2,49 @@ import { expect, test } from "@playwright/test";
 
 test.skip(!process.env.NANOBOT_OPENUI_GATEWAY_PYTHON, "Requires the disposable native Gateway; run test:openui:gateway.");
 
+test("empty search attempts keep the final answer and can still ask for a useful clarification", async ({ page }) => {
+  const completed = new Map<string, { tables: Record<string, { rows: unknown[] }> }>();
+  const messages: unknown[] = [];
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("websocket", (socket) => {
+    socket.on("framesent", ({ payload }) => {
+      const frame = JSON.parse(String(payload));
+      if (frame.type === "message") messages.push(frame);
+    });
+    socket.on("framereceived", ({ payload }) => {
+      const frame = JSON.parse(String(payload));
+      if (frame.event === "openui.snapshot" && frame.snapshot.status === "complete") completed.set(frame.snapshot.block_id, frame.snapshot);
+    });
+  });
+  await page.goto("/browser/openui-gateway.html");
+  await Promise.all([page.waitForEvent("load"), page.getByRole("button", { name: "Delete conversation", exact: true }).click()]);
+  completed.clear();
+  await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
+  await page.getByRole("textbox", { name: "Question", exact: true }).fill("Search missing conversations");
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  await expect.poll(() => completed.size).toBe(1);
+  expect(Object.values([...completed.values()][0].tables).map((table) => table.rows.length)).toEqual([0, 0]);
+  await expect(page.getByRole("list", { name: "Conversation" })).toContainText("No saved conversations matched either keyword.");
+  await expect(page.getByRole("table")).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "Filter records" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Refresh", exact: true })).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath("no-result-desktop.png"), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: test.info().outputPath("no-result-mobile.png"), fullPage: true });
+  await page.getByRole("textbox", { name: "Question", exact: true }).fill("Search missing conversations and collect a project keyword");
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  await expect.poll(() => completed.size).toBe(2);
+  await expect(page.getByRole("textbox", { name: "Project keyword" })).toBeVisible();
+  await expect(page.getByRole("table")).toHaveCount(0);
+  expect(messages).toHaveLength(2);
+  await page.reload();
+  await expect(page.getByRole("textbox", { name: "Project keyword" })).toBeVisible();
+  expect(messages).toHaveLength(2);
+  expect(errors).toEqual([]);
+});
+
 test("new conversation selects a mode before its first message through the production thread shell", async ({ page }) => {
   const frames: Record<string, unknown>[] = [];
   const errors: string[] = [];

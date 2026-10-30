@@ -66,8 +66,14 @@ class DisplayTable(BaseModel):
     session_query: SessionQuery | None = None
 
     def descriptor(self) -> dict[str, JsonValue]:
-        return {"data_ref": self.data_ref, "title": self.title,
-                "columns": dict(self.columns), "row_count": len(self.rows)}
+        result: dict[str, JsonValue] = {
+            "data_ref": self.data_ref, "title": self.title,
+            "columns": dict(self.columns), "row_count": len(self.rows),
+            "source_tool": self.source_tool, "captured_at": self.captured_at,
+        }
+        if self.session_query is not None:
+            result["search_query"] = self.session_query.query
+        return result
 
 
 def capture_table(

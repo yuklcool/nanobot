@@ -46,6 +46,7 @@ class UiSnapshot(BaseModel):
     status: Status = "streaming"
     source: str = ""
     fallback_text: Annotated[str, Field(max_length=16000)] = ""
+    question: Annotated[str, Field(max_length=4000)] = ""
     tables: dict[str, DisplayTable] = Field(default_factory=dict)
     generation_mode: Literal["preview", "model"] = "preview"
     error_code: str | None = None

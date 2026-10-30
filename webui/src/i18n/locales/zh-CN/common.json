@@ -2743,6 +2743,8 @@
     "refreshData": "刷新数据",
     "viewDetails": "查看详情",
     "noRecords": "暂无匹配记录。",
+    "emptyData": "暂无记录。",
+    "clearFilter": "清除筛选",
     "loadingData": "正在加载…",
     "queryFailed": "数据读取失败，请重试。",
     "retryData": "重新读取",

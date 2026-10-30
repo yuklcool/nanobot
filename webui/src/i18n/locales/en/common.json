@@ -2743,6 +2743,8 @@
     "refreshData": "Refresh",
     "viewDetails": "View details",
     "noRecords": "No matching records.",
+    "emptyData": "No records yet.",
+    "clearFilter": "Clear filter",
     "loadingData": "Loading data…",
     "queryFailed": "Could not load data. Please retry.",
     "retryData": "Retry",

@@ -247,6 +247,21 @@ const querySnapshot: UiSnapshot = { ...initial, source: 'root = Panel([data])\nd
       rows: [{ id: "websocket:planning", values: { title: "Planning notes" } }], captured_at: 1,
       source_tool: "search_sessions", source_call_id: "search-1", session_query: { query: "planning", exclude_session_key: "websocket:chat" } } } };
 
+it("renders an empty captured dataset as a compact status without unusable table controls", async () => {
+  const fixture = setup(undefined, [message], { ...querySnapshot, tables: { "data-1": {
+    ...querySnapshot.tables!["data-1"], rows: [], total_rows: 0, source_tool: "lookup", session_query: null,
+  } } });
+  const view = fixture.mount();
+  try {
+    await screen.findByText("openui.emptyData");
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.queryByText("openui.showingRows")).toBeNull();
+    expect(fixture.frames.filter((frame) => frame.type === "message" || frame.action === "openui.query")).toHaveLength(0);
+  } finally { view.unmount(); fixture.client.close(); }
+});
+
 it("queries only on clicks, retries a failed detail read, renders text safely and refreshes in place", async () => {
   const capability = { protocol: 1, library_hash: manifest.library_hash, readonly_query: true };
   const fixture = setup(capability, [message], querySnapshot);
@@ -263,11 +278,15 @@ it("queries only on clicks, retries a failed detail read, renders text safely an
     expect(detail).toHaveTextContent('<img src=x onerror="alert(1)">');
     expect(detail.querySelector("img")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "openui.refreshData" }));
-    await screen.findByText("openui.noRecords");
+    await screen.findByText("openui.emptyData");
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "openui.filterRecords" })).toBeNull();
+    expect(screen.getByRole("button", { name: "openui.refreshData" })).toBeEnabled();
     expect(screen.queryByRole("region", { name: "openui.recordDetails" })).toBeNull();
     expect(fixture.frames.filter((frame) => frame.type === "message")).toHaveLength(0);
     view.unmount(); fixture.mount();
-    await screen.findByText("openui.noRecords");
+    await screen.findByText("openui.emptyData");
+    expect(screen.getByRole("button", { name: "openui.refreshData" })).toBeEnabled();
     expect(fixture.frames.filter((frame) => frame.action === "openui.query")).toHaveLength(3);
   } finally { cleanup(); fixture.client.close(); }
   const old = setup({ ...capability, readonly_query: false }, [message], querySnapshot);
@@ -448,6 +467,12 @@ it("filters locally and distinguishes scoped record actions even when summaries 
   const view = fixture.mount();
   try {
     expect(await screen.findByRole("table")).toHaveTextContent("5412.5");
+    fireEvent.change(screen.getByRole("textbox", { name: "openui.filterRecords" }), { target: { value: "missing" } });
+    expect(screen.getByRole("status")).toHaveTextContent("openui.noRecords");
+    expect(screen.queryByRole("table")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "openui.clearFilter" }));
+    expect(screen.getByRole("table")).toHaveTextContent("Task 08");
+    expect(screen.getByRole("table")).toHaveTextContent("Task 09");
     fireEvent.change(screen.getByRole("textbox", { name: "openui.filterRecords" }), { target: { value: "pending" } });
     expect(screen.getByRole("table")).not.toHaveTextContent("Task 08");
     expect(screen.getByRole("table")).toHaveTextContent("Task 09");

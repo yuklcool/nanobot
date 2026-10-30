@@ -2551,6 +2551,8 @@
     "refreshData": "Atualizar",
     "viewDetails": "Ver detalhes",
     "noRecords": "Nenhum registro correspondente.",
+    "emptyData": "Ainda não há registros.",
+    "clearFilter": "Limpar filtro",
     "loadingData": "Carregando dados…",
     "queryFailed": "Não foi possível carregar os dados. Tente novamente.",
     "retryData": "Tentar novamente",

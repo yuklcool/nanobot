@@ -202,7 +202,7 @@ const Followup = defineComponent({
   },
 });
 const DataTable = defineComponent({
-  name: "DataTable", description: "Authoritative captured table with local filtering and an explicit Agent analysis action. Supported session tables also provide refresh and inline details without a model call. Never supply cell values or query instructions in the layout.",
+  name: "DataTable", description: "Show a relevant authoritative dataset, with local filtering and an explicit Agent analysis action. Captured datasets are candidates, not mandatory tables; choose them using the request and final answer. Empty data renders a compact status; include it only when revisiting that dataset helps. Supported session tables provide refresh and inline details without a model call. Never supply cell values or query instructions in the layout.",
   props: z.object({ data_ref: z.string().min(1).max(128) }),
   component: function CapturedTable({ props }) {
     const { t } = useTranslation();
@@ -238,15 +238,15 @@ const DataTable = defineComponent({
       <time className="text-caption text-muted-foreground" dateTime={new Date(data.captured_at * 1000).toISOString()}>
         {t("openui.snapshotTime", { time: new Date(data.captured_at * 1000).toLocaleString() })}
       </time></div>
-      <div className="flex flex-wrap items-center gap-2"><div className="relative max-w-xs"><Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" aria-hidden />
+      {(data.rows.length > 0 || canQuery) && <div className="flex flex-wrap items-center gap-2">{data.rows.length > 0 && <div className="relative max-w-xs"><Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" aria-hidden />
       <input className="h-10 w-full rounded-control border border-input bg-background pl-9 pr-3 text-reading-small focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         aria-label={t("openui.filterRecords")} placeholder={t("openui.filterRecords")} maxLength={200}
-        value={filter} onChange={(event) => setFilter(event.target.value)} /></div>
+        value={filter} onChange={(event) => setFilter(event.target.value)} /></div>}
       {canQuery && <Button type="button" variant="outline" size="sm" className="gap-2"
         disabled={!enabled || streaming || loading} onClick={() => { void read({ data_ref: data.data_ref, operation: "refresh" }); }}>
         <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden />{t("openui.refreshData")}
-      </Button>}</div>
-      <div className="max-w-full overflow-x-auto rounded-control border border-border/70"><table className="w-full text-left text-reading-small tabular-nums" aria-label={data.title}>
+      </Button>}</div>}
+      {rows.length > 0 && <><div className="max-w-full overflow-x-auto rounded-control border border-border/70"><table className="w-full text-left text-reading-small tabular-nums" aria-label={data.title}>
         <thead className="bg-muted/40 text-muted-foreground"><tr>{Object.entries(data.columns).map(([key, label]) => <th scope="col" className="px-3 py-2.5 font-medium" key={key}>{label}</th>)}
           {canQuery && <th scope="col" className="px-3 py-2.5 font-medium">{t("openui.viewDetails")}</th>}
           <th scope="col" className="px-3 py-2.5 font-medium">{t("openui.analyzeRecord")}</th></tr></thead>
@@ -261,8 +261,11 @@ const DataTable = defineComponent({
             }); }}>{t("openui.analyzeRecord")}</Button></td>
         </tr>)}</tbody>
       </table></div>
-      <p className="text-caption text-muted-foreground">{t("openui.showingRows", { shown: rows.length, total: data.total_rows ?? data.rows.length })}</p>
-      {!rows.length && <p role="status" className="text-reading-small text-muted-foreground">{t("openui.noRecords")}</p>}
+      <p className="text-caption text-muted-foreground">{t("openui.showingRows", { shown: rows.length, total: data.total_rows ?? data.rows.length })}</p></>}
+      {!rows.length && !loading && !failed && <div className="flex flex-wrap items-center gap-2">
+        <p role="status" className="text-reading-small text-muted-foreground">{t(data.rows.length ? "openui.noRecords" : "openui.emptyData")}</p>
+        {data.rows.length > 0 && filter && <Button type="button" variant="ghost" size="sm" onClick={() => setFilter("")}>{t("openui.clearFilter")}</Button>}
+      </div>}
       {loading && <p role="status" className="text-reading-small text-muted-foreground">{t("openui.loadingData")}</p>}
       {failed && <div role="alert" className="flex flex-wrap items-center gap-2 text-reading-small">
         <span>{t("openui.queryFailed")}</span><Button type="button" variant="outline" size="sm" disabled={!enabled || streaming || loading}

@@ -88,6 +88,14 @@ class FixtureProvider(LLMProvider):
             return LLMResponse(content="已收到本次填写的答案。", tool_calls=[])
         if "Explain variables" in question:
             return LLMResponse(content="A variable stores a value.", tool_calls=[])
+        if "Search missing conversations" in question:
+            if not has_result:
+                return LLMResponse(content=None, tool_calls=[ToolCallRequest(
+                    id=uuid4().hex, name="search_sessions", arguments={"query": word},
+                ) for word in ["missing-azimuth", "missing-cobalt"]])
+            answer = ("Please provide a project keyword to try another search." if "collect a project keyword" in question
+                      else "No saved conversations matched either keyword.")
+            return LLMResponse(content=answer, tool_calls=[])
         if "Find saved planning conversations" in question:
             if not has_result:
                 return LLMResponse(content=None, tool_calls=[ToolCallRequest(
@@ -120,7 +128,10 @@ class FixtureProvider(LLMProvider):
             return await super().chat_stream(messages, on_content_delta=on_content_delta, **kwargs)
         payload = json.loads(messages[-1]["content"])
         datasets = payload["datasets"]
-        if payload["public_answer"] == SURVEY_ANSWER:
+        if datasets and all(not item["row_count"] for item in datasets):
+            source = ('root = Panel([details])\ndetails = Form("Search details", [{label: "Project keyword"}])\n'
+                      if payload["public_answer"].startswith("Please provide a project keyword") else "root = Panel([])\n")
+        elif payload["public_answer"] == SURVEY_ANSWER:
             source = ('root = Panel([survey])\nsurvey = Form('
                       + ', '.join(json.dumps(value, ensure_ascii=False) for value in
                                   (SURVEY_TITLE, SURVEY_FIELDS, SURVEY_DESCRIPTION, "questionnaire")) + ')\n')

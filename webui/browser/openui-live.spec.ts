@@ -12,7 +12,7 @@ type Evidence = {
 };
 
 test("live model searches, selects and reads a saved conversation without refresh replay", async ({ page }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(420_000);
   const evidence = () => JSON.parse(readFileSync(process.env.NANOBOT_OPENUI_LIVE_EVIDENCE!, "utf8")) as Evidence;
   const snapshots = new Map<string, UiSnapshot>();
   const messages: Record<string, unknown>[] = [];
@@ -101,13 +101,59 @@ test("live model searches, selects and reads a saved conversation without refres
     await expect(page.getByText("Interactive view is unavailable.", { exact: true })).toHaveCount(0);
     expect(errors).toEqual([]);
     await page.screenshot({ path: test.info().outputPath("live-restored.png"), fullPage: true });
+
+    const presentationCases = [
+      {
+        name: "no-results", tables: 0, empty: true,
+        question: '分别检索历史会话中的“missing-azimuth”和“missing-cobalt”，每个关键词搜索一次，用可筛选表格展示匹配的会话。如果都没有匹配，简短告诉我结果。',
+      },
+      {
+        name: "final-results", tables: 1, empty: true,
+        question: '分别检索历史会话中的“missing-azimuth”和“planning”，每个关键词搜索一次。最终展示 planning 结果的可筛选表格。',
+      },
+      {
+        name: "comparison", tables: 2, empty: false,
+        question: '分别检索历史会话中的“planning”和“archive”，每个关键词搜索一次。我要比较这两个搜索范围，请分别展示两个可筛选的结果列表。',
+      },
+    ];
+    for (const scenario of presentationCases) {
+      await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
+      const previousBlocks = new Set(snapshots.keys());
+      const previousTables = await page.getByRole("table").count();
+      const previousMessages = messages.length;
+      await question.fill(scenario.question);
+      await ask.click();
+      await expect.poll(() => [...snapshots.values()].filter((item) => !previousBlocks.has(item.block_id)
+        && item.status === "complete").length, { timeout: 90_000 }).toBe(1);
+      const block = [...snapshots.values()].find((item) => !previousBlocks.has(item.block_id))!;
+      const datasets = Object.values(block.tables ?? {});
+      expect(datasets.length).toBeGreaterThanOrEqual(2);
+      expect(datasets.some((item) => item.rows.length === 0)).toBe(scenario.empty);
+      await expect(page.getByRole("table")).toHaveCount(previousTables + scenario.tables);
+      if (!scenario.tables) expect(block.source).toMatch(/root\s*=\s*Panel\(\s*\[\s*\]\s*\)/);
+      expect(messages).toHaveLength(previousMessages + 1);
+      await page.screenshot({ path: test.info().outputPath(`live-${scenario.name}-desktop.png`), fullPage: true });
+      await page.setViewportSize({ width: 390, height: 844 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await page.screenshot({ path: test.info().outputPath(`live-${scenario.name}-mobile.png`), fullPage: true });
+      await page.setViewportSize({ width: 1280, height: 720 });
+      const settled = evidence();
+      await page.reload();
+      await expect(page.getByRole("table")).toHaveCount(previousTables + scenario.tables);
+      await expect(ask).toBeEnabled();
+      expect(evidence()).toEqual(settled);
+      expect(messages).toHaveLength(previousMessages + 1);
+    }
+    expect(errors).toEqual([]);
+    expect([...snapshots.values()].every((item) => item.status === "complete" && item.error_code === null)).toBe(true);
   } finally {
     const summaryPath = test.info().outputPath("live-summary.json");
     writeFileSync(summaryPath, JSON.stringify({
       elapsed_ms: Date.now() - started, stages, sent_messages: messages.length, page_errors: errors,
       snapshots: [...snapshots.values()].map((item) => ({ status: item.status,
         generation_mode: item.generation_mode, error_code: item.error_code, usage: item.usage,
-        source_bytes: Buffer.byteLength(item.source), library_hash: item.library_hash })),
+        source_bytes: Buffer.byteLength(item.source), library_hash: item.library_hash,
+        candidate_rows: Object.values(item.tables ?? {}).map((table) => table.rows.length) })),
     }, null, 2));
     await test.info().attach("live-summary", { contentType: "application/json", path: summaryPath });
     await test.info().attach("live-provider-calls", { path: process.env.NANOBOT_OPENUI_LIVE_EVIDENCE!,
