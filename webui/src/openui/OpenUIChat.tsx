@@ -160,11 +160,11 @@ export function OpenUIControls() {
   const views = useContext(Views);
   const { t } = useTranslation();
   if (!views?.available) return null;
-  return <label className="mx-3 my-1 inline-flex w-fit items-center gap-2 rounded-control px-2 py-1.5 text-reading-small text-muted-foreground">
+  return <label className="inline-flex w-fit items-center gap-1.5 rounded-control px-1.5 text-caption text-muted-foreground">
     <MousePointer2 className="h-3.5 w-3.5" aria-hidden />
-    <span>{t("openui.enable")}</span>
+    <span className="hidden sm:inline">{t("openui.enable")}</span>
     <select aria-label={t("openui.enable")} value={views.mode}
-      className="rounded-control border border-input bg-background px-2 py-1 text-reading-small text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      className="rounded-control border border-input bg-background px-2 py-1 text-caption text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       onChange={(event) => views.selectMode(event.target.value as OpenUIMode)}>
       <option value="markdown">{t("openui.modeMarkdown")}</option>
       {views.autoAvailable && <option value="auto">{t("openui.modeAuto")}</option>}

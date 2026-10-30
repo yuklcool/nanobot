@@ -11,6 +11,14 @@ test("new conversation selects a mode before its first message through the produ
   const mode = page.getByRole("combobox", { name: "Interactive replies" });
   await expect(mode).toHaveValue("markdown");
   await mode.selectOption("auto");
+  await expect(page.getByTestId("thread-header").getByRole("combobox", { name: "Interactive replies" })).toHaveValue("auto");
+  await page.setViewportSize({ width: 390, height: 844 });
+  const modeBounds = await mode.boundingBox();
+  expect(modeBounds!.x).toBeGreaterThanOrEqual(0);
+  expect(modeBounds!.x + modeBounds!.width).toBeLessThanOrEqual(390);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: test.info().outputPath("new-conversation-mode-mobile.png"), fullPage: true });
+  await page.setViewportSize({ width: 1280, height: 720 });
   expect(frames.filter((frame) => frame.type === "new_chat" || frame.type === "message")).toHaveLength(0);
   await page.getByRole("textbox", { name: "Message input", exact: true }).fill("Plan a small project");
   await page.getByRole("button", { name: "Send message", exact: true }).click();

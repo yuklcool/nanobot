@@ -1456,7 +1456,7 @@ export function ThreadShell({
       hideSidebarToggle={hideSidebarToggle}
       hideThemeButton={hideThemeButton}
       hideTitle={hideHeaderTitle}
-      actions={headerActions}
+      actions={<><OpenUIControls />{headerActions}</>}
       minimal={!session && !loading}
       promptNavigatorAction={promptNavigatorAction}
       sessionInfoAction={sessionInfoAction}
@@ -1496,7 +1496,6 @@ export function ThreadShell({
           </div>
         ) : null}
         {headerPortalTarget === undefined ? threadHeader : null}
-        <OpenUIControls />
         <FilePreviewAvailabilityProvider
           resolve={previewSessionKey ? resolveFilePreviewAvailability : undefined}
         >
