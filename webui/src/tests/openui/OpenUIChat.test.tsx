@@ -298,6 +298,29 @@ it("restores an uncertain admission as locked instead of resending it", async ()
   } finally { view.unmount(); fixture.client.close(); }
 });
 
+it("recovers saved form fields after reconnect and ignores a foreign session generation", async () => {
+  const capability = { protocol: 1, library_hash: manifest.library_hash, form_recovery: true };
+  const fixture = setup(capability, [message], recoverableForm);
+  const view = fixture.mount();
+  try {
+    fireEvent.change(await screen.findByRole("textbox", { name: "Project name" }), { target: { value: "Reconnect draft" } });
+    await screen.findByText("openui.saved");
+    act(() => fixture.socket.onclose?.());
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Project name" })).toBeNull());
+    act(() => {
+      fixture.client.connect(); fixture.socket.onopen?.();
+      fixture.socket.onmessage?.({ data: JSON.stringify({ event: "ready", chat_id: "chat", client_id: "browser", openui: capability }) } as MessageEvent);
+    });
+    expect(await screen.findByRole("textbox", { name: "Project name" })).toHaveValue("Reconnect draft");
+    act(() => fixture.socket.onmessage?.({ data: JSON.stringify({ event: "openui.snapshot", chat_id: "chat", snapshot: {
+      ...recoverableForm, session_generation: "foreign", state_version: 99,
+      state: { $forms: { "form-0": { schema: "test", values: ["Foreign", "High", ""], status: "submitted" } } },
+    } }) } as MessageEvent));
+    expect(screen.getByRole("textbox", { name: "Project name" })).toHaveValue("Reconnect draft");
+    expect(fixture.frames.filter((frame) => frame.type === "message")).toHaveLength(0);
+  } finally { view.unmount(); fixture.client.close(); }
+});
+
 it("keeps streamed choices disabled until the view is complete", async () => {
   const snapshot = { ...initial, status: "streaming" as const,
     source: 'root = Panel([next])\nnext = Choices("Continue?", [{label: "Confirm", question: "Confirm the plan"}, {label: "Revise", question: "Revise the plan"}])\n' };
