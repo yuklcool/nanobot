@@ -147,7 +147,7 @@ jobs:
     timeout-minutes: 15
     env:
       NANOBOT_OPENUI_LIVE_CONFIG: /tmp/nanobot-openui-live-${{ inputs.live_runner_label }}/provider.json
-      NANOBOT_OPENUI_LIVE_EVIDENCE: ${{ runner.temp }}/openui-live-evidence.json
+      NANOBOT_OPENUI_LIVE_EVIDENCE: /tmp/nanobot-openui-live-${{ inputs.live_runner_label }}/evidence.json
       NANOBOT_OPENUI_GATEWAY_PORT: '18769'
       NANOBOT_BROWSER_TEST_PORT: '4189'
     steps:
@@ -180,7 +180,7 @@ jobs:
           name: openui-live-results-${{ github.sha }}
           path: |
             webui/test-results/browser/
-            ${{ runner.temp }}/openui-live-evidence.json
+            ${{ env.NANOBOT_OPENUI_LIVE_EVIDENCE }}
           if-no-files-found: warn
           retention-days: 7
       - name: Remove temporary model credentials
