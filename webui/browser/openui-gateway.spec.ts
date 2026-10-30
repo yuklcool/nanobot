@@ -48,7 +48,7 @@ test("native model adapter, captured data, record actions and refresh recovery",
   expect(messages[2]).toMatchObject({ chat_id: "gateway-poc", ui_action: {
     action_id: "record.analyze", record_id: "task_08", request_id: messages[2].turn_id,
   } });
-  expect(String(messages[2].content)).toContain('"energy":5412.5');
+  expect(messages[2].content).toBe("Analyze Tasks: Energy review");
   await page.getByRole("button", { name: "Delete conversation", exact: true }).click();
   await expect(page.getByRole("combobox", { name: "Interactive replies" })).toBeAttached();
   await expect(page.getByRole("textbox", { name: "Follow-up question" })).toHaveCount(0);
@@ -146,9 +146,11 @@ test("auto mode uses real session search and read tools without replaying histor
   expect(messages[2]).toMatchObject({ chat_id: "gateway-poc", ui_mode: "auto", ui_action: {
     action_id: "record.analyze", record_id: "websocket:saved-planning",
   } });
+  await expect(page.locator("[data-user-text-bubble]").last()).toHaveText("Analyze Saved conversations: Planning notes");
   await page.screenshot({ path: test.info().outputPath("auto-native-session-tools.png"), fullPage: true });
   await page.reload();
   await expect(page.getByRole("button", { name: "Summarize notes" })).toBeVisible();
+  await expect(page.locator("[data-user-text-bubble]").last()).toHaveText("Analyze Saved conversations: Planning notes");
   expect(messages).toHaveLength(3);
   expect(errors).toEqual([]);
 });

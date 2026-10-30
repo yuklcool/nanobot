@@ -32,7 +32,7 @@ function setup(capability: unknown = { protocol: 1, library_hash: manifest.libra
         if (frame.type === "webui_request") {
           if (frame.action === "openui.state") saved = { ...saved, state: { $question: frame.payload.question }, state_version: saved.state_version + 1 };
           socket.onmessage?.({ data: JSON.stringify({ event: "webui_response", ok: true, request_id: frame.request_id,
-            result: frame.action === "openui.prepare_record" ? { content: `Analyze captured ${frame.payload.record_id}` }
+            result: frame.action === "openui.prepare_record" ? { content: "Analyze captured record" }
               : frame.action === "openui.state" ? { snapshot: saved }
               : { capability, session_generation: "generation", blocks: frame.payload.turn_ids?.includes(saved.turn_id) ? [saved] : [] } }) } as MessageEvent);
         }
@@ -206,7 +206,7 @@ it("restores loaded history in bounded batches including turns older than the la
   } finally { view.unmount(); fixture.client.close(); }
 });
 
-it("renders critical cells from the saved dataset, filters locally and sends a scoped record action", async () => {
+it("filters locally and distinguishes scoped record actions even when summaries match", async () => {
   const table = { data_ref: "data_1", title: "Captured tasks", columns: { name: "Task", energy: "Energy", status: "Status" },
     rows: [{ id: "task_08", values: { name: "Task 08", energy: 5412.5, status: "ready" } },
       { id: "task_09", values: { name: "Task 09", energy: 0, status: "pending" } }],
@@ -226,10 +226,20 @@ it("renders critical cells from the saved dataset, filters locally and sends a s
     fireEvent.click(screen.getByRole("button", { name: "openui.analyzeRecord" }));
     await screen.findByText("openui.submitted");
     expect(fixture.frames.find((frame) => frame.type === "message")).toMatchObject({
-      content: "Analyze captured task_09", chat_id: "chat", ui_action: {
+      content: "Analyze captured record", chat_id: "chat", ui_action: {
         action_id: "record.analyze", data_ref: "data_1", record_id: "task_09", block_id: "block",
       },
     });
+    fireEvent.change(screen.getByRole("textbox", { name: "openui.filterRecords" }), { target: { value: "ready" } });
+    fireEvent.click(screen.getByRole("button", { name: "openui.analyzeRecord" }));
+    await screen.findByText("openui.submitted");
+    const sent = fixture.frames.filter((frame) => frame.type === "message");
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toMatchObject({ content: sent[0].content, ui_action: { record_id: "task_08" } });
+    expect(sent[1].turn_id).not.toBe(sent[0].turn_id);
+    fireEvent.click(screen.getByRole("button", { name: "openui.analyzeRecord" }));
+    await screen.findByText("openui.submitted");
+    expect(fixture.frames.filter((frame) => frame.type === "message")).toHaveLength(2);
   } finally { view.unmount(); fixture.client.close(); }
 });
 

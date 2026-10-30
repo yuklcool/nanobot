@@ -215,7 +215,7 @@ function Block({ snapshot, views }: { snapshot: UiSnapshot; views: ChatViews }) 
         const question = record.success
           ? await views.prepareRecord(snapshot, record.data.params.data_ref, record.data.params.record_id)
           : followupSchema.parse(event).params.question;
-        const identity = JSON.stringify([record.success ? "record.analyze" : "conversation.followup", question]);
+        const identity = JSON.stringify([record.success ? "record.analyze" : "conversation.followup", record.success ? record.data.params : question]);
         if (confirmed.current.has(identity)) { setNotice(t("openui.submitted")); return; }
         let requestId = requests.current.get(identity);
         if (!requestId) { requestId = crypto.randomUUID(); requests.current.set(identity, requestId); }

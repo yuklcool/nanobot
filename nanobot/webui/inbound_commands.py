@@ -575,7 +575,7 @@ class WebUICommandRouter:
                 if set(envelope) - {"type", "chat_id", "content", "turn_id", "webui", "ui_action", "ui_mode"}:
                     raise ValueError("INVALID_PARAMS")
                 ui_admission = await runtime.admit_action(chat_id, turn_id, content, envelope["ui_action"])
-                _, _, admission = ui_admission
+                _, _, admission, _ = ui_admission
                 if admission == "unknown":
                     raise ValueError("RESULT_UNKNOWN")
                 if admission == "accepted":
@@ -845,6 +845,8 @@ class WebUICommandRouter:
                 )
             if trusted_webui:
                 context_blocks: list[RuntimeContextBlock] = []
+                if ui_admission is not None and ui_admission[3] is not None:
+                    context_blocks.append(ui_admission[3])
                 if not is_user_shell and envelope.get("intent") == "create_automation":
                     context_blocks.append(RuntimeContextBlock(
                         source="webui_automation_creation",

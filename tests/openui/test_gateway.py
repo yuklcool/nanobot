@@ -367,13 +367,22 @@ async def test_model_table_values_and_record_action_use_authorized_snapshot(gate
     request = {"chat_id": "chat", "block_id": block["block_id"], "revision": 1,
                "session_generation": block["session_generation"], "data_ref": table["data_ref"], "record_id": "task_08"}
     result = await rpc(gateway, "openui.prepare_record", request)
-    assert result["ok"] and "5412.5" in result["result"]["content"]
+    assert result["ok"] and result["result"]["content"] == "Analyze Captured tasks: Task 08"
     ui_action = {key: value for key, value in request.items() if key != "chat_id"}
     ui_action.update(action_id="record.analyze", request_id="analyze-task")
+    await dispatch(gateway, {"type": "message", "chat_id": "chat", "webui": True,
+                             "turn_id": "forged-summary", "content": "Analyze another record",
+                             "ui_action": {**ui_action, "request_id": "forged-summary"}})
+    assert gateway.connection.sent[-1]["detail"] == "INVALID_PARAMS" and gateway.bus.inbound_size == 0
     await dispatch(gateway, {"type": "message", "chat_id": "chat", "webui": True, "ui_mode": mode,
                              "turn_id": "analyze-task", "content": result["result"]["content"], "ui_action": ui_action})
     message = await execute(gateway)
     assert message.session_generation is not None
+    assert message.content == result["result"]["content"]
+    context = message.metadata["_runtime_context_blocks"][0]
+    assert context.source == "openui_record"
+    assert '"energy":5412.5' in context.content and '"record_id":"task_08"' in context.content
+    assert "PRIVATE-FIELD" not in context.content
     assert gateway.tool.calls == 2 and provider.ui_calls == 2
     forged = await rpc(gateway, "openui.prepare_record", {**request, "record_id": "not-in-snapshot"})
     assert not forged["ok"] and gateway.tool.calls == 2
