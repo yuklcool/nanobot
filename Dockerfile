@@ -7,6 +7,7 @@ RUN npm ci
 COPY webui/ ./
 COPY packages/client-events/ /app/packages/client-events/
 COPY nanobot/channels/ /app/nanobot/channels/
+COPY nanobot/openui/generated/chat-library.json /app/nanobot/openui/generated/chat-library.json
 RUN mkdir -p /app/nanobot/web && npm run build
 
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
