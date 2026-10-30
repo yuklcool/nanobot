@@ -68,7 +68,7 @@ async def socket_check(payload, expected_hash):
     async with websockets.connect(url, proxy=None, open_timeout=5) as ws:
         event = json.loads(await asyncio.wait_for(ws.recv(), 5))
         assert event["event"] == "ready"
-        assert event["openui"] == {"protocol": 1, "library_hash": expected_hash, "modes": ["markdown", "openui", "auto"]}
+        assert event["openui"] == {"protocol": 1, "library_hash": expected_hash, "modes": ["markdown", "openui", "auto"], "form_recovery": True}
         chat_id = event["chat_id"]
         await ws.send(json.dumps({"type": "webui_request", "request_id": "subscribe", "action": "openui.subscribe",
                                   "payload": {"chat_id": chat_id, "turn_ids": []}}))
