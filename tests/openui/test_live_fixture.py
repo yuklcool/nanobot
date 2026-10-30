@@ -3,7 +3,6 @@
 import json
 
 import pytest
-
 from gateway_fixture import LiveEvidence, isolated_live_config
 
 from nanobot.config.schema import Config
@@ -28,7 +27,7 @@ def test_live_config_keeps_selected_provider_but_isolates_runtime(tmp_path):
     assert isolated.providers.openai.api_key == "test-secret"
     assert isolated.agents.defaults.workspace == str(workspace)
     assert isolated.agents.defaults.fallback_models == []
-    assert isolated.channels.websocket == {}
+    assert not isolated.channels.model_extra
     assert not isolated.tools.mcp_servers
     with pytest.raises(ValueError, match="LIVE_CONFIG_REQUIRED"):
         isolated_live_config(tmp_path / "missing.json", workspace)
