@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import { uiSnapshotSchema, type UiSnapshot } from "../src/openui/snapshot";
 
@@ -102,12 +102,14 @@ test("live model searches, selects and reads a saved conversation without refres
     expect(errors).toEqual([]);
     await page.screenshot({ path: test.info().outputPath("live-restored.png"), fullPage: true });
   } finally {
-    await test.info().attach("live-summary", { contentType: "application/json", body: JSON.stringify({
+    const summaryPath = test.info().outputPath("live-summary.json");
+    writeFileSync(summaryPath, JSON.stringify({
       elapsed_ms: Date.now() - started, stages, sent_messages: messages.length, page_errors: errors,
       snapshots: [...snapshots.values()].map((item) => ({ status: item.status,
         generation_mode: item.generation_mode, error_code: item.error_code, usage: item.usage,
         source_bytes: Buffer.byteLength(item.source), library_hash: item.library_hash })),
-    }, null, 2) });
+    }, null, 2));
+    await test.info().attach("live-summary", { contentType: "application/json", path: summaryPath });
     await test.info().attach("live-provider-calls", { path: process.env.NANOBOT_OPENUI_LIVE_EVIDENCE!,
       contentType: "application/json" });
   }

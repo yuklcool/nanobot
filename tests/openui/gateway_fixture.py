@@ -194,7 +194,11 @@ class LiveEvidence(AgentHook):
         self.save()
 
     async def on_execute_tool_error(self, context, tool_call, tool, params, error):
-        self.data["tools"].append({"name": tool_call.name, "error": True})
+        self.data["tools"].append({
+            "name": tool_call.name, "error": True, "iteration": context.iteration,
+            "parameter_keys": sorted(params), "error_type": type(error).__name__,
+            "selected_planning": params.get("session_key") == "websocket:saved-planning",
+        })
         self.save()
 
     async def after_run(self, context):
@@ -236,6 +240,9 @@ async def run(port, live_config=None, evidence_path=None):
             saved.add_message("assistant", "Acceptance code: ORBIT-742. The next step is a read-only release review.")
         sessions.save(saved)
         if live_config:
+            current = sessions.get_or_create("websocket:gateway-poc")
+            current.metadata["title"] = "Live acceptance"
+            sessions.save(current)
             other = sessions.get_or_create("websocket:saved-planning-other")
             other.metadata["title"] = "Planning archive"
             other.add_message("user", "Planning archive: this unrelated record has acceptance code COMET-319.")
