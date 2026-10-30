@@ -551,24 +551,25 @@ export function MessageBubble({
         <ThinkingState />
       ) : empty && message.isStreaming ? null : (
         <InlineImageProvider>
-          <div data-assistant-selectable={message.isStreaming ? undefined : "true"}>
-            {message.renderAs === "text" ? (
-              <CodeBlock language="text" code={assistantContent} highlight={false} ansi={false} />
-            ) : (
-              /* A mode switch rebuilds Streamdown's subtree and moves the scroll anchor. */
-              <MarkdownText
-                streaming={!!message.isStreaming}
-                preserveStreamingLayout
-                onOpenFilePreview={onOpenFilePreview}
-              >
-                {assistantContent}
-              </MarkdownText>
-            )}
-          </div>
+          <OpenUIMessage message={message}>
+            <div data-assistant-selectable={message.isStreaming ? undefined : "true"}>
+              {message.renderAs === "text" ? (
+                <CodeBlock language="text" code={assistantContent} highlight={false} ansi={false} />
+              ) : (
+                /* A mode switch rebuilds Streamdown's subtree and moves the scroll anchor. */
+                <MarkdownText
+                  streaming={!!message.isStreaming}
+                  preserveStreamingLayout
+                  onOpenFilePreview={onOpenFilePreview}
+                >
+                  {assistantContent}
+                </MarkdownText>
+              )}
+            </div>
+          </OpenUIMessage>
           {media.length > 0 ? <MessageMedia media={media} align="left" /> : null}
         </InlineImageProvider>
       )}
-      <OpenUIMessage message={message} />
     </div>
   );
 }

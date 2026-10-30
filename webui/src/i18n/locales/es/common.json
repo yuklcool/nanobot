@@ -2508,6 +2508,11 @@
     }
   },
   "openui": {
+    "submitForm": "Enviar respuestas",
+    "formProgress": "{{done}} de {{total}} preguntas obligatorias respondidas",
+    "originalAnswer": "Ver texto original",
+    "optional": "Opcional",
+    "formTooLong": "Las respuestas son demasiado largas. Acorta el texto y vuelve a enviarlas.",
     "modeMarkdown": "Desactivado",
     "modeAuto": "Automático",
     "modeOpenui": "Siempre",

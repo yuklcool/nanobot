@@ -2507,6 +2507,11 @@
     }
   },
   "openui": {
+    "submitForm": "回答を送信",
+    "formProgress": "必須項目 {{total}} 問中 {{done}} 問回答済み",
+    "originalAnswer": "原文を表示",
+    "optional": "任意",
+    "formTooLong": "回答が長すぎます。文章を短くして再送信してください。",
     "modeMarkdown": "オフ",
     "modeAuto": "自動",
     "modeOpenui": "常に",

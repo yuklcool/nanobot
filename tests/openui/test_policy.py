@@ -17,6 +17,12 @@ from nanobot.openui.policy import should_generate_view
     ("搜索相关会话", "找到两条结果。", True, True),
     ("只要文字，搜索相关会话", "找到两条结果。", True, False),
     ("Text only, please", "Please choose one of these options.", False, False),
+    ("做一份就业情况调查表", "# 公司员工就业情况调查表\n1. 您目前的工作状态是？\n□ 在职 □ 已离职", False, True),
+    ("Create an employee survey", "Employee survey\n1. What is your employment status?\n- Employed\n- Other", False, True),
+    ("问卷是什么？", "问卷可以用来收集数据。如何设计问卷？首先确定目标。", False, False),
+    ("Explain a survey", "Survey example:\n```text\n1. Are you employed?\n```", False, False),
+    ("解释调查表", "调查表例如：\n> 1. 您目前的工作状态是？", False, False),
+    ("只要文字问卷", "调查表\n1. 您目前的工作状态是？\n□ 在职 □ 离职", False, False),
 ])
 def test_selects_useful_interactions_without_a_classifier_call(question, answer, tables, expected):
     assert should_generate_view(question, answer, has_tables=tables) is expected

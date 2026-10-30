@@ -2507,6 +2507,11 @@
     }
   },
   "openui": {
+    "submitForm": "Kirim jawaban",
+    "formProgress": "{{done}} dari {{total}} pertanyaan wajib terjawab",
+    "originalAnswer": "Lihat teks asli",
+    "optional": "Opsional",
+    "formTooLong": "Jawaban terlalu panjang. Persingkat teks lalu kirim lagi.",
     "modeMarkdown": "Nonaktif",
     "modeAuto": "Otomatis",
     "modeOpenui": "Selalu",

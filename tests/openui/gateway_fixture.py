@@ -27,6 +27,32 @@ from nanobot.session.webui_turns import WebuiTurnCoordinator
 from nanobot.webui.gateway_services import build_gateway_services
 
 
+SURVEY_TITLE = "公司员工就业情况调查表"
+SURVEY_DESCRIPTION = "本问卷用于了解员工今年的工作情况，结果仅作汇总分析。"
+SURVEY_ANSWER = f"""# {SURVEY_TITLE}
+{SURVEY_DESCRIPTION}
+1. 您目前的工作状态是？在职 / 休假中 / 已离职 / 其他（请补充）
+2. 与去年相比，您的工作稳定性如何？更稳定 / 差不多 / 不太稳定
+3. 今年您的收入与去年相比如何？增加 / 基本持平 / 减少 / 不便透露
+4. 您今年是否考虑过离职或寻找新工作？是 / 否
+   如果是，主要原因（多选）：薪酬 / 压力 / 发展机会 / 其他（请补充）
+5. 您对目前岗位的满意度如何？满意 / 一般 / 不满意
+6. 您希望公司提供哪些支持？（多选）薪酬福利 / 培训发展 / 优化工作量 / 其他（请补充）"""
+SURVEY_FIELDS = [
+    {"label": "1. 您目前的工作状态是？", "type": "radio", "options": ["在职", "休假中", "已离职", "其他"]},
+    {"label": "其他工作状态", "when": {"field": 0, "value": "其他"}},
+    {"label": "2. 与去年相比，您的工作稳定性如何？", "type": "radio", "options": ["更稳定", "差不多", "不太稳定"]},
+    {"label": "3. 今年您的收入与去年相比如何？", "type": "radio", "options": ["增加", "基本持平", "减少", "不便透露"]},
+    {"label": "4. 您今年是否考虑过离职或寻找新工作？", "type": "radio", "options": ["是", "否"]},
+    {"label": "主要原因（多选）", "type": "checkbox", "options": ["薪酬", "压力", "发展机会", "其他"],
+     "when": {"field": 4, "value": "是"}},
+    {"label": "其他离职原因", "when": {"field": 5, "value": "其他"}},
+    {"label": "5. 您对目前岗位的满意度如何？", "type": "radio", "options": ["满意", "一般", "不满意"]},
+    {"label": "6. 您希望公司提供哪些支持？（多选）", "type": "checkbox", "options": ["薪酬福利", "培训发展", "优化工作量", "其他"]},
+    {"label": "其他支持", "when": {"field": 8, "value": "其他"}},
+]
+
+
 class Lookup(Tool):
     name = "lookup"
     description = "Return a deterministic test record."
@@ -52,6 +78,10 @@ class FixtureProvider(LLMProvider):
         index = max(i for i, row in enumerate(messages) if row["role"] == "user")
         question = str(messages[index]["content"])
         has_result = any(row["role"] == "tool" for row in messages[index + 1:])
+        if "Create an employee survey" in question:
+            return LLMResponse(content=SURVEY_ANSWER, tool_calls=[])
+        if question.startswith(SURVEY_TITLE + "\n"):
+            return LLMResponse(content="已收到本次填写的答案。", tool_calls=[])
         if "Explain variables" in question:
             return LLMResponse(content="A variable stores a value.", tool_calls=[])
         if "Find saved planning conversations" in question:
@@ -86,7 +116,11 @@ class FixtureProvider(LLMProvider):
             return await super().chat_stream(messages, on_content_delta=on_content_delta, **kwargs)
         payload = json.loads(messages[-1]["content"])
         datasets = payload["datasets"]
-        if datasets and datasets[0]["title"] == "Saved conversations":
+        if payload["public_answer"] == SURVEY_ANSWER:
+            source = ('root = Panel([survey])\nsurvey = Form('
+                      + ', '.join(json.dumps(value, ensure_ascii=False) for value in
+                                  (SURVEY_TITLE, SURVEY_FIELDS, SURVEY_DESCRIPTION, "questionnaire")) + ')\n')
+        elif datasets and datasets[0]["title"] == "Saved conversations":
             source = 'root = Panel([data])\n' + f'data = DataTable({json.dumps(datasets[0]["data_ref"])})\n'
         elif datasets:
             source = ('$question = ""\nroot = Panel([heading, data, followup])\n'

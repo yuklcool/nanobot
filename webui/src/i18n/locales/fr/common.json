@@ -2507,6 +2507,11 @@
     }
   },
   "openui": {
+    "submitForm": "Envoyer les réponses",
+    "formProgress": "{{done}} questions obligatoires sur {{total}} remplies",
+    "originalAnswer": "Voir le texte original",
+    "optional": "Facultatif",
+    "formTooLong": "Les réponses sont trop longues. Raccourcissez le texte puis renvoyez.",
     "modeMarkdown": "Désactivé",
     "modeAuto": "Automatique",
     "modeOpenui": "Toujours",

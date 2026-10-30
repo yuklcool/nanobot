@@ -5,11 +5,17 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from nanobot.openui.snapshots import UiConflictError, UiScope, UiSnapshot, UiSnapshotStore
+
+
+class FormCondition(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    field: Annotated[int, Field(ge=0, le=11)]
+    value: Annotated[str, Field(min_length=1, max_length=120)]
 
 
 class FormField(BaseModel):
@@ -18,32 +24,75 @@ class FormField(BaseModel):
     placeholder: Annotated[str, Field(max_length=120)] | None = None
     options: Annotated[list[Annotated[str, Field(min_length=1, max_length=120)]], Field(min_length=2, max_length=6)] | None = None
     persist: bool = False
+    required: bool = True
+    type: Literal["text", "select", "radio", "checkbox"] | None = None
+    when: FormCondition | None = None
+
+
+FormValue = Annotated[str, Field(max_length=400)] | Annotated[
+    list[Annotated[str, Field(min_length=1, max_length=120)]], Field(max_length=6),
+]
 
 
 class ConversationForm(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     form_id: Annotated[str, Field(pattern=r"^form-[0-5]$")]
     title: Annotated[str, Field(min_length=1, max_length=160)]
-    fields: Annotated[list[FormField], Field(min_length=1, max_length=3)]
-    values: Annotated[list[Annotated[str, Field(max_length=400)]], Field(min_length=1, max_length=3)]
+    fields: Annotated[list[FormField], Field(min_length=1, max_length=12)]
+    description: Annotated[str, Field(max_length=600)] | None = None
+    presentation: Literal["inline", "questionnaire"] | None = None
+    values: Annotated[list[FormValue], Field(min_length=1, max_length=12)]
     submit: bool = False
 
     @model_validator(mode="after")
     def valid_values(self) -> ConversationForm:
         if len(self.values) != len(self.fields):
             raise ValueError("INVALID_PARAMS")
-        for field, value in zip(self.fields, self.values):
-            if self.submit and not value.strip():
+        visible = self.visible()
+        for index, (field, value) in enumerate(zip(self.fields, self.values)):
+            if ((field.type in {"select", "radio", "checkbox"} and not field.options)
+                    or (field.type == "text" and field.options)
+                    or (field.options and len(set(field.options)) != len(field.options))):
                 raise ValueError("INVALID_PARAMS")
-            if value and field.options is not None and value not in field.options:
+            if field.when and (field.when.field >= index or not self.fields[field.when.field].options
+                               or field.when.value not in self.fields[field.when.field].options):
                 raise ValueError("INVALID_PARAMS")
+            if (field.type == "checkbox") != isinstance(value, list):
+                raise ValueError("INVALID_PARAMS")
+            if not visible[index]:
+                self.values[index] = [] if field.type == "checkbox" else ""
+                continue
+            if self.submit and field.required and not (value if isinstance(value, list) else value.strip()):
+                raise ValueError("INVALID_PARAMS")
+            selected = value if isinstance(value, list) else [value] if value else []
+            if field.options and (len(set(selected)) != len(selected) or any(item not in field.options for item in selected)):
+                raise ValueError("INVALID_PARAMS")
+            if isinstance(value, list):
+                self.values[index] = [option for option in field.options or [] if option in value]
             if not self.submit and not field.persist and value:
                 raise ValueError("FIELD_NOT_PERSISTABLE")
+        if self.submit and len(self.content()) > 4000:
+            raise ValueError("FORM_TOO_LONG")
         return self
+
+    def visible(self) -> list[bool]:
+        visible: list[bool] = []
+        for index, field in enumerate(self.fields):
+            condition = field.when
+            if condition is None:
+                visible.append(True)
+                continue
+            if condition.field >= index:
+                visible.append(False)
+                continue
+            value = self.values[condition.field]
+            visible.append(visible[condition.field] and (condition.value in value if isinstance(value, list) else value == condition.value))
+        return visible
 
     def content(self) -> str:
         return "\n".join([self.title, *(
-            f"{field.label}: {value.strip()}" for field, value in zip(self.fields, self.values)
+            f"{field.label}: {', '.join(value) if isinstance(value, list) else value.strip()}"
+            for field, value, visible in zip(self.fields, self.values, self.visible()) if visible
         )])
 
 
@@ -58,9 +107,11 @@ def save_form(
     # The client uses the official Lang renderer. Its bounded display schema is
     # untrusted user input, never a business schema or an authorization source.
     schema = content_digest(json.dumps(
-        [form.title, [field.model_dump() for field in form.fields]], ensure_ascii=False, sort_keys=True,
+        [form.title, [field.model_dump() for field in form.fields], form.description, form.presentation],
+        ensure_ascii=False, sort_keys=True,
     ))
-    values = [value if field.persist else "" for field, value in zip(form.fields, form.values)]
+    values = [value if field.persist else [] if field.type == "checkbox" else ""
+              for field, value in zip(form.fields, form.values)]
     with store.transaction() as db:
         block = store._read(db, scope, block_id)
         if block.revision != revision or block.status != "complete":

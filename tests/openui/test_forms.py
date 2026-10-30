@@ -72,3 +72,69 @@ def test_submission_receipt_survives_restart_and_fences_duplicates(form_store):
                   form=form(submit=True, values=["Changed", "Private detail", "High"]))
     with pytest.raises(UiConflictError):
         ledger.reserve(scope, **{**args, "request_id": "new-request"})
+
+
+def questionnaire(**updates):
+    return ConversationForm.model_validate({
+        "form_id": "form-0", "title": "Employee survey", "presentation": "questionnaire",
+        "description": "Answers are sent to this conversation.", "fields": [
+            {"label": "Considering a new job?", "type": "radio", "options": ["Yes", "No"]},
+            {"label": "Reasons", "type": "checkbox", "options": ["Pay", "Workload", "Other"],
+             "when": {"field": 0, "value": "Yes"}},
+            {"label": "Other reason", "when": {"field": 1, "value": "Other"}},
+            {"label": "Comment", "required": False},
+        ], "values": ["Yes", ["Other", "Pay"], "Relocation", ""], "submit": True, **updates,
+    })
+
+
+def test_questionnaire_multiselect_order_and_conditional_answers():
+    survey = questionnaire()
+    assert survey.values == ["Yes", ["Pay", "Other"], "Relocation", ""]
+    assert survey.content() == "Employee survey\nConsidering a new job?: Yes\nReasons: Pay, Other\nOther reason: Relocation\nComment: "
+    hidden = questionnaire(values=["No", ["Other"], "Must not send", ""])
+    assert hidden.values == ["No", [], "", ""]
+    assert hidden.content() == "Employee survey\nConsidering a new job?: No\nComment: "
+    without_other = questionnaire(values=["Yes", ["Pay"], "Must not send", ""])
+    assert without_other.values == ["Yes", ["Pay"], "", ""]
+    assert "Other reason" not in without_other.content()
+
+
+@pytest.mark.parametrize("values", [
+    ["Yes", [], "", ""], ["Yes", ["Other"], "  ", ""], ["Yes", ["Unknown"], "", ""],
+    ["Yes", ["Pay", "Pay"], "", ""], ["Yes", "Pay", "", ""], [["Yes"], ["Pay"], "", ""],
+])
+def test_questionnaire_rejects_missing_required_or_invalid_choice_values(values):
+    with pytest.raises(ValidationError):
+        questionnaire(values=values)
+
+
+@pytest.mark.parametrize("condition", [{"field": 1, "value": "Other"}, {"field": 0, "value": "Unknown"}])
+def test_questionnaire_conditions_must_reference_an_earlier_option(condition):
+    with pytest.raises(ValidationError):
+        questionnaire(fields=[
+            {"label": "First", "type": "radio", "options": ["Yes", "No"]},
+            {"label": "Reason", "when": condition},
+        ], values=["Yes", "Reason"])
+
+
+def test_multiselect_draft_restore_and_personal_submission_receipt(form_store):
+    store, scope = form_store
+    survey = questionnaire()
+    fields = [field.model_copy(update={"persist": True}) for field in survey.fields]
+    draft = questionnaire(fields=fields, submit=False)
+    saved = save_form(store, scope, "block", revision=1, expected_state_version=0, form=draft)
+    restored = UiSnapshotStore(store.path).read(scope, "block")
+    assert restored.state["$forms"]["form-0"]["values"] == ["Yes", ["Pay", "Other"], "Relocation", ""]
+    with pytest.raises(UiConflictError, match="FORM_CHANGED"):
+        save_form(store, scope, "block", revision=1, expected_state_version=saved.state_version,
+                  form=questionnaire(fields=fields, description="Changed description"))
+    # A second form uses the default memory-only policy for personal answers.
+    receipt = save_form(store, scope, "block", revision=1, expected_state_version=saved.state_version,
+                        form=questionnaire(form_id="form-1"))
+    assert receipt.state["$forms"]["form-1"]["values"] == ["", [], "", ""]
+    assert "Relocation" not in str(receipt.state["$forms"]["form-1"])
+
+
+def test_questionnaire_rejects_submission_above_message_limit():
+    with pytest.raises(ValidationError, match="FORM_TOO_LONG"):
+        questionnaire(fields=[{"label": f"Question {index}"} for index in range(12)], values=["x" * 400] * 12)

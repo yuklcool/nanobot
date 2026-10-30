@@ -2507,6 +2507,11 @@
     }
   },
   "openui": {
+    "submitForm": "응답 제출",
+    "formProgress": "필수 질문 {{total}}개 중 {{done}}개 응답",
+    "originalAnswer": "원문 보기",
+    "optional": "선택 사항",
+    "formTooLong": "응답이 너무 깁니다. 내용을 줄여 다시 제출하세요.",
     "modeMarkdown": "끄기",
     "modeAuto": "자동",
     "modeOpenui": "항상",

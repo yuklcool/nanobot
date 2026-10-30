@@ -2507,6 +2507,11 @@
     }
   },
   "openui": {
+    "submitForm": "提交問卷",
+    "formProgress": "已完成 {{done}} / {{total}} 道必答題",
+    "originalAnswer": "查看原文",
+    "optional": "選填",
+    "formTooLong": "回答過長，請精簡文字後重新提交。",
     "modeMarkdown": "關閉",
     "modeAuto": "自動",
     "modeOpenui": "始終",

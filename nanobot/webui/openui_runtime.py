@@ -218,7 +218,7 @@ class OpenUIRuntime:
             expected, context = record_intent(snapshot, action.data_ref or "", action.record_id or "")
             if content != expected:
                 raise UiConflictError("INVALID_PARAMS")
-        elif len(content) > 2000:
+        elif action.form_id is None and len(content) > 2000:
             raise ValueError("INVALID_PARAMS")
         result = await store_call(self.actions.reserve, scope, request_id=action.request_id,
                                   block_id=action.block_id, revision=action.revision, content=content,
