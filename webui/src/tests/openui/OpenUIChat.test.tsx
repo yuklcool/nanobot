@@ -242,13 +242,14 @@ it("collects the requested details before sending a form through the existing co
   } finally { view.unmount(); fixture.client.close(); }
 });
 
-it("queries only on clicks, retries a failed detail read, renders text safely and refreshes in place", async () => {
-  const snapshot: UiSnapshot = { ...initial, source: 'root = Panel([data])\ndata = DataTable("data-1")\n',
+const querySnapshot: UiSnapshot = { ...initial, source: 'root = Panel([data])\ndata = DataTable("data-1")\n',
     tables: { "data-1": { data_ref: "data-1", title: "Sessions", columns: { title: "Title" },
       rows: [{ id: "websocket:planning", values: { title: "Planning notes" } }], captured_at: 1,
       source_tool: "search_sessions", source_call_id: "search-1", session_query: { query: "planning", exclude_session_key: "websocket:chat" } } } };
+
+it("queries only on clicks, retries a failed detail read, renders text safely and refreshes in place", async () => {
   const capability = { protocol: 1, library_hash: manifest.library_hash, readonly_query: true };
-  const fixture = setup(capability, [message], snapshot);
+  const fixture = setup(capability, [message], querySnapshot);
   const view = fixture.mount();
   try {
     const details = await screen.findByRole("button", { name: "openui.viewDetails" });
@@ -269,7 +270,7 @@ it("queries only on clicks, retries a failed detail read, renders text safely an
     await screen.findByText("openui.noRecords");
     expect(fixture.frames.filter((frame) => frame.action === "openui.query")).toHaveLength(3);
   } finally { cleanup(); fixture.client.close(); }
-  const old = setup({ ...capability, readonly_query: false }, [message], snapshot);
+  const old = setup({ ...capability, readonly_query: false }, [message], querySnapshot);
   const oldView = old.mount();
   try {
     await screen.findByRole("table", { name: "Sessions" });
@@ -277,6 +278,32 @@ it("queries only on clicks, retries a failed detail read, renders text safely an
     expect(screen.getByRole("button", { name: "openui.analyzeRecord" })).toBeEnabled();
     expect(old.frames.filter((frame) => frame.action === "openui.query")).toHaveLength(0);
   } finally { oldView.unmount(); old.client.close(); }
+});
+
+it("allows a new explicit analysis after another tab refreshes the same record", async () => {
+  const fixture = setup({ protocol: 1, library_hash: manifest.library_hash, readonly_query: true }, [message], querySnapshot);
+  const view = fixture.mount();
+  try {
+    const analyze = await screen.findByRole("button", { name: "openui.analyzeRecord" });
+    fireEvent.click(analyze);
+    await waitFor(() => expect(fixture.frames.filter((frame) => frame.type === "message")).toHaveLength(1));
+    await waitFor(() => expect(analyze).toBeEnabled());
+    const table = querySnapshot.tables!["data-1"];
+    act(() => fixture.socket.onmessage?.({ data: JSON.stringify({ event: "openui.snapshot", chat_id: "chat",
+      snapshot: { ...querySnapshot, seq: querySnapshot.seq + 1, tables: { "data-1": {
+        ...table, captured_at: 2, rows: [{ id: "websocket:planning", values: { title: "Updated planning notes" } }],
+      } } },
+    }) } as MessageEvent));
+    await screen.findByText("Updated planning notes");
+    fireEvent.click(analyze);
+    await waitFor(() => expect(fixture.frames.filter((frame) => frame.type === "message")).toHaveLength(2));
+    await waitFor(() => expect(analyze).toBeEnabled());
+    fireEvent.click(analyze);
+    await screen.findByText("openui.submitted");
+    const sent = fixture.frames.filter((frame) => frame.type === "message");
+    expect(sent).toHaveLength(2);
+    expect(sent[0].turn_id).not.toBe(sent[1].turn_id);
+  } finally { view.unmount(); fixture.client.close(); }
 });
 
 const recoverableForm: UiSnapshot = { ...initial,
