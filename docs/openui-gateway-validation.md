@@ -28,7 +28,9 @@
 
 ## 可复现验证
 
-本地针对性验证：Python 150 项通过，包含新增 Gateway/原生 Agent/真实认证 WebSocket、共享/独立会话两种路由、重启后防重、参数冲突、未知状态、旧 generation、未认证连接，以及原 Hook、WebUI 协议和 transcript 回归。前端 224 项通过，覆盖真实 SDK、锚点归属、显式保存、刷新恢复、不自动执行、结构化动作及旧宿主降级。应用和 browser TypeScript、针对性 Ruff/ESLint/BasedPyright、Python/WebUI import boundaries、组件库 manifest 一致性及主应用构建通过。已有 chunk 大小警告仍在。
+**已完成 CI 浏览器实测**：源码 head `ed18a4954556fee118049a3908a59ad2f199d042` 的 [GitHub Actions run 40983213876](https://github.com/yuklcool/nanobot/actions/runs/40983213876) 成功。该运行实际执行 3 个 Playwright 用例，全部通过（非跳过）：真实 SDK 流式与恢复、非法组件降级，以及真实认证 Gateway → 两轮原生工具执行 → 跟进表单 → 刷新后的服务端卡片/草稿恢复。CI 同时通过新增 Python 17 项和 manifest 一致性检查。后续仅修改验证文档及去除重复 push 触发器时，运行代码树保持不变；此记录保留原运行身份，不把它写成新 head 的重新执行。
+
+本地针对性验证：Python 150 项通过，包含新增 Gateway/原生 Agent/真实认证 WebSocket、共享/独立会话两种路由、重启后防重、参数冲突、未知状态、旧 generation、未认证连接，以及原 Hook、WebUI 协议和 transcript 回归。前端 224 项通过，覆盖真实 SDK、锚点归属、显式保存、刷新恢复、不自动执行、结构化动作及旧宿主降级。应用和 browser TypeScript、针对性 Ruff/ESLint/BasedPyright、Python/WebUI import boundaries、组件库 manifest 一致性及主应用构建通过。已有 chunk 大小警告仍在。另以已构建前端产物跳过重建，实际构建 Python wheel，并在临时解包目录导入打包后的 openui_runtime，确认共享 manifest 的内容及加载路径正确；这不等于 Docker 或五平台发布验收。
 
 ```bash
 .venv/bin/python -m pytest tests/openui tests/agent/test_turn_hooks.py tests/agent/test_hook_composite.py tests/agent/test_loop_direct_websocket_status.py tests/agent/test_runner_hooks.py nanobot/channels/websocket/tests/test_webui_session_admission.py nanobot/channels/websocket/tests/test_websocket_protocol_boundaries.py tests/webui/test_client_contract.py tests/utils/test_webui_transcript.py -q
@@ -52,11 +54,11 @@ NANOBOT_OPENUI_GATEWAY_PYTHON=/absolute/path/to/nanobot/.venv/bin/python bun run
 
 Python 可执行文件由环境变量指定；Playwright 自动启动并清理隔离的临时 Gateway 与 Vite。普通 browser suite 没有该变量时跳过需要 Python Gateway 的新增用例。专用 `.github/workflows/openui.yml` 在标准 ubuntu-latest 上安装依赖、运行 Python 和三项浏览器用例，不上传大型产物，不发布 tag/Release/镜像。工作流结果须以 PR 当前 head 为准。
 
-**本地浏览器仍受阻**：默认 Playwright 浏览器尚未安装，使用已安装的 `/usr/bin/chromium` 后仍在启动时被 process_singleton_posix 的 socket 权限限制阻断。未绕过宿主限制。Python TCP WebSocket 实测通过并不替代浏览器验收；新增完整浏览器用例必须在 CI 真正通过后才能记为通过。
+**本地环境限制（已由 CI 补验基础链路）**：默认 Playwright 浏览器尚未安装，使用已安装的 `/usr/bin/chromium` 后仍在启动时被 process_singleton_posix 的 socket 权限限制阻断。未绕过宿主限制。Python TCP WebSocket 实测通过并不替代浏览器验收；上文 CI 已补验这三项浏览器用例；本地启动失败仍保留为环境记录。
 
 ## 剩余放行项
 
-- 当前 head 的完整浏览器 CI、断线和宿主切换实测；移动端和复杂历史合并验收。
+- 基础浏览器闭环已通过；仍需断线和宿主切换实测、移动端和复杂历史合并验收。
 - 真正的模型 Generator、受控 DisplayBundle/data_ref、表格/图表、auto 模式、预算与用量。
 - Query/Mutation SDK 代理验证、资源级权限、确认和真实业务回执。
 - UI 任务/事件 outbox、崩溃对账、分页超过当前批量范围的恢复和物理删除清理。

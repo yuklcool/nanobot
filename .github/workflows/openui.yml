@@ -9,8 +9,6 @@ on:
       - 'packages/client-events/**'
       - 'tests/openui/**'
       - '.github/workflows/openui.yml'
-  push:
-    branches: ['feature/openui-*']
   workflow_dispatch:
 permissions:
   contents: read
