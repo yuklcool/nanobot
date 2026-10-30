@@ -74,9 +74,13 @@ class _Capture(AgentHook):
             return
         try:
             table = capture_table(config, tool_name=tool_call.name, call_id=tool_call.id, result=result)
+            request = current_request_context()
             if (isinstance(tool, SearchSessionsTool) and config.records_key == "results"
-                    and config.id_field == "session_key" and isinstance(params, dict)):
-                table = table.model_copy(update={"session_query": SessionQuery(query=params["query"].strip())})
+                    and config.id_field == "session_key" and isinstance(params, dict)
+                    and request is not None and request.session_key):
+                table = table.model_copy(update={"session_query": SessionQuery(
+                    query=params["query"].strip(), exclude_session_key=request.session_key,
+                )})
             if sum(len(item.model_dump_json().encode()) for item in self.tables.values()) + len(table.model_dump_json().encode()) <= 64 * 1024:
                 self.tables[table.data_ref] = table
         except (ValueError, TypeError):

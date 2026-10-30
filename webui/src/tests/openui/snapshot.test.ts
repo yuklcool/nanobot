@@ -42,7 +42,7 @@ describe("OpenUI stream recovery", () => {
   it("accepts newer table refreshes while rejecting replayed and rewritten completed views", () => {
     const table = { data_ref: "data-1", title: "Sessions", columns: { title: "Title" },
       rows: [{ id: "one", values: { title: "Old title" } }], captured_at: 1,
-      source_tool: "search_sessions", source_call_id: "call-1", session_query: { query: "title" } };
+      source_tool: "search_sessions", source_call_id: "call-1", session_query: { query: "title", exclude_session_key: "websocket:task" } };
     const complete: UiSnapshot = { ...initial, status: "complete", seq: 2, source: 'root = Panel([])', tables: { "data-1": table } };
     const next = { ...complete, seq: 3, tables: { "data-1": { ...table, captured_at: 2, rows: [] } } };
     expect(acceptSnapshot(complete, next, initial)).toEqual(next);

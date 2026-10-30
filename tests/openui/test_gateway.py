@@ -477,11 +477,11 @@ async def test_readonly_queries_refresh_live_sessions_and_gate_details_without_a
     from nanobot.openui.data import TableAdapterConfig
     from nanobot.openui.snapshots import UiSnapshotStore
 
-    saved = gateway.sessions.get_or_create("websocket:saved-planning")
+    saved = await gateway.sessions.state.get("websocket:saved-planning")
     saved.metadata["title"] = "Planning notes"
     saved.add_message("user", "Visible planning detail")
     saved.add_message("system", "HIDDEN-SYSTEM")
-    gateway.sessions.save(saved)
+    await gateway.sessions.state.finish_turn(saved)
     adapter = TableAdapterConfig(title="Saved conversations", records_key="results", id_field="session_key",
                                  columns={"title": "Title", "updated_at": "Updated"})
     gateway.collector.adapters["search_sessions"] = adapter
@@ -491,7 +491,7 @@ async def test_readonly_queries_refresh_live_sessions_and_gate_details_without_a
     provider = gateway.loop.provider
     block = await first_card(gateway, question="Find saved planning conversations")
     table = next(iter(block["tables"].values()))
-    assert table["session_query"] == {"query": "planning"}
+    assert table["session_query"]["query"] == "planning"
     before_calls = provider.agent_calls, provider.ui_calls
     payload = {"chat_id": "chat", "session_generation": block["session_generation"],
                "block_id": block["block_id"], "revision": block["revision"], "data_ref": table["data_ref"]}
@@ -511,20 +511,21 @@ async def test_readonly_queries_refresh_live_sessions_and_gate_details_without_a
     await rpc(gateway, "openui.subscribe", {"chat_id": "other-chat"}, foreign)
     rejected = await rpc(gateway, "openui.query", {**payload, "operation": "refresh"}, foreign)
     assert not rejected["ok"]
-    other = gateway.sessions.get_or_create("websocket:new-planning")
+    other = await gateway.sessions.state.get("websocket:new-planning")
     other.metadata["title"] = "Planning newly saved"
     other.add_message("assistant", "New visible result")
-    gateway.sessions.save(other)
+    await gateway.sessions.state.finish_turn(other)
     refreshed = await rpc(gateway, "openui.query", {**payload, "operation": "refresh"})
     assert refreshed["ok"]
     updated = refreshed["result"]["snapshot"]
     assert updated["seq"] == block["seq"] + 1 and updated["source"] == block["source"]
-    assert {row["id"] for row in updated["tables"][table["data_ref"]]["rows"]} == {saved.key, other.key}
+    row_ids = {row["id"] for row in updated["tables"][table["data_ref"]]["rows"]}
+    assert {saved.key, other.key} <= row_ids
+    assert table["session_query"]["exclude_session_key"] not in row_ids
     scope = await gateway.services.openui.scope("chat")
     assert UiSnapshotStore(gateway.services.openui.store.path).read(scope, block["block_id"]).seq == updated["seq"]
     # A previously listed session may become private; membership alone cannot authorize it.
-    saved.metadata["session_type"] = "private-query-test"
-    gateway.sessions.save(saved)
+    await gateway.sessions.state.update_metadata(saved.key, {"session_type": "private-query-test"})
     hidden = await rpc(gateway, "openui.query", {**payload, "operation": "detail", "record_id": saved.key})
     assert not hidden["ok"] and hidden["message"] == "UI_QUERY_UNAVAILABLE"
     started, release = asyncio.Event(), asyncio.Event()

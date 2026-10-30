@@ -246,7 +246,7 @@ it("queries only on clicks, retries a failed detail read, renders text safely an
   const snapshot: UiSnapshot = { ...initial, source: 'root = Panel([data])\ndata = DataTable("data-1")\n',
     tables: { "data-1": { data_ref: "data-1", title: "Sessions", columns: { title: "Title" },
       rows: [{ id: "websocket:planning", values: { title: "Planning notes" } }], captured_at: 1,
-      source_tool: "search_sessions", source_call_id: "search-1", session_query: { query: "planning" } } } };
+      source_tool: "search_sessions", source_call_id: "search-1", session_query: { query: "planning", exclude_session_key: "websocket:chat" } } } };
   const capability = { protocol: 1, library_hash: manifest.library_hash, readonly_query: true };
   const fixture = setup(capability, [message], snapshot);
   const view = fixture.mount();

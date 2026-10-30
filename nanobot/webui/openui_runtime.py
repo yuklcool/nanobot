@@ -231,7 +231,7 @@ class OpenUIRuntime:
         try:
             async with asyncio.timeout(10), self._queries:
                 with request_context(RequestContext(channel="websocket", chat_id=request.chat_id,
-                                                    session_key=scope.session_key, log_content=False)):
+                                                    session_key=table.session_query.exclude_session_key, log_content=False)):
                     if request.operation == "refresh":
                         result = await SearchSessionsTool(self.sessions).execute(query=table.session_query.query)
                     else:

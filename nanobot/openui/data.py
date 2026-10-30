@@ -38,6 +38,7 @@ class DisplayRow(BaseModel):
 class SessionQuery(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
     query: Annotated[str, Field(min_length=1, max_length=500)]
+    exclude_session_key: Annotated[str, Field(min_length=1, max_length=512)]
 
 
 class SessionDetailMessage(BaseModel):
