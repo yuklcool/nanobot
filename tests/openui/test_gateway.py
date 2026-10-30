@@ -36,6 +36,7 @@ class Provider(LLMProvider):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.ui_calls = 0
+        self.agent_calls = 0
         self.ui_requests = []
         self.ui_started = asyncio.Event()
         self.ui_gate = None
@@ -64,8 +65,15 @@ class Provider(LLMProvider):
         return "test"
 
     async def chat(self, messages, **kwargs):
+        self.agent_calls += 1
         index = max(i for i, row in enumerate(messages) if row["role"] == "user")
         question = str(messages[index]["content"])
+        if "Find saved planning conversations" in question:
+            if not any(row["role"] == "tool" for row in messages[index + 1:]):
+                return LLMResponse(content=None, tool_calls=[ToolCallRequest(
+                    id=uuid4().hex, name="search_sessions", arguments={"query": "planning"},
+                )])
+            return LLMResponse(content="Saved planning conversations are ready.", tool_calls=[])
         if "Explain variables" in question:
             return LLMResponse(content="A variable stores a value.", tool_calls=[])
         if "Help me plan" in question:
@@ -159,11 +167,11 @@ async def execute(gateway, *, wait_ui=True):
     return message
 
 
-async def first_card(gateway, *, mode="openui"):
+async def first_card(gateway, *, mode="openui", question="Look up the result"):
     result = await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": []})
     assert result["ok"]
     await dispatch(gateway, {"type": "message", "chat_id": "chat", "turn_id": "turn-1",
-                             "content": "Look up the result", "webui": True, "ui_mode": mode})
+                             "content": question, "webui": True, "ui_mode": mode})
     message = await execute(gateway)
     assert message.metadata["_openui_mode"] == mode
     events = [row["snapshot"] for row in gateway.connection.sent if row["event"] == "openui.snapshot"]
@@ -464,21 +472,10 @@ async def test_auto_skips_plain_answers_but_preserves_explicit_mode_and_followup
     assert gateway.tool.calls == 0
 
 
-async def test_readonly_queries_refresh_live_sessions_and_gate_details_without_agent(gateway):
+async def test_readonly_queries_refresh_live_sessions_and_gate_details_without_agent(gateway, monkeypatch):
     from nanobot.agent.tools.sessions import ReadSessionTool, SearchSessionsTool
     from nanobot.openui.data import TableAdapterConfig
     from nanobot.openui.snapshots import UiSnapshotStore
-
-    class SessionProvider(Provider):
-        agent_calls = 0
-
-        async def chat(self, messages, **kwargs):
-            self.agent_calls += 1
-            if messages[-1]["role"] != "tool":
-                return LLMResponse(content=None, tool_calls=[ToolCallRequest(
-                    id=uuid4().hex, name="search_sessions", arguments={"query": "planning"},
-                )])
-            return LLMResponse(content="Saved planning conversations are ready.", tool_calls=[])
 
     saved = gateway.sessions.get_or_create("websocket:saved-planning")
     saved.metadata["title"] = "Planning notes"
@@ -491,9 +488,8 @@ async def test_readonly_queries_refresh_live_sessions_and_gate_details_without_a
     gateway.services.openui.options.tables["search_sessions"] = adapter
     gateway.loop.tools.register(SearchSessionsTool(gateway.sessions))
     gateway.loop.tools.register(ReadSessionTool(gateway.sessions))
-    provider = SessionProvider(provider_name="offline-query")
-    gateway.loop.provider = provider
-    block = await first_card(gateway)
+    provider = gateway.loop.provider
+    block = await first_card(gateway, question="Find saved planning conversations")
     table = next(iter(block["tables"].values()))
     assert table["session_query"] == {"query": "planning"}
     before_calls = provider.agent_calls, provider.ui_calls
@@ -508,6 +504,12 @@ async def test_readonly_queries_refresh_live_sessions_and_gate_details_without_a
         rejected = await rpc(gateway, "openui.query", {**payload, "operation": "detail", "record_id": saved.key, **changed})
         assert not rejected["ok"]
     rejected = await rpc(gateway, "openui.query", {**payload, "operation": "refresh", "query": "steal another search"})
+    assert not rejected["ok"]
+    foreign = Connection()
+    gateway.channel._webui_connections.add(foreign)
+    gateway.channel._attach(foreign, "other-chat")
+    await rpc(gateway, "openui.subscribe", {"chat_id": "other-chat"}, foreign)
+    rejected = await rpc(gateway, "openui.query", {**payload, "operation": "refresh"}, foreign)
     assert not rejected["ok"]
     other = gateway.sessions.get_or_create("websocket:new-planning")
     other.metadata["title"] = "Planning newly saved"
@@ -525,8 +527,20 @@ async def test_readonly_queries_refresh_live_sessions_and_gate_details_without_a
     gateway.sessions.save(saved)
     hidden = await rpc(gateway, "openui.query", {**payload, "operation": "detail", "record_id": saved.key})
     assert not hidden["ok"] and hidden["message"] == "UI_QUERY_UNAVAILABLE"
+    started, release = asyncio.Event(), asyncio.Event()
+    original_read = ReadSessionTool.execute
+
+    async def delayed_read(self, **kwargs):
+        started.set()
+        await release.wait()
+        return await original_read(self, **kwargs)
+
+    monkeypatch.setattr(ReadSessionTool, "execute", delayed_read)
+    pending = asyncio.create_task(rpc(gateway, "openui.query", {**payload, "operation": "detail", "record_id": other.key}))
+    await asyncio.wait_for(started.wait(), 2)
     await gateway.services.openui.retire_session("websocket:chat")
-    retired = await rpc(gateway, "openui.query", {**payload, "operation": "refresh"})
+    release.set()
+    retired = await asyncio.wait_for(pending, 2)
     assert not retired["ok"]
     assert (provider.agent_calls, provider.ui_calls) == before_calls
     assert gateway.bus.inbound_size == 0 and gateway.tool.calls == 0
