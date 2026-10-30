@@ -8,6 +8,7 @@ import { useNanobotStream } from "../../hooks/useNanobotStream";
 import { OpenUIChatProvider, OpenUIControls, OpenUIMessage } from "../../openui/OpenUIChat";
 import type { UiSnapshot } from "../../openui/snapshot";
 import type { UIMessage } from "../../lib/types";
+import type { FormInput } from "../../openui/chat-library";
 
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 afterEach(cleanup);
@@ -23,6 +24,7 @@ const initial: UiSnapshot = {
 function setup(capability: unknown = { protocol: 1, library_hash: manifest.library_hash }, seed = [message], snapshot = initial,
   chatId: string | null = "chat", disabled = false) {
   const frames: Record<string, unknown>[] = [];
+  const failures = { save: false, send: false };
   let saved = { ...snapshot };
   const socket = { readyState: 1, onopen: null as (() => void) | null,
     onmessage: null as ((event: MessageEvent) => void) | null,
@@ -31,14 +33,45 @@ function setup(capability: unknown = { protocol: 1, library_hash: manifest.libra
       const frame = JSON.parse(raw); frames.push(frame);
       queueMicrotask(() => {
         if (frame.type === "webui_request") {
-          if (frame.action === "openui.state") saved = { ...saved, state: { $question: frame.payload.question }, state_version: saved.state_version + 1 };
+          if (frame.action === "openui.form" && failures.save) {
+            failures.save = false;
+            socket.onmessage?.({ data: JSON.stringify({ event: "webui_response", ok: false, request_id: frame.request_id,
+              status: 409, message: "UI_BUSY" }) } as MessageEvent);
+            return;
+          }
+          if (frame.action === "openui.state") saved = { ...saved, state: { ...saved.state, $question: frame.payload.question }, state_version: saved.state_version + 1 };
+          if (frame.action === "openui.form") {
+            const form: FormInput = frame.payload.form;
+            const forms = (saved.state.$forms ?? {}) as Record<string, Record<string, unknown>>;
+            const previous = forms[form.form_id];
+            if (!previous?.request_id) saved = { ...saved, state_version: saved.state_version + 1,
+              state: { ...saved.state, $forms: { ...forms, [form.form_id]: {
+                schema: "test", values: form.values.map((value, index) => form.fields[index].persist ? value : ""),
+                status: form.submit ? "prepared" : "draft", ...(form.submit ? { request_id: "form-request-1" } : {}),
+              } } } } as UiSnapshot;
+          }
           socket.onmessage?.({ data: JSON.stringify({ event: "webui_response", ok: true, request_id: frame.request_id,
             result: frame.action === "openui.prepare_record" ? { content: "Analyze captured record" }
-              : frame.action === "openui.state" ? { snapshot: saved }
+              : frame.action === "openui.state" || frame.action === "openui.form" ? { snapshot: saved }
               : { capability, session_generation: "generation", blocks: frame.payload.turn_ids?.includes(saved.turn_id) ? [saved] : [] } }) } as MessageEvent);
         }
-        if (frame.type === "message") socket.onmessage?.({ data: JSON.stringify({ event: "message_accepted",
-          chat_id: frame.chat_id, turn_id: frame.turn_id, starts_turn: true }) } as MessageEvent);
+        if (frame.type === "message") {
+          if (failures.send) {
+            failures.send = false;
+            socket.onmessage?.({ data: JSON.stringify({ event: "error", detail: "UI_BUSY", chat_id: frame.chat_id,
+              turn_id: frame.turn_id }) } as MessageEvent);
+            return;
+          }
+          if (frame.ui_action?.form_id) {
+            const forms = saved.state.$forms as Record<string, Record<string, unknown>>;
+            saved = { ...saved, state_version: saved.state_version + 1, state: { ...saved.state,
+              $forms: { ...forms, [frame.ui_action.form_id]: { ...forms[frame.ui_action.form_id], status: "submitted" } },
+            } } as UiSnapshot;
+            socket.onmessage?.({ data: JSON.stringify({ event: "openui.snapshot", chat_id: "chat", snapshot: saved }) } as MessageEvent);
+          }
+          socket.onmessage?.({ data: JSON.stringify({ event: "message_accepted",
+            chat_id: frame.chat_id, turn_id: frame.turn_id, starts_turn: true }) } as MessageEvent);
+        }
       });
     },
   };
@@ -55,7 +88,7 @@ function setup(capability: unknown = { protocol: 1, library_hash: manifest.libra
     </OpenUIChatProvider>;
   }
   const mount = () => render(<ClientProvider client={client} token="test" allowUpdateFlow={false}><Thread /></ClientProvider>);
-  return { client, frames, socket, mount };
+  return { client, frames, socket, mount, failures };
 }
 
 it("shows modes on the blank new-chat page without creating a session and hides them for private chats", async () => {
@@ -190,6 +223,101 @@ it("collects the requested details before sending a form through the existing co
       chat_id: "chat", content: "Prepare the project\nProject name: Nanobot\nPriority: High",
       ui_action: { action_id: "conversation.followup", block_id: "block" },
     });
+  } finally { view.unmount(); fixture.client.close(); }
+});
+
+const recoverableForm: UiSnapshot = { ...initial,
+  source: 'root = Panel([details])\ndetails = Form("Project details", [{label: "Project name", persist: true}, {label: "Priority", options: ["Normal", "High"], persist: true}, {label: "Ephemeral note"}])\n',
+};
+it("restores only opted-in form drafts and retains submitted receipts without sending again", async () => {
+  const fixture = setup({ protocol: 1, library_hash: manifest.library_hash, form_recovery: true }, [message], recoverableForm);
+  let view = fixture.mount();
+  try {
+    fireEvent.change(await screen.findByRole("textbox", { name: "Project name" }), { target: { value: "Nanobot" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Priority" }), { target: { value: "High" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Ephemeral note" }), { target: { value: "Memory only" } });
+    await screen.findByText("openui.saved");
+    const draft = fixture.frames.find((frame) => frame.action === "openui.form");
+    expect(draft).toMatchObject({ payload: { form: { values: ["Nanobot", "High", ""], submit: false } } });
+    expect(JSON.stringify(draft)).not.toContain("Memory only");
+    view.unmount(); view = fixture.mount();
+    expect(await screen.findByRole("textbox", { name: "Project name" })).toHaveValue("Nanobot");
+    expect(screen.getByRole("combobox", { name: "Priority" })).toHaveValue("High");
+    expect(screen.getByRole("textbox", { name: "Ephemeral note" })).toHaveValue("");
+    expect(fixture.frames.filter((frame) => frame.type === "message")).toHaveLength(0);
+    fireEvent.change(screen.getByRole("textbox", { name: "Ephemeral note" }), { target: { value: "Send explicitly" } });
+    const submit = screen.getByRole("button", { name: "openui.submit" });
+    fireEvent.click(submit); fireEvent.click(submit);
+    await screen.findByText("openui.submitted");
+    expect(submit).toBeDisabled();
+    const messages = fixture.frames.filter((frame) => frame.type === "message");
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ content: "Project details\nProject name: Nanobot\nPriority: High\nEphemeral note: Send explicitly",
+      ui_action: { form_id: "form-0", request_id: "form-request-1" } });
+    view.unmount(); view = fixture.mount();
+    await screen.findByText("openui.submitted");
+    expect(screen.getByRole("button", { name: "openui.submit" })).toBeDisabled();
+    expect(fixture.frames.filter((frame) => frame.type === "message")).toHaveLength(1);
+  } finally { view.unmount(); fixture.client.close(); }
+});
+
+it("retains failed drafts and retries delivery with the original server submission identity", async () => {
+  const fixture = setup({ protocol: 1, library_hash: manifest.library_hash, form_recovery: true }, [message], recoverableForm);
+  fixture.failures.save = true;
+  const view = fixture.mount();
+  try {
+    fireEvent.change(await screen.findByRole("textbox", { name: "Project name" }), { target: { value: "Nanobot" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Priority" }), { target: { value: "High" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Ephemeral note" }), { target: { value: "Memory only" } });
+    await screen.findByText("openui.draftFailed");
+    expect(screen.getByRole("textbox", { name: "Project name" })).toHaveValue("Nanobot");
+    fireEvent.click(screen.getByRole("button", { name: "openui.saveDraft" }));
+    await screen.findByText("openui.saved");
+    fixture.failures.send = true;
+    fireEvent.click(screen.getByRole("button", { name: "openui.submit" }));
+    await screen.findByText("openui.submitFailed");
+    expect(screen.getByRole("textbox", { name: "Ephemeral note" })).toHaveValue("Memory only");
+    fireEvent.click(screen.getByRole("button", { name: "openui.submit" }));
+    await screen.findByText("openui.submitted");
+    const sent = fixture.frames.filter((frame) => frame.type === "message");
+    expect(sent).toHaveLength(2);
+    expect(sent[0].turn_id).toBe(sent[1].turn_id);
+    expect(sent[0].content).toBe(sent[1].content);
+  } finally { view.unmount(); fixture.client.close(); }
+});
+
+it("restores an uncertain admission as locked instead of resending it", async () => {
+  const fixture = setup({ protocol: 1, library_hash: manifest.library_hash, form_recovery: true }, [message], {
+    ...recoverableForm, state: { $forms: { "form-0": { schema: "test", values: ["Nanobot", "High", ""], status: "unknown", request_id: "existing" } } },
+  });
+  const view = fixture.mount();
+  try {
+    await screen.findByText("openui.submissionUnknown");
+    expect(screen.getByRole("button", { name: "openui.submit" })).toBeDisabled();
+    expect(fixture.frames.filter((frame) => frame.type === "message")).toHaveLength(0);
+  } finally { view.unmount(); fixture.client.close(); }
+});
+
+it("recovers saved form fields after reconnect and ignores a foreign session generation", async () => {
+  const capability = { protocol: 1, library_hash: manifest.library_hash, form_recovery: true };
+  const fixture = setup(capability, [message], recoverableForm);
+  const view = fixture.mount();
+  try {
+    fireEvent.change(await screen.findByRole("textbox", { name: "Project name" }), { target: { value: "Reconnect draft" } });
+    await screen.findByText("openui.saved");
+    act(() => fixture.socket.onclose?.());
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Project name" })).toBeNull());
+    act(() => {
+      fixture.client.connect(); fixture.socket.onopen?.();
+      fixture.socket.onmessage?.({ data: JSON.stringify({ event: "ready", chat_id: "chat", client_id: "browser", openui: capability }) } as MessageEvent);
+    });
+    expect(await screen.findByRole("textbox", { name: "Project name" })).toHaveValue("Reconnect draft");
+    act(() => fixture.socket.onmessage?.({ data: JSON.stringify({ event: "openui.snapshot", chat_id: "chat", snapshot: {
+      ...recoverableForm, session_generation: "foreign", state_version: 99,
+      state: { $forms: { "form-0": { schema: "test", values: ["Foreign", "High", ""], status: "submitted" } } },
+    } }) } as MessageEvent));
+    expect(screen.getByRole("textbox", { name: "Project name" })).toHaveValue("Reconnect draft");
+    expect(fixture.frames.filter((frame) => frame.type === "message")).toHaveLength(0);
   } finally { view.unmount(); fixture.client.close(); }
 });
 

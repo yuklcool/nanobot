@@ -18,6 +18,7 @@ from nanobot.openui.collector import UITurnPrepared
 from nanobot.openui.config import OpenUIOptions
 from nanobot.openui.coordinator import JobFailure, JobKey, UIJobCoordinator, store_call
 from nanobot.openui.data import DisplayRow
+from nanobot.openui.forms import ConversationForm, save_form
 from nanobot.openui.generator import generate_view
 from nanobot.openui.policy import should_generate_view
 from nanobot.openui.snapshots import (
@@ -59,6 +60,11 @@ class UiStateRequest(UiBlockRequest):
     question: Annotated[str, Field(max_length=2000)]
 
 
+class UiFormRequest(UiBlockRequest):
+    expected_state_version: Annotated[int, Field(ge=0)]
+    form: ConversationForm
+
+
 class UiAction(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     session_generation: Identifier
@@ -68,11 +74,12 @@ class UiAction(BaseModel):
     action_id: Literal["conversation.followup", "record.analyze"]
     data_ref: Identifier | None = None
     record_id: Identifier | None = None
+    form_id: Annotated[str, Field(pattern=r"^form-[0-5]$")] | None = None
 
     @model_validator(mode="after")
     def action_fields(self) -> UiAction:
         if self.action_id == "record.analyze":
-            if self.data_ref is None or self.record_id is None:
+            if self.data_ref is None or self.record_id is None or self.form_id is not None:
                 raise ValueError("INVALID_PARAMS")
         elif self.data_ref is not None or self.record_id is not None:
             raise ValueError("INVALID_PARAMS")
@@ -122,7 +129,8 @@ class OpenUIRuntime:
 
     @staticmethod
     def capability() -> dict[str, object]:
-        return {"protocol": 1, "library_hash": LIBRARY_HASH, "modes": ["markdown", "openui", "auto"]}
+        return {"protocol": 1, "library_hash": LIBRARY_HASH, "modes": ["markdown", "openui", "auto"],
+                "form_recovery": True}
 
     def _prepare(self, event: UITurnPrepared) -> None:
         if self._closed:
@@ -173,12 +181,17 @@ class OpenUIRuntime:
         scope, block = await self.block(request)
         if (block.revision == request.revision
                 and block.state_version == request.expected_state_version + 1
-                and block.state == {"$question": request.question}):
+                and block.state.get("$question") == request.question):
             return block
         return await store_call(
             self.store.save_state, scope, request.block_id, revision=request.revision,
-            expected_state_version=request.expected_state_version, state={"$question": request.question},
+            expected_state_version=request.expected_state_version, state={**block.state, "$question": request.question},
         )
+
+    async def save_form(self, request: UiFormRequest) -> UiSnapshot:
+        scope, _ = await self.block(request)
+        return await store_call(save_form, self.store, scope, request.block_id, revision=request.revision,
+                                expected_state_version=request.expected_state_version, form=request.form)
 
     async def prepare_record(self, request: UiRecordRequest) -> str:
         _, snapshot = await self.block(request)
@@ -209,7 +222,8 @@ class OpenUIRuntime:
             raise ValueError("INVALID_PARAMS")
         result = await store_call(self.actions.reserve, scope, request_id=action.request_id,
                                   block_id=action.block_id, revision=action.revision, content=content,
-                                  action_id=action.action_id, data_ref=action.data_ref, record_id=action.record_id)
+                                  action_id=action.action_id, data_ref=action.data_ref, record_id=action.record_id,
+                                  form_id=action.form_id)
         return scope, action, result, context
 
     def schedule_turn(
@@ -283,7 +297,7 @@ class OpenUIRuntime:
         )
         holder.append(snapshot)
         try:
-            await store_call(self.store.create, scope, snapshot, state_keys=frozenset({"$question"}))
+            await store_call(self.store.create, scope, snapshot, state_keys=frozenset({"$question", "$forms"}))
         except UiConflictError:
             return
         runtime = prepared.runtime if prepared else None
