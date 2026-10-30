@@ -2,7 +2,7 @@
 
 import re
 
-
+# shortcut: Chinese/English intent cues; extend after validating other languages.
 _TEXT_ONLY = re.compile(
     r"只(?:要|用|需)(?:纯)?(?:文字|文本)|纯文本|不要[^。！？\n]{0,24}(?:组件|按钮|表单|交互)"
     r"|\b(?:plain text|text only|no (?:interactive |UI )?(?:components|buttons|forms))\b", re.I,
