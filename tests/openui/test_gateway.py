@@ -210,6 +210,38 @@ async def test_native_two_turn_card_action_and_refresh(gateway):
     assert gateway.tool.calls == 2
 
 
+async def test_form_drafts_submit_receipts_and_duplicate_restore_through_gateway(gateway):
+    block = await first_card(gateway)
+    payload = {"chat_id": "chat", "session_generation": block["session_generation"],
+               "block_id": block["block_id"], "revision": 1, "expected_state_version": 0,
+               "form": {"form_id": "form-0", "title": "Project", "fields": [
+                   {"label": "Name", "persist": True}, {"label": "Priority", "options": ["Normal", "High"], "persist": True},
+               ], "values": ["Nanobot", "High"]}}
+    saved = await rpc(gateway, "openui.form", payload)
+    assert saved["ok"]
+    other = await rpc(gateway, "openui.form", {**payload, "chat_id": "other"})
+    assert not other["ok"]
+    prepared = await rpc(gateway, "openui.form", {**payload, "expected_state_version": 1,
+                                                "form": {**payload["form"], "submit": True}})
+    assert prepared["ok"]
+    entry = prepared["result"]["snapshot"]["state"]["$forms"]["form-0"]
+    envelope = {"type": "message", "chat_id": "chat", "turn_id": entry["request_id"], "webui": True,
+                "content": "Project\nName: Nanobot\nPriority: High", "ui_action": {
+                    "session_generation": block["session_generation"], "block_id": block["block_id"],
+                    "revision": 1, "request_id": entry["request_id"], "action_id": "conversation.followup", "form_id": "form-0",
+                }}
+    await dispatch(gateway, envelope)
+    assert gateway.bus.inbound_size == 1
+    await execute(gateway)
+    restored = await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": ["turn-1"]})
+    form_state = restored["result"]["blocks"][0]["state"]["$forms"]["form-0"]
+    assert form_state["status"] == "submitted"
+    assert form_state["values"] == ["Nanobot", "High"]
+    await dispatch(gateway, envelope)
+    assert gateway.bus.inbound_size == 0
+    assert gateway.connection.sent[-1]["event"] == "message_accepted"
+
+
 async def test_rejects_foreign_session_deleted_generation_and_unknown_admission(gateway):
     block = await first_card(gateway)
     request = {"type": "message", "chat_id": "chat", "turn_id": "action-unknown", "webui": True,

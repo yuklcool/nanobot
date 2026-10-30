@@ -117,6 +117,12 @@ test("inline choices, short forms and confirmations continue the native conversa
   await form.getByRole("textbox", { name: "Project name" }).fill("Nanobot interaction");
   await form.getByRole("combobox", { name: "Priority" }).selectOption("High");
   await expect(submit).toBeEnabled();
+  await expect(form.getByRole("status")).toHaveText("Draft saved");
+  await page.reload();
+  await expect(form.getByRole("textbox", { name: "Project name" })).toHaveValue("Nanobot interaction");
+  await expect(form.getByRole("combobox", { name: "Priority" })).toHaveValue("High");
+  expect(messages).toHaveLength(2);
+  await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
   await page.screenshot({ path: test.info().outputPath("inline-form-desktop.png"), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -131,7 +137,13 @@ test("inline choices, short forms and confirmations continue the native conversa
   await page.screenshot({ path: test.info().outputPath("inline-confirmation-mobile-dark.png"), fullPage: true });
   expect(messages).toHaveLength(3);
   expect(messages[2]).toMatchObject({ content: "Project details\nProject name: Nanobot interaction\nPriority: High",
-    ui_action: { action_id: "conversation.followup", request_id: messages[2].turn_id } });
+    ui_action: { action_id: "conversation.followup", request_id: messages[2].turn_id, form_id: "form-0" } });
+  await page.reload();
+  await expect(form.getByRole("status")).toHaveText("Submitted");
+  await expect(submit).toBeDisabled();
+  expect(messages).toHaveLength(3);
+  await page.screenshot({ path: test.info().outputPath("form-submitted-after-refresh.png"), fullPage: true });
+  await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
   await page.getByRole("button", { name: "Confirm plan", exact: true }).click();
   await expect(page.getByText("Confirmed. We can now prepare the plan in this conversation.", { exact: true }).filter({ visible: true })).toBeVisible();
   expect(messages).toHaveLength(4);

@@ -62,6 +62,7 @@ from nanobot.webui.metadata import (
 from nanobot.webui.openui_runtime import (
     REQUEST_ERRORS,
     UiBlockRequest,
+    UiFormRequest,
     UiRecordRequest,
     UiRequest,
     UiStateRequest,
@@ -884,7 +885,13 @@ class WebUICommandRouter:
             )
             accepted = True
             if ui_admission is not None and self.gateway.openui is not None:
-                await store_call(self.gateway.openui.actions.accept, ui_admission[0], ui_admission[1].request_id)
+                ui_scope, ui_action, _, _ = ui_admission
+                snapshot = await store_call(
+                    self.gateway.openui.actions.accept, ui_scope, ui_action.request_id,
+                    block_id=ui_action.block_id, revision=ui_action.revision, form_id=ui_action.form_id,
+                )
+                if snapshot is not None:
+                    await self.emit_openui(snapshot)
             if turn_id:
                 self._accepted_messages[(chat_id, turn_id)] = time.monotonic() + 600
                 if len(self._accepted_messages) > 1024:
@@ -984,12 +991,14 @@ class WebUICommandRouter:
                         snapshot = await runtime.control(block_request, cancel=action == "openui.cancel",
                                                          emit=self.emit_openui)
                         result = {"snapshot": snapshot.model_dump()}
-                elif action == "openui.state":
-                    state_request = UiStateRequest.model_validate(envelope.get("payload"))
+                elif action in {"openui.state", "openui.form"}:
+                    state_request = (UiFormRequest if action == "openui.form" else UiStateRequest).model_validate(envelope.get("payload"))
                     if (connection not in self._openui_connections
                             or state_request.chat_id not in self._transport.webui_connection_chats(connection)):
                         raise ValueError("ACTION_NOT_ALLOWED")
-                    snapshot = await runtime.save_state(state_request)
+                    snapshot = (await runtime.save_form(state_request) if isinstance(state_request, UiFormRequest)
+                                else await runtime.save_state(state_request))
+                    await self.emit_openui(snapshot)
                     result = {"snapshot": snapshot.model_dump()}
                 else:
                     raise ValueError("ACTION_NOT_ALLOWED")

@@ -99,8 +99,8 @@ class FixtureProvider(LLMProvider):
                       '{label: "Review a draft", question: "I want to review an existing project draft."}])\n')
         elif payload["public_answer"].startswith("Please provide a name"):
             source = ('root = Panel([details])\ndetails = Form("Project details", ['
-                      '{label: "Project name", placeholder: "Give your project a name"}, '
-                      '{label: "Priority", options: ["Normal", "High"]}])\n')
+                      '{label: "Project name", persist: true, placeholder: "Give your project a name"}, '
+                      '{label: "Priority", persist: true, options: ["Normal", "High"]}])\n')
         elif payload["public_answer"].startswith("I have the details"):
             source = ('root = Panel([confirm])\nconfirm = Choices("Ready to continue?", ['
                       '{label: "Confirm plan", question: "Confirm the proposed project plan."}, '
