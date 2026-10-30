@@ -146,11 +146,11 @@ test("auto mode uses real session search and read tools without replaying histor
   expect(messages[2]).toMatchObject({ chat_id: "gateway-poc", ui_mode: "auto", ui_action: {
     action_id: "record.analyze", record_id: "websocket:saved-planning",
   } });
-  await expect(page.locator("[data-user-text-bubble]").last()).toHaveText("Analyze Saved conversations: Planning notes");
+  await expect(page.locator("[data-user-text-bubble] > p").last()).toHaveText("Analyze Saved conversations: Planning notes");
   await page.screenshot({ path: test.info().outputPath("auto-native-session-tools.png"), fullPage: true });
   await page.reload();
   await expect(page.getByRole("button", { name: "Summarize notes" })).toBeVisible();
-  await expect(page.locator("[data-user-text-bubble]").last()).toHaveText("Analyze Saved conversations: Planning notes");
+  await expect(page.locator("[data-user-text-bubble] > p").last()).toHaveText("Analyze Saved conversations: Planning notes");
   expect(messages).toHaveLength(3);
   expect(errors).toEqual([]);
 });
