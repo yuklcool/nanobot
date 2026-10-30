@@ -2713,6 +2713,11 @@
     }
   },
   "openui": {
+    "submitForm": "Submit answers",
+    "formProgress": "{{done}} of {{total}} required questions answered",
+    "originalAnswer": "View original text",
+    "optional": "Optional",
+    "formTooLong": "Answers are too long. Shorten the text and submit again.",
     "modeMarkdown": "Off",
     "modeAuto": "Automatic",
     "modeOpenui": "Always",

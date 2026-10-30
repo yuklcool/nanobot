@@ -242,6 +242,31 @@ async def test_form_drafts_submit_receipts_and_duplicate_restore_through_gateway
     assert gateway.connection.sent[-1]["event"] == "message_accepted"
 
 
+async def test_whole_questionnaire_admission_uses_prepared_digest_and_form_message_limit(gateway):
+    block = await first_card(gateway)
+    fields = [{"label": f"Question {index}"} for index in range(6)]
+    content = "Survey\n" + "\n".join(f"Question {index}: " + "a" * 400 for index in range(6))
+    prepared = await rpc(gateway, "openui.form", {
+        "chat_id": "chat", "session_generation": block["session_generation"], "block_id": block["block_id"],
+        "revision": 1, "expected_state_version": 0, "form": {"form_id": "form-0", "title": "Survey",
+            "fields": fields, "values": ["a" * 400] * 6, "presentation": "questionnaire", "submit": True},
+    })
+    assert prepared["ok"]
+    entry = prepared["result"]["snapshot"]["state"]["$forms"]["form-0"]
+    action = {"session_generation": block["session_generation"], "block_id": block["block_id"],
+              "revision": 1, "request_id": entry["request_id"], "action_id": "conversation.followup"}
+    envelope = {"type": "message", "chat_id": "chat", "turn_id": entry["request_id"],
+                "webui": True, "content": content, "ui_action": action}
+    await dispatch(gateway, envelope)
+    assert gateway.bus.inbound_size == 0
+    await dispatch(gateway, {**envelope, "content": content + "changed", "ui_action": {**action, "form_id": "form-0"}})
+    assert gateway.bus.inbound_size == 0
+    await dispatch(gateway, {**envelope, "ui_action": {**action, "form_id": "form-0"}})
+    assert gateway.bus.inbound_size == 1
+    assert gateway.connection.sent[-1]["event"] == "message_accepted"
+    await execute(gateway)
+
+
 async def test_rejects_foreign_session_deleted_generation_and_unknown_admission(gateway):
     block = await first_card(gateway)
     request = {"type": "message", "chat_id": "chat", "turn_id": "action-unknown", "webui": True,

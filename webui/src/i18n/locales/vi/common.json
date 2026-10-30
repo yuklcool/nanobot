@@ -2507,6 +2507,11 @@
     }
   },
   "openui": {
+    "submitForm": "Gửi câu trả lời",
+    "formProgress": "Đã trả lời {{done}} / {{total}} câu bắt buộc",
+    "originalAnswer": "Xem văn bản gốc",
+    "optional": "Không bắt buộc",
+    "formTooLong": "Câu trả lời quá dài. Hãy rút gọn nội dung rồi gửi lại.",
     "modeMarkdown": "Tắt",
     "modeAuto": "Tự động",
     "modeOpenui": "Luôn bật",

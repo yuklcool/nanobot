@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import manifest from "../../../../nanobot/openui/generated/chat-library.json";
 import { NanobotClient } from "../../lib/nanobot-client";
@@ -8,7 +8,7 @@ import { useNanobotStream } from "../../hooks/useNanobotStream";
 import { OpenUIChatProvider, OpenUIControls, OpenUIMessage } from "../../openui/OpenUIChat";
 import type { UiSnapshot } from "../../openui/snapshot";
 import type { UIMessage } from "../../lib/types";
-import type { FormInput } from "../../openui/chat-library";
+import { emptyFormValue, type FormInput } from "../../openui/form-contract";
 
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 afterEach(cleanup);
@@ -46,7 +46,7 @@ function setup(capability: unknown = { protocol: 1, library_hash: manifest.libra
             const previous = forms[form.form_id];
             if (!previous?.request_id) saved = { ...saved, state_version: saved.state_version + 1,
               state: { ...saved.state, $forms: { ...forms, [form.form_id]: {
-                schema: "test", values: form.values.map((value, index) => form.fields[index].persist ? value : ""),
+                schema: "test", values: form.values.map((value, index) => form.fields[index].persist ? value : emptyFormValue(form.fields[index])),
                 status: form.submit ? "prepared" : "draft", ...(form.submit ? { request_id: "form-request-1" } : {}),
               } } } } as UiSnapshot;
           }
@@ -82,7 +82,7 @@ function setup(capability: unknown = { protocol: 1, library_hash: manifest.libra
     const { send, messages } = useNanobotStream(chatId, seed);
     return <OpenUIChatProvider client={client} chatId={chatId} disabled={disabled} messages={messages} send={send}>
       <OpenUIControls />
-      <OpenUIMessage message={message} />
+      <OpenUIMessage message={message}><p data-testid="native-answer">{message.content}</p></OpenUIMessage>
       <OpenUIMessage message={{ ...message, turnSeq: 6, id: "wrong-anchor" }} />
       <ol aria-label="Conversation">{messages.map((row) => <li key={row.id}>{row.content}</li>)}</ol>
     </OpenUIChatProvider>;
@@ -422,7 +422,7 @@ it("isolates views when two hosts share the same chat and generation identifiers
   });
   function Host({ client }: { client: NanobotClient }) {
     return <OpenUIChatProvider client={client} chatId="chat" messages={[message]} send={() => null}>
-      <OpenUIControls /><OpenUIMessage message={message} />
+      <OpenUIControls /><OpenUIMessage message={message}><p data-testid="native-answer">{message.content}</p></OpenUIMessage>
     </OpenUIChatProvider>;
   }
   const view = render(<Host client={first.client} />);
@@ -434,4 +434,53 @@ it("isolates views when two hosts share the same chat and generation identifiers
       snapshot: { ...initial, state_version: 2, state: { $question: "Late first host" } } }) } as MessageEvent));
     expect(screen.getByRole("textbox")).toHaveValue("Second host draft");
   } finally { view.unmount(); first.client.close(); second.client.close(); }
+});
+
+const surveySource = 'root = Panel([survey])\nsurvey = Form("Employee survey", [{label: "New job?", type: "radio", options: ["Yes", "No"]}, {label: "Reasons", type: "checkbox", options: ["Pay", "Other"], when: {field: 0, value: "Yes"}}, {label: "Other reason", when: {field: 1, value: "Other"}}, {label: "Comment", required: false}], "Fill in the questions below.", "questionnaire")\n';
+it("renders a whole questionnaire with conditional fields and sends one canonical reply", async () => {
+  const fixture = setup({ protocol: 1, library_hash: manifest.library_hash, form_recovery: true }, [message], {
+    ...initial, source: surveySource,
+  });
+  const view = fixture.mount();
+  try {
+    const form = within(await screen.findByRole("form", { name: "Employee survey" }));
+    const submit = form.getByRole("button", { name: "openui.submitForm" });
+    const original = screen.getByTestId("native-answer").closest("details")!;
+    expect(original).not.toHaveAttribute("open");
+    expect(submit).toBeDisabled();
+    fireEvent.click(form.getByRole("radio", { name: "Yes" }));
+    fireEvent.click(form.getByRole("checkbox", { name: "Other" }));
+    fireEvent.change(form.getByRole("textbox", { name: "Other reason" }), { target: { value: "Remove this answer" } });
+    fireEvent.click(form.getByRole("radio", { name: "No" }));
+    expect(form.queryByRole("group", { name: "Reasons" })).toBeNull();
+    expect(submit).toBeEnabled();
+    fireEvent.click(form.getByRole("radio", { name: "Yes" }));
+    expect(form.getByRole("checkbox", { name: "Other" })).not.toBeChecked();
+    fireEvent.click(form.getByRole("checkbox", { name: "Pay" }));
+    expect(submit).toBeEnabled();
+    expect(fixture.frames.filter((frame) => frame.type === "message")).toHaveLength(0);
+    fireEvent.click(submit); fireEvent.click(submit);
+    await screen.findByText("openui.submitted");
+    const sent = fixture.frames.filter((frame) => frame.type === "message");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ content: "Employee survey\nNew job?: Yes\nReasons: Pay\nComment: ",
+      ui_action: { form_id: "form-0", request_id: "form-request-1" } });
+    expect(fixture.frames.find((frame) => frame.action === "openui.form")).toMatchObject({
+      payload: { form: { values: ["Yes", ["Pay"], "", ""], submit: true } },
+    });
+  } finally { view.unmount(); fixture.client.close(); }
+});
+
+it("keeps the original answer visible when a questionnaire is incomplete or invalid", async () => {
+  const fixture = setup(undefined, [message], { ...initial, status: "streaming", source: surveySource });
+  const view = fixture.mount();
+  try {
+    await screen.findByRole("form", { name: "Employee survey" });
+    expect(screen.getByTestId("native-answer").closest("details")).toBeNull();
+    act(() => fixture.socket.onmessage?.({ data: JSON.stringify({ event: "openui.snapshot", chat_id: "chat", snapshot: {
+      ...initial, seq: initial.seq + 1, source: surveySource.replace('field: 0, value: "Yes"', 'field: 9, value: "Yes"'),
+    } }) } as MessageEvent));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "openui.cancelView" })).toBeNull());
+    expect(screen.getByTestId("native-answer").closest("details")).toBeNull();
+  } finally { view.unmount(); fixture.client.close(); }
 });

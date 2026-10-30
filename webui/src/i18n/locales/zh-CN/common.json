@@ -2713,6 +2713,11 @@
     }
   },
   "openui": {
+    "submitForm": "提交问卷",
+    "formProgress": "已完成 {{done}} / {{total}} 道必答题",
+    "originalAnswer": "查看原文",
+    "optional": "选填",
+    "formTooLong": "回答过长，请精简文字后重新提交。",
     "modeMarkdown": "关闭",
     "modeAuto": "自动",
     "modeOpenui": "始终",

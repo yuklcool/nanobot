@@ -16,6 +16,7 @@ try {
   const basis = { schema_version: 1, sdk: pkg.dependencies['@openuidev/react-lang'],
     core: pkg.dependencies['@openuidev/lang-core'],
     data_contract_hash: createHash('sha256').update((await readFile(path.join(root, 'src/openui/data-contract.ts'), 'utf8')).replaceAll('\r\n', '\n')).digest('hex'),
+    form_contract_hash: createHash('sha256').update((await readFile(path.join(root, 'src/openui/form-contract.ts'), 'utf8')).replaceAll('\r\n', '\n')).digest('hex'),
     source_hash: createHash('sha256').update((await readFile(source, 'utf8')).replaceAll('\r\n', '\n')).digest('hex'), prompt: chatLibrary.prompt() };
   const manifest = JSON.stringify({ ...basis,
     library_hash: createHash('sha256').update(JSON.stringify(basis)).digest('hex') }, null, 2) + '\n';

@@ -1,30 +1,15 @@
 import { createContext, useContext, useEffect, useId, useRef, useState } from "react";
-import { createLibrary, defineComponent, reactive, useIsStreaming, useStateField, useTriggerAction } from "@openuidev/react-lang";
+import { createLibrary, defineComponent, reactive, useIsStreaming, useStateField, useTriggerAction, createParser } from "@openuidev/react-lang";
 import { ArrowUp, ArrowUpRight, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import { Button } from "../components/ui/button";
 import type { DisplayTable } from "./data-contract";
+import { emptyFormValue, formComplete, formContent, formDefinitionSchema, normalizeFormValues, visibleFields,
+  type FormInput, type FormState, type FormValue } from "./form-contract";
 
 export const ChatInteraction = createContext(false);
 export const DisplayDataContext = createContext<Record<string, DisplayTable>>({});
-export const formFieldSchema = z.object({
-  label: z.string().min(1).max(80), placeholder: z.string().max(120).optional(),
-  options: z.array(z.string().min(1).max(120)).min(2).max(6).optional(),
-  persist: z.boolean().optional(),
-});
-export const formInputSchema = z.object({
-  form_id: z.string().regex(/^form-[0-5]$/), title: z.string().min(1).max(160),
-  fields: z.array(formFieldSchema).min(1).max(3), values: z.array(z.string().max(400)).min(1).max(3),
-  submit: z.boolean(),
-});
-export type FormInput = z.infer<typeof formInputSchema>;
-export const formStateSchema = z.object({
-  schema: z.string(), values: z.array(z.string().max(400)).max(3),
-  status: z.enum(["draft", "prepared", "unknown", "submitted"]),
-  request_id: z.string().optional(), content_digest: z.string().optional(),
-});
-export type FormState = z.infer<typeof formStateSchema>;
 export const FormRecovery = createContext<{
   forms: Record<string, FormState>;
   update: (form: FormInput) => Promise<FormState>;
@@ -60,18 +45,15 @@ const Choices = defineComponent({
   },
 });
 const Form = defineComponent({
-  name: "Form", description: "Ask for one to three missing details in a compact form. All fields are required. Use options for a select, otherwise a short text input. Set persist:true only for non-sensitive details such as project name or priority to restore drafts. Omitted persist means memory only. Never request passwords, tokens, credentials or other secrets. Submitted values become a user message, never a direct tool call. Do not prefill business facts.",
-  props: z.object({
-    title: z.string().min(1).max(160),
-    fields: z.array(formFieldSchema).min(1).max(3),
-  }),
+  name: "Form", description: "Collect details or render an entire questionnaire (1–12 fields). Keep a survey together in ONE Form, with description and presentation:questionnaire; use it as the only Panel child. Preserve the questions and options from the answer. Use type:radio for one choice, checkbox for multiple choices, select for a dropdown, otherwise text. Fields are required unless required:false. when:{field:0,value:\"Other\"} shows a field only when that earlier choice is selected (also matches checkbox selections). Add conditional text fields for Other details and conditional follow-up questions. Set persist:true ONLY for explicitly non-sensitive details; omit it for employee, income or other personal survey answers. Never ask for secrets. Submission sends all visible answers together to this conversation, never directly to a business tool.",
+  props: formDefinitionSchema,
   component: function DetailForm({ props }) {
     const { t } = useTranslation();
     const id = useId();
     const recovery = useContext(FormRecovery);
     const formId = useContext(FormPosition);
     const restored = recovery?.forms[formId];
-    const [values, setValues] = useState<string[]>(() => props.fields.map((_, index) => restored?.values[index] ?? ""));
+    const [values, setValues] = useState<FormValue[]>(() => props.fields.map((field, index) => restored?.values[index] ?? emptyFormValue(field)));
     const [notice, setNotice] = useState("");
     const [saveFailed, setSaveFailed] = useState(false);
     const [sending, setSending] = useState(false);
@@ -84,10 +66,18 @@ const Form = defineComponent({
     const streaming = useIsStreaming();
     const trigger = useTriggerAction();
     const locked = submitted || restored?.status === "submitted" || restored?.status === "unknown";
-    const complete = props.fields.every((field, index) => values[index]?.trim()
-      && (!field.options || field.options.includes(values[index])));
-    const remembered = JSON.stringify(props.fields.map((field, index) => field.persist ? values[index] : ""));
-    const saved = JSON.stringify(restored?.values ?? props.fields.map(() => ""));
+    const complete = formComplete(props.fields, values);
+    const visible = visibleFields(props.fields, values);
+    const questionnaire = props.presentation === "questionnaire";
+    const remembered = JSON.stringify(normalizeFormValues(props.fields, values, true));
+    const saved = JSON.stringify(restored?.values ?? props.fields.map(emptyFormValue));
+    const total = props.fields.filter((field, index) => visible[index] && field.required !== false).length;
+    const done = props.fields.filter((field, index) => visible[index] && field.required !== false && formComplete([ { ...field, when: undefined } ], [values[index] ?? emptyFormValue(field)])).length;
+    function change(index: number, value: FormValue) {
+      setSaveFailed(false);
+      setValues((current) => normalizeFormValues(props.fields,
+        props.fields.map((field, i) => i === index ? value : current[i] ?? emptyFormValue(field))));
+    }
     async function saveDraft() {
       const current = latest.current;
       if (!current.recovery || saving.current || submitting.current) return;
@@ -95,7 +85,7 @@ const Form = defineComponent({
       setNotice(t("openui.savingDraft"));
       try {
         await current.recovery.update({ form_id: formId, ...current.props,
-          values: current.props.fields.map((field, index) => field.persist ? current.values[index] : ""), submit: false });
+          values: normalizeFormValues(current.props.fields, current.values, true), submit: false });
         setNotice(t("openui.saved"));
         setSaveFailed(false);
       } catch { setNotice(t("openui.draftFailed")); setSaveFailed(true); }
@@ -110,48 +100,76 @@ const Form = defineComponent({
     }, [recovery, enabled, streaming, locked, restored?.request_id, remembered, saved, saveFailed]);
     async function submit() {
       if (!enabled || streaming || !complete || locked || submitting.current) return;
+      const form = { form_id: formId, ...props, values: normalizeFormValues(props.fields, values), submit: true };
+      const question = formContent(form);
+      if ([...question].length > (recovery ? 4000 : 2000)) { setNotice(t("openui.formTooLong")); return; }
       submitting.current = true;
       setSending(true);
       setNotice("");
       try {
         if (recovery) {
-          const entry = await recovery.update({ form_id: formId, ...props, values, submit: true });
+          const entry = await recovery.update(form);
           if (entry.status === "unknown") { setNotice(t("openui.submissionUnknown")); return; }
           setSubmitted(true);
         } else {
-          const question = [props.title, ...props.fields.map((field, index) => `${field.label}: ${values[index].trim()}`)].join("\n");
           await trigger("details", undefined, { type: "continue_conversation", params: { action_id: "conversation.followup", question } });
         }
       } catch { setNotice(t("openui.submitFailed")); }
       finally { submitting.current = false; setSending(false); }
     }
-    return <form aria-label={props.title} className="flex w-full max-w-lg flex-col gap-3 rounded-control border border-border/70 p-4"
-      onSubmit={(event) => {
-        event.preventDefault();
-        void submit();
-      }}>
-      <p className="text-reading-small font-medium">{props.title}</p>
-      {props.fields.map((field, index) => <div className="flex min-w-0 flex-col gap-1.5" key={index}>
-        <label className="text-reading-small text-muted-foreground" htmlFor={`${id}-${index}`}>{field.label}</label>
-        {field.options ? <select id={`${id}-${index}`} required disabled={!enabled || streaming || locked || sending}
-          className="h-10 min-w-0 rounded-control border border-input bg-background px-3 text-reading-small focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          value={values[index] ?? ""} onChange={(event) => { setSaveFailed(false); setValues((current) => props.fields.map((_, i) => i === index ? event.target.value : current[i] ?? "")); }}>
-          <option value="" disabled>{field.placeholder || field.label}</option>
-          {field.options.map((option, optionIndex) => <option key={optionIndex} value={option}>{option}</option>)}
-        </select> : <input id={`${id}-${index}`} required maxLength={400} disabled={!enabled || streaming || locked || sending}
-          className="h-10 min-w-0 rounded-control border border-input bg-background px-3 text-reading-small placeholder:text-muted-foreground/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          placeholder={field.placeholder} value={values[index] ?? ""}
-          onChange={(event) => { setSaveFailed(false); setValues((current) => props.fields.map((_, i) => i === index ? event.target.value : current[i] ?? "")); }} />}
-        {recovery && field.persist && <span className="text-caption text-muted-foreground">{t("openui.rememberedField")}</span>}
-      </div>)}
-      <Button type="submit" size="sm" className="self-end gap-2" disabled={!enabled || streaming || !complete || locked || sending}>
-        {t("openui.submit")}<ArrowUp className="h-3.5 w-3.5" aria-hidden />
-      </Button>
+    const disabled = !enabled || streaming || locked || sending;
+    return <form aria-label={props.title} className={questionnaire
+      ? "flex w-full max-w-2xl flex-col gap-5"
+      : "flex w-full max-w-lg flex-col gap-3 rounded-control border border-border/70 p-4"}
+      onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+      <div className="flex flex-col gap-2">
+        <p className={questionnaire ? "text-title font-semibold [text-wrap:balance]" : "text-reading-small font-medium"}>{props.title}</p>
+        {props.description && <p className="whitespace-pre-wrap text-reading-small text-muted-foreground">{props.description}</p>}
+      </div>
+      <div className={questionnaire ? "flex flex-col gap-5" : "flex flex-col gap-3"}>
+      {props.fields.map((field, index) => {
+        if (!visible[index]) return null;
+        const fieldId = `${id}-${index}`;
+        const value = values[index] ?? emptyFormValue(field);
+        const kind = field.type ?? (field.options ? "select" : "text");
+        return <fieldset disabled={disabled} className="flex min-w-0 flex-col gap-2" key={index}>
+          <legend className="mb-2 max-w-full text-reading-small font-medium [overflow-wrap:anywhere]">
+            <label htmlFor={kind === "text" || kind === "select" ? fieldId : undefined}>{field.label}</label>
+            {field.required === false && <span className="ml-2 text-caption font-normal text-muted-foreground">{t("openui.optional")}</span>}
+          </legend>
+          {kind === "radio" || kind === "checkbox" ? <div className="flex flex-wrap gap-x-4 gap-y-2">
+            {field.options?.map((option, optionIndex) => <label key={optionIndex}
+              className="flex min-h-9 cursor-pointer items-center gap-2 text-reading-small has-[:disabled]:cursor-default has-[:disabled]:text-muted-foreground">
+              <input type={kind} name={fieldId} value={option} className="h-4 w-4 shrink-0 accent-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                checked={Array.isArray(value) ? value.includes(option) : value === option}
+                onChange={(event) => change(index, kind === "radio" ? option : event.target.checked
+                  ? [...(Array.isArray(value) ? value : []), option]
+                  : (Array.isArray(value) ? value : []).filter((item) => item !== option))} />
+              <span className="[overflow-wrap:anywhere]">{option}</span>
+            </label>)}
+          </div> : kind === "select" ? <select id={fieldId} required={field.required !== false}
+            className="h-10 min-w-0 rounded-control border border-input bg-background px-3 text-reading-small focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            value={typeof value === "string" ? value : ""} onChange={(event) => change(index, event.target.value)}>
+            <option value="" disabled={field.required !== false}>{field.placeholder || field.label}</option>
+            {field.options?.map((option, optionIndex) => <option key={optionIndex} value={option}>{option}</option>)}
+          </select> : <input id={fieldId} required={field.required !== false} maxLength={400}
+            className="h-10 min-w-0 rounded-control border border-input bg-background px-3 text-reading-small placeholder:text-muted-foreground/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            placeholder={field.placeholder} value={typeof value === "string" ? value : ""}
+            onChange={(event) => change(index, event.target.value)} />}
+          {recovery && field.persist && <span className="text-caption text-muted-foreground">{t("openui.rememberedField")}</span>}
+        </fieldset>;
+      })}</div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {questionnaire && <span className="text-caption tabular-nums text-muted-foreground">{t("openui.formProgress", { done, total })}</span>}
+        <Button type="submit" size="sm" className="ml-auto gap-2" disabled={disabled || !complete}>
+          {t(questionnaire ? "openui.submitForm" : "openui.submit")}<ArrowUp className="h-3.5 w-3.5" aria-hidden />
+        </Button>
+      </div>
       {(locked || notice) && <p role="status" className="text-caption text-muted-foreground">{
         restored?.status === "unknown" ? t("openui.submissionUnknown") : locked ? t("openui.submitted") : notice
       }</p>}
       {saveFailed && !locked && <Button type="button" variant="ghost" size="sm" className="self-start"
-        disabled={!enabled || streaming || sending} onClick={() => { void saveDraft(); }}>{t("openui.saveDraft")}</Button>}
+        disabled={disabled} onClick={() => { void saveDraft(); }}>{t("openui.saveDraft")}</Button>}
     </form>;
   },
 });
@@ -232,3 +250,16 @@ export const chatLibrary = createLibrary({ id: "nanobot-chat-v1", root: "Panel",
 export const followupSchema = z.object({ type: z.literal("continue_conversation"), params: z.object({
   action_id: z.literal("conversation.followup"), question: z.string().trim().min(1).max(2000),
 }).strict() });
+
+const parser = createParser(chatLibrary.toJSONSchema(), chatLibrary.root);
+export function isQuestionnaire(source: string): boolean {
+  try {
+    const result = parser.parse(source);
+    if (result.meta.incomplete || result.meta.errors.length || result.meta.unresolved.length) return false;
+    const children = result.root?.typeName === "Panel" ? result.root.props.children : null;
+    if (!Array.isArray(children) || children.length !== 1) return false;
+    const node = children[0];
+    return node?.typeName === "Form" && node.props?.presentation === "questionnaire"
+      && formDefinitionSchema.safeParse(node.props).success;
+  } catch { return false; }
+}

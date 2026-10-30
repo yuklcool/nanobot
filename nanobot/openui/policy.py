@@ -18,6 +18,7 @@ _ASK = re.compile(
     r"|\b(?:(?:would|could|can) you|please (?:choose|pick|select|confirm|provide|enter|fill)"
     r"|which (?:option|one|style|type)|what (?:is your|would you))\b", re.I,
 )
+_SURVEY = re.compile(r"调查表|调查问卷|问卷|\b(?:questionnaire|survey)\b", re.I)
 
 
 def should_generate_view(question: str, answer: str, *, has_tables: bool) -> bool:
@@ -35,4 +36,7 @@ def should_generate_view(question: str, answer: str, *, has_tables: bool) -> boo
     # the current user. Do not let code samples alone trigger a UI request.
     answer = re.sub(r"```.*?(?:```|$)", "", answer[:16000], flags=re.S)
     answer = "\n".join(line for line in answer.splitlines() if not line.lstrip().startswith(">"))
-    return _ASK.search(answer) is not None
+    return _ASK.search(answer) is not None or (_SURVEY.search(answer) is not None and re.search(
+        r"(?m)^\s*(?:#{1,6}\s*)?(?:\*\*)?\d+[.、．)）][^\n]*[?？]"
+        r"|^\s*(?:[-*]\s*)?(?:[□☐]|\[[ x]?\])\s*\S", answer,
+    ) is not None)

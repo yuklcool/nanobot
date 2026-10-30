@@ -9,8 +9,8 @@ import type { UIMessage } from "@/lib/types";
 import type { SendOptions, SubmittedTurn } from "@/hooks/useNanobotStream";
 import { acceptSnapshot, uiSnapshotSchema, type UiSnapshot } from "./snapshot";
 import type { OpenUIAction, OpenUIMode } from "../../../packages/client-events/openui";
-import { ChatInteraction, DisplayDataContext, FormRecovery, chatLibrary, followupSchema, formStateSchema,
-  type FormInput, type FormState } from "./chat-library";
+import { ChatInteraction, DisplayDataContext, FormRecovery, chatLibrary, followupSchema, isQuestionnaire } from "./chat-library";
+import { formContent, formStateSchema, type FormInput, type FormState } from "./form-contract";
 
 interface ChatViews {
   blocks: UiSnapshot[];
@@ -206,7 +206,7 @@ class Boundary extends Component<{ children: ReactNode; fallback: ReactNode }, {
   static getDerivedStateFromError() { return { failed: true }; }
   render() { return this.state.failed ? this.props.fallback : this.props.children; }
 }
-function Block({ snapshot, views }: { snapshot: UiSnapshot; views: ChatViews }) {
+function Block({ snapshot, views, answer }: { snapshot: UiSnapshot; views: ChatViews; answer?: ReactNode }) {
   const { t } = useTranslation();
   const [parseFailed, setParseFailed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -224,7 +224,7 @@ function Block({ snapshot, views }: { snapshot: UiSnapshot; views: ChatViews }) 
     const entry = formStateSchema.parse(z.record(z.string(), formStateSchema).parse(updated.state.$forms)[form.form_id]);
     if (!form.submit || entry.status === "submitted" || entry.status === "unknown") return entry;
     if (!entry.request_id) throw new Error("Missing submission identity");
-    const question = [form.title, ...form.fields.map((field, index) => `${field.label}: ${form.values[index].trim()}`)].join("\n");
+    const question = formContent(form);
     const result = views.send(question, { uiAction: {
       session_generation: snapshot.session_generation, block_id: snapshot.block_id, revision: snapshot.revision,
       request_id: entry.request_id, action_id: "conversation.followup", form_id: form.form_id,
@@ -241,9 +241,9 @@ function Block({ snapshot, views }: { snapshot: UiSnapshot; views: ChatViews }) 
     catch { setNotice(t("openui.checkConversation")); }
     finally { pending.current = false; setBusy(false); }
   }
-  const fallback = <div><p role="status">{t("openui.unavailable")}</p>
+  const fallback = <>{answer}<div><p role="status">{t("openui.unavailable")}</p>
     <button type="button" className="rounded-control border px-2 py-1" disabled={!views.available || busy}
-      onClick={() => { void control("retry"); }}>{t("openui.retryView")}</button></div>;
+      onClick={() => { void control("retry"); }}>{t("openui.retryView")}</button></div></>;
   const failed = snapshot.status !== "streaming" && snapshot.status !== "complete";
 
   async function action(event: unknown) {
@@ -292,15 +292,20 @@ function Block({ snapshot, views }: { snapshot: UiSnapshot; views: ChatViews }) 
       {snapshot.status === "streaming" && <button type="button" className="rounded-control border px-2 py-1"
         disabled={!views.available || busy} onClick={() => { void control("cancel"); }}>{t("openui.cancelView")}</button>}
       {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
+      {answer && !failed && !parseFailed && storedForms.success && <details className="mt-4 text-reading-small text-muted-foreground">
+        <summary className="w-fit cursor-pointer rounded-control focus-visible:outline focus-visible:outline-ring">{t("openui.originalAnswer")}</summary>
+        <div className="mt-3">{answer}</div>
+      </details>}
     </FormRecovery.Provider>
     </DisplayDataContext.Provider>
     </ChatInteraction.Provider>
   </Boundary>;
 }
-export function OpenUIMessage({ message }: { message: UIMessage }) {
+export function OpenUIMessage({ message, children }: { message: UIMessage; children?: ReactNode }) {
   const views = useContext(Views);
-  if (!views || message.role !== "assistant" || message.kind === "trace" || message.isStreaming) return null;
+  if (!views || message.role !== "assistant" || message.kind === "trace" || message.isStreaming) return <>{children}</>;
   const blocks = views.blocks.filter((block) => block.turn_id === message.turnId && block.anchor_seq === message.turnSeq);
-  return <>{blocks.map((block) => <Block key={`${block.session_generation}:${block.block_id}:${block.revision}`}
-    snapshot={block} views={views} />)}</>;
+  const replacement = views.available && blocks.length === 1 && blocks[0].status === "complete" && isQuestionnaire(blocks[0].source);
+  return <>{!replacement && children}{blocks.map((block) => <Block key={`${block.session_generation}:${block.block_id}:${block.revision}`}
+    snapshot={block} views={views} answer={replacement ? children : undefined} />)}</>;
 }
