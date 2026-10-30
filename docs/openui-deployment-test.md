@@ -1,6 +1,6 @@
 # OpenUI 真实应用测试部署
 
-这是 `feature/openui-p0` 分支的隔离测试版本，运行真实 Nanobot Gateway 和 WebUI，连接由部署者配置的模型 Provider。它仍是草稿 PR 的实验功能，不是正式发布版；P0/P1 的完整验收、真实外部模型与 MCP 尚未完成。不要将其覆盖到现有生产实例或复用生产数据目录。
+OpenUI 测试实现已通过 PR #3 合入 `develop`；本说明从开发与发布主线 `develop` 构建隔离测试版本，运行真实 Nanobot Gateway 和 WebUI，连接由部署者配置的模型 Provider。它仍是实验功能，尚未正式发布；P0/P1 的完整验收、真实外部模型与 MCP 尚未完成。不要将其覆盖到现有生产实例或复用生产数据目录。
 
 ## 已实现与验证范围
 
@@ -17,13 +17,13 @@ Python wheel 包含正式 WebUI 静态文件、OpenUI 清单和 Gateway，CI 在
 1. 克隆测试分支并构建独立测试镜像：
 
 ```bash
-git clone -b feature/openui-p0 --single-branch https://github.com/yuklcool/nanobot.git nanobot-openui-test
+git clone -b develop --single-branch https://github.com/yuklcool/nanobot.git nanobot-openui-test
 cd nanobot-openui-test
 git rev-parse HEAD
 docker build --build-arg NANOBOT_CHANNELS= -t nanobot-openui:test .
 ```
 
-记录输出的 commit，测试结果应关联这个确切版本。此构建不推送镜像，也不发布 tag 或 Release。
+记录输出的完整 commit，测试结果应关联这个确切版本。若重建已验收版本，先检出所记录的提交，再构建；持续变化的 develop 分支头不自动等同于已验收版本。正式发布从 develop 的固定已验收提交产生，部署固定 tag、提交或镜像摘要；main 只跟踪上游最新，stable 只跟踪官方稳定基线。此构建不推送镜像，也不发布 tag 或 Release。
 
 2. 创建独立数据目录与配置，填入自己的模型 API 凭据并生成 WebUI 登录口令。API key 留在部署环境中，不要提交到 Git 或发到聊天：
 
@@ -82,4 +82,4 @@ OpenUI 工作流在构建、安装和 Gateway 测试通过后，生成包含 whe
 
 - 外部模型质量、真实 MCP、资源级权限和写操作确认还没有验收。当前表格只展示明确配置的工具字段；没有通用业务 Mutation。
 - UI 生成失败或超时保留原生文字；可重试 UI，但进程重启后原回合的模型运行时不在内存时不能重试该旧视图。
-- 不支持将 P0/P1 标记为完成，也不等同于与 main 合并后的发布候选验收。Docker 镜像构建、包安装及 Gateway smoke 结果必须逐次核对当前 CI。
+- 不支持将 P0/P1 标记为完成，也不等同于 develop 固定待发布提交及对应产物的完整候选验收。main 不作为本项目发布分支或发布合并目标。Docker 镜像构建、包安装及 Gateway smoke 结果必须逐次核对当前 CI。

@@ -1,10 +1,10 @@
 # Nanobot Issue #1：OpenUI 功能与技术详细设计
 
-版本：设计稿 v1.0  
-日期：2026-10-29（北京时间）  
+版本：设计稿 v1.1（分支与发布流程修订）  
+日期：2026-10-29；2026-10-30 修订分支与发布流程（北京时间）  
 对象：yuklcool/nanobot Issue #1  
-状态：待实现；本文是实施设计，不代表功能已开发、测试通过或发布。  
-基线：本次核对 stable 与 develop 相同，均为 8f7a7d17590de7ab187650381894dba2b9e060ab；Issue 将其标记为官方 v0.4.0 基线。main 比 stable 领先 12 个提交。执行开发前重新固定实际 SHA。
+状态：分阶段实现中；PR #3 已合入 develop，本文仍包含尚待实现的设计，不代表全部功能已通过验收或发布。  
+历史基线：2026-10-29 初次核对时 stable 与 develop 相同，均为 8f7a7d17590de7ab187650381894dba2b9e060ab，对应官方 v0.4.0 基线；当时 main 比 stable 领先 12 个提交。这些是历史快照，执行开发前须重新固定实际 SHA。当前分支职责以第 14.4 节为准，发布源为 develop。
 
 ## 0. 开发 Agent 接手入口
 
@@ -669,9 +669,9 @@ openui:
 
 不预先承诺“只改三行”“完全不动 loop”或“永不冲突”。要求每个宿主改动有必要性说明、行数统计、契约测试与回退方案。
 
-### 14.3 本次已确认的 main 差异
+### 14.3 初次设计时记录的上游 main 差异
 
-stable → main 比较结果显示，除了文档之外，实际调整包括：
+2026-10-29 的 stable → main 比较结果显示，除了文档之外，实际调整包括：
 
 - nanobot/channels/websocket/runtime.py 大幅精简。
 - 新增 nanobot/webui/outbound_delivery.py。
@@ -679,15 +679,23 @@ stable → main 比较结果显示，除了文档之外，实际调整包括：
 - 修改 outbound_wire.py、history.py、transcript.py。
 - 修改 providers/base.py、MCP 实现及会话存储相关文件。
 
-因此“develop 测试通过”不能替代合入 main 后验收。HostAdapter 必须覆盖 v0.4.0 与待发布合并代码的相关边界；不能直接把稳定版的投递细节复制到 main。
+上述差异仅作上游跟踪记录，不要求为发布将 main 合入 develop。相关变更随官方新稳定 tag 经 stable 引入 develop 时，再针对新的稳定基线验证 HostAdapter、投递、历史、Provider 和 MCP 的兼容性；验证对象是实际待发布的 develop 代码集合。
 
 ### 14.4 分支策略
 
-stable 保持纯官方稳定版；feature/openui-* 从 develop 创建，PR 回 develop；发布前创建 release-candidate 将当前 main 与 develop 无损合并演练。验收必须针对最终待发布代码集合。
+本节按维护者 2026-10-30 确认的定义执行，取代此前 develop 合入 main 后发布的方案。
 
-官方稳定升级采用单独同步分支核对 tag 与 SHA，再经 PR 更新 stable、合并到 develop、做回归和候选发布。不能让自动任务将 upstream/main 覆盖 stable；不能 reset/force push 抹除 main 现有 12 个提交。
+| 分支 | 职责 | 更新路径 |
+| --- | --- | --- |
+| main | 仅跟踪原项目最新代码，不用于本项目定制开发、日常使用或发布 | upstream/main → main |
+| stable | 纯官方稳定版本基线，不接收定制功能 | 核对官方稳定 tag、SHA 后更新 stable |
+| develop | 本项目开发、使用、集成与发布主线 | 功能分支 → PR → develop；上游升级使用 stable → PR → develop |
 
-若选择把 main 的额外上游提交提前无损合入 develop，也应作为独立基线整合 PR 评估和测试；本设计不默认为已执行。
+功能分支从最新 develop 创建并通过 PR 回 develop。发布时固定 develop 待发布提交，完成 Python、WebUI、E2E、Docker 及实际产物验收，再从该确切提交发布版本；部署固定已验收的 tag、提交或镜像摘要。临时 release-candidate 如有需要，只从该 develop 提交创建，不与 main 合并。
+
+官方稳定升级采用单独同步分支核对 tag 与 SHA，再更新 stable、通过 PR 合入 develop，解决冲突并做兼容回归。main 领先 stable 属正常上游进度，不是发布阻断；不得将 upstream/main 的每日更新覆盖 stable，也不把 develop 的定制改造合回 main 或 stable。若需提前引入尚未稳定发布的上游修复，须单独说明来源、必要性和验证，经维护者确认后走例外 PR。
+
+发布记录包含 develop 源 SHA、官方稳定 tag/基线 SHA、产物版本和校验值；回滚使用已验证产物并遵守数据迁移要求。仍须执行仓库打包与验收规范，开发或文档调整不自动授权发布 tag、镜像或 GitHub Release。分支保护及自动同步策略需另行落实，本文不声称已配置。
 
 ## 15. 分阶段任务与依赖
 
@@ -733,7 +741,7 @@ stable 保持纯官方稳定版；feature/openui-* 从 develop 创建，PR 回 d
 | AT21 | 同时存在新旧客户端 | 仅支持连接收到 UI，原对话均可读 |
 | AT22 | 恶意 URL、原始 HTML、越权 action | 组件或后端拒绝，没有脚本执行或越权调用 |
 | AT23 | 资源在确认后被修改 | 提交重新验证版本，必要时重新确认 |
-| AT24 | main 合并候选运行 | Python、WebUI、E2E、Docker 和上游合并回归通过 |
+| AT24 | develop 确切发布候选运行 | 针对固定 develop 提交与对应产物通过 Python、WebUI、E2E、Docker；引入 stable 更新时通过上游升级回归 |
 
 测试分层：
 
@@ -756,7 +764,7 @@ E2E 的业务测试工具应提供可观测计数器、资源版本和幂等回�
 7. 幂等登记不等于任意 MCP exactly-once；结果未知必须可见。
 8. 功能关闭必须阻断 UI 模型调用、状态写入和新 UI 动作，同时保留原聊天能力。
 9. SDK prompt、组件库、依赖版本和历史 schema 必须一起管理。
-10. 首次发布针对 main 的真实合并结果验收，不只测 develop。
+10. 发布针对 develop 的固定待发布提交与对应产物验收，不将 main 合入作为前提；stable 更新合入后须重新验证受影响行为。
 
 ## 18. 依据与后续实施入口
 

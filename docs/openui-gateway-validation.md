@@ -64,6 +64,6 @@ Python 可执行文件由环境变量指定；Playwright 自动启动并清理�
 - 真正的模型 Generator、受控 DisplayBundle/data_ref、表格/图表、auto 模式、预算与用量。
 - Query/Mutation SDK 代理验证、资源级权限、确认和真实业务回执。
 - UI 任务/事件 outbox、崩溃对账、复杂历史合并，以及命令重置/截断等其它管理路径的物理数据回收。
-- 上游 main 无损合并候选、Docker 实际启动、真实模型和真实 MCP 演示。
+- develop 固定发布候选、Docker 实际启动、真实模型和真实 MCP 演示。分支流程按详细设计第 14.4 节执行，main 仅跟踪上游，不要求发布前合入。
 
 宿主改动集中在 gateway_services（可选服务装配）、WebSocket runtime（默认开关、ready 能力和持久化回合完成后的单一接入点）、inbound_commands（认证 RPC 和动作入站）、NanobotClient/useNanobotStream（可选消息元数据和接收回执）、ThreadShell/MessageBubble（上下文及单一渲染入口）、构建清单/测试配置。Agent loop、runner、Provider、MCP 和原生历史 schema 未修改。最可能的上游冲突仍是 WebSocket 投递、入站编排和前端发送接口；关闭功能并回退此批代码可保留普通聊天，不能据此承诺未来无合并冲突。
