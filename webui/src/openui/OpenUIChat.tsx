@@ -27,8 +27,9 @@ const responseSchema = z.object({ capability: z.object({ protocol: z.literal(1),
   session_generation: z.string().nullable(), blocks: z.array(uiSnapshotSchema).max(100) });
 const eventSchema = z.object({ event: z.literal("openui.snapshot"), chat_id: z.string(), snapshot: uiSnapshotSchema });
 
-export function OpenUIChatProvider({ client, chatId, messages, send, children }: {
+export function OpenUIChatProvider({ client, chatId, disabled = false, messages, send, children }: {
   client: NanobotClient; chatId: string | null; messages: UIMessage[];
+  disabled?: boolean;
   send: (question: string, images?: undefined, options?: SendOptions) => SubmittedTurn | null;
   children: ReactNode;
 }) {
@@ -58,19 +59,30 @@ export function OpenUIChatProvider({ client, chatId, messages, send, children }:
     generation.current = null;
     setBlocks([]);
     setAvailable(false);
-    mode.current = "markdown";
-    setSelectedMode("markdown");
+    mode.current = disabled ? "markdown" : client.getOpenUIMode(chatId);
+    setSelectedMode(mode.current);
     setAutoAvailable(false);
-  }, [client, chatId]);
+  }, [client, chatId, disabled]);
 
   useEffect(() => {
     let active = true;
     let latestLoad = 0;
     const supported = () => client.getOpenUI()?.library_hash === manifest.library_hash;
+    function activate() {
+      const supportsAuto = client.getOpenUI()?.modes?.includes("auto") === true;
+      setAutoAvailable(supportsAuto);
+      if (mode.current === "auto" && !supportsAuto) {
+        mode.current = "markdown";
+        setSelectedMode("markdown");
+      }
+      client.setOpenUIMode(chatId, mode.current);
+      setAvailable(true);
+    }
     async function load() {
       const requestEpoch = epoch.current;
       const invocation = ++latestLoad;
-      if (!chatId || !supported()) { if (active) setAvailable(false); return; }
+      if (disabled || !supported()) { if (active) setAvailable(false); return; }
+      if (!chatId) { if (active) activate(); return; }
       try {
         const turns: string[] = JSON.parse(turnIds);
         for (let offset = 0; offset < Math.max(1, turns.length); offset += 100) {
@@ -83,14 +95,7 @@ export function OpenUIChatProvider({ client, chatId, messages, send, children }:
             generation.current = result.session_generation;
             setBlocks([]);
           }
-          setAvailable(true);
-          const supportsAuto = client.getOpenUI()?.modes?.includes("auto") === true;
-          setAutoAvailable(supportsAuto);
-          if (mode.current === "auto" && !supportsAuto) {
-            mode.current = "markdown";
-            setSelectedMode("markdown");
-          }
-          client.setOpenUIMode(chatId, mode.current);
+          activate();
           result.blocks.forEach(merge);
         }
       } catch { if (active && requestEpoch === epoch.current && invocation === latestLoad) setAvailable(false); }
@@ -112,9 +117,9 @@ export function OpenUIChatProvider({ client, chatId, messages, send, children }:
     });
     void load();
     return () => { active = false; unready(); unsession(); unstatus(); unevent(); };
-  }, [client, chatId, merge, turnIds]);
+  }, [client, chatId, disabled, merge, turnIds]);
 
-  useEffect(() => () => { if (chatId) client.setOpenUIMode(chatId, "markdown"); }, [client, chatId]);
+  useEffect(() => () => { client.setOpenUIMode(chatId, "markdown"); }, [client, chatId, disabled]);
   const save = useCallback(async (snapshot: UiSnapshot, question: string) => {
     const requestEpoch = epoch.current;
     const result = z.object({ snapshot: uiSnapshotSchema }).parse(await client.requestMutation("openui.state", {
@@ -141,7 +146,7 @@ export function OpenUIChatProvider({ client, chatId, messages, send, children }:
     return result.content;
   }, [client]);
   const selectMode = useCallback((next: OpenUIMode) => {
-    if (chatId) client.setOpenUIMode(chatId, next);
+    client.setOpenUIMode(chatId, next);
     mode.current = next;
     setSelectedMode(next);
   }, [chatId, client]);
@@ -155,11 +160,11 @@ export function OpenUIControls() {
   const views = useContext(Views);
   const { t } = useTranslation();
   if (!views?.available) return null;
-  return <label className="mx-3 my-1 inline-flex w-fit items-center gap-2 rounded-control px-2 py-1.5 text-reading-small text-muted-foreground">
+  return <label className="inline-flex w-fit items-center gap-1.5 rounded-control px-1.5 text-caption text-muted-foreground">
     <MousePointer2 className="h-3.5 w-3.5" aria-hidden />
-    <span>{t("openui.enable")}</span>
+    <span className="hidden sm:inline">{t("openui.enable")}</span>
     <select aria-label={t("openui.enable")} value={views.mode}
-      className="rounded-control border border-input bg-background px-2 py-1 text-reading-small text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      className="rounded-control border border-input bg-background px-2 py-1 text-caption text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       onChange={(event) => views.selectMode(event.target.value as OpenUIMode)}>
       <option value="markdown">{t("openui.modeMarkdown")}</option>
       {views.autoAvailable && <option value="auto">{t("openui.modeAuto")}</option>}

@@ -126,7 +126,11 @@ async def run(port):
         set_home_path(root)
         set_config_path(root / "config.json")
         workspace = root / "workspace"
-        config = Config.model_validate({"agents": {"defaults": {"workspace": str(workspace)}}})
+        config = Config.model_validate({
+            "agents": {"defaults": {"workspace": str(workspace),
+                "model": "openai/offline-openui-browser", "provider": "openai"}},
+            "providers": {"openai": {"apiKey": "test-only", "apiBase": "http://127.0.0.1:9/v1"}},
+        })
         save_config(config)
         bus = MessageBus()
         sessions = SessionManager(workspace)

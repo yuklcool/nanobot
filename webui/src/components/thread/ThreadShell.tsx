@@ -1456,7 +1456,7 @@ export function ThreadShell({
       hideSidebarToggle={hideSidebarToggle}
       hideThemeButton={hideThemeButton}
       hideTitle={hideHeaderTitle}
-      actions={headerActions}
+      actions={<><OpenUIControls />{headerActions}</>}
       minimal={!session && !loading}
       promptNavigatorAction={promptNavigatorAction}
       sessionInfoAction={sessionInfoAction}
@@ -1469,7 +1469,7 @@ export function ThreadShell({
   ) : null;
 
   return (
-    <OpenUIChatProvider key={chatId ?? "none"} client={client} chatId={temporary ? null : chatId} messages={displayMessages} send={send}>
+    <OpenUIChatProvider key={chatId ?? "none"} client={client} chatId={temporary ? null : chatId} disabled={temporary} messages={displayMessages} send={send}>
     <SubagentTasksProvider client={client} token={token}
       sessionKey={session?.key ?? null}
       liveEvents={webuiCapabilities.includes("webui.subagents.events.v1")}
@@ -1496,7 +1496,6 @@ export function ThreadShell({
           </div>
         ) : null}
         {headerPortalTarget === undefined ? threadHeader : null}
-        <OpenUIControls />
         <FilePreviewAvailabilityProvider
           resolve={previewSessionKey ? resolveFilePreviewAvailability : undefined}
         >

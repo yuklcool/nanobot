@@ -274,10 +274,11 @@ export class NanobotClient {
   private readyChatId: string | null = null;
   private openui: OpenUICapability | null = null;
   private openuiHandlers = new Set<(event: unknown) => void>();
-  private openuiModes = new Map<string, OpenUIMode>();
+  private openuiModes = new Map<string | null, OpenUIMode>();
 
   getOpenUI(): OpenUICapability | null { return this.openui; }
-  setOpenUIMode(chatId: string, mode: OpenUIMode): void {
+  getOpenUIMode(chatId: string | null): OpenUIMode { return this.openuiModes.get(chatId) ?? "markdown"; }
+  setOpenUIMode(chatId: string | null, mode: OpenUIMode): void {
     if (mode === "auto" && !this.openui?.modes?.includes("auto")) throw new Error("UI_MODE_UNSUPPORTED");
     if (mode === "markdown") this.openuiModes.delete(chatId); else this.openuiModes.set(chatId, mode);
   }
@@ -614,11 +615,12 @@ export class NanobotClient {
   }
 
   /** Ask the server to provision a new chat_id; resolves with the assigned id. */
-  newChat(timeoutMs: number = 5_000, workspaceScope?: WorkspaceScopePayload | null): Promise<string> {
+  async newChat(timeoutMs: number = 5_000, workspaceScope?: WorkspaceScopePayload | null): Promise<string> {
     if (this.pendingNewChat) {
       return Promise.reject(new Error("newChat already in flight"));
     }
-    return new Promise<string>((resolve, reject) => {
+    const mode = this.getOpenUIMode(null);
+    const chatId = await new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingNewChat = null;
         reject(new Error("newChat timed out"));
@@ -629,6 +631,12 @@ export class NanobotClient {
         ...(workspaceScope ? { workspace_scope: workspaceScope } : {}),
       });
     });
+    if (mode !== "markdown") {
+      await this.requestMutation("openui.subscribe", { chat_id: chatId, turn_ids: [] });
+      this.setOpenUIMode(chatId, mode);
+    }
+    this.openuiModes.delete(null);
+    return chatId;
   }
 
   /** Ask the WebUI gateway to create a connection-owned non-persistent chat. */
