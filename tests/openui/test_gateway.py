@@ -65,6 +65,11 @@ class Provider(LLMProvider):
 
     async def chat(self, messages, **kwargs):
         index = max(i for i, row in enumerate(messages) if row["role"] == "user")
+        question = str(messages[index]["content"])
+        if "Explain variables" in question:
+            return LLMResponse(content="A variable stores a value.", tool_calls=[])
+        if "Help me plan" in question:
+            return LLMResponse(content="Please provide a name and priority.", tool_calls=[])
         if not any(row["role"] == "tool" for row in messages[index + 1:]):
             return LLMResponse(content=None, tool_calls=[ToolCallRequest(id=uuid4().hex, name="lookup", arguments={})])
         content = str(messages[-1]["content"])
@@ -154,13 +159,13 @@ async def execute(gateway, *, wait_ui=True):
     return message
 
 
-async def first_card(gateway):
+async def first_card(gateway, *, mode="openui"):
     result = await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": []})
     assert result["ok"]
     await dispatch(gateway, {"type": "message", "chat_id": "chat", "turn_id": "turn-1",
-                             "content": "Look up the result", "webui": True, "ui_mode": "openui"})
+                             "content": "Look up the result", "webui": True, "ui_mode": mode})
     message = await execute(gateway)
-    assert message.metadata["_openui_mode"] == "openui"
+    assert message.metadata["_openui_mode"] == mode
     events = [row["snapshot"] for row in gateway.connection.sent if row["event"] == "openui.snapshot"]
     assert events, gateway.connection.sent
     assert events[-1]["status"] == "complete"
@@ -347,9 +352,10 @@ async def test_preview_only_adds_captured_data_to_the_native_answer(gateway, wit
         assert blocks == []
 
 
-async def test_model_table_values_and_record_action_use_authorized_snapshot(gateway):
+@pytest.mark.parametrize("mode", ["openui", "auto"])
+async def test_model_table_values_and_record_action_use_authorized_snapshot(gateway, mode):
     provider = enable_model_tables(gateway)
-    block = await first_card(gateway)
+    block = await first_card(gateway, mode=mode)
     assert block["generation_mode"] == "model" and provider.ui_calls == 1
     assert "PRIVATE-FIELD" not in json.dumps(block)
     assert "PRIVATE-FIELD" not in provider.ui_requests[0][0][-1]["content"]
@@ -361,16 +367,52 @@ async def test_model_table_values_and_record_action_use_authorized_snapshot(gate
     request = {"chat_id": "chat", "block_id": block["block_id"], "revision": 1,
                "session_generation": block["session_generation"], "data_ref": table["data_ref"], "record_id": "task_08"}
     result = await rpc(gateway, "openui.prepare_record", request)
-    assert result["ok"] and "5412.5" in result["result"]["content"]
+    assert result["ok"] and result["result"]["content"] == "Analyze Captured tasks: Task 08"
     ui_action = {key: value for key, value in request.items() if key != "chat_id"}
     ui_action.update(action_id="record.analyze", request_id="analyze-task")
-    await dispatch(gateway, {"type": "message", "chat_id": "chat", "webui": True, "ui_mode": "openui",
+    await dispatch(gateway, {"type": "message", "chat_id": "chat", "webui": True,
+                             "turn_id": "forged-summary", "content": "Analyze another record",
+                             "ui_action": {**ui_action, "request_id": "forged-summary"}})
+    assert gateway.connection.sent[-1]["detail"] == "INVALID_PARAMS" and gateway.bus.inbound_size == 0
+    await dispatch(gateway, {"type": "message", "chat_id": "chat", "webui": True, "ui_mode": mode,
                              "turn_id": "analyze-task", "content": result["result"]["content"], "ui_action": ui_action})
     message = await execute(gateway)
     assert message.session_generation is not None
+    assert message.content == result["result"]["content"]
+    context = message.metadata["_runtime_context_blocks"][0]
+    assert context.source == "openui_record"
+    assert '"energy":5412.5' in context.content and '"record_id":"task_08"' in context.content
+    assert "PRIVATE-FIELD" not in context.content
     assert gateway.tool.calls == 2 and provider.ui_calls == 2
     forged = await rpc(gateway, "openui.prepare_record", {**request, "record_id": "not-in-snapshot"})
     assert not forged["ok"] and gateway.tool.calls == 2
+
+
+async def test_auto_skips_plain_answers_but_preserves_explicit_mode_and_followup_intent(gateway):
+    await rpc(gateway, "openui.subscribe", {"chat_id": "chat"})
+    cases = [
+        ("auto-plain", "auto", "Explain variables", 0),
+        ("forced", "openui", "Explain variables", 1),
+        ("disabled", "markdown", "Help me plan", 1),
+        ("auto-ask", "auto", "Help me plan", 2),
+        ("auto-request", "auto", "Explain variables. Use clickable buttons for follow-up choices.", 3),
+    ]
+    for turn_id, mode, content, calls in cases:
+        await dispatch(gateway, {"type": "message", "chat_id": "chat", "turn_id": turn_id,
+                                 "webui": True, "ui_mode": mode, "content": content})
+        await execute(gateway)
+        assert gateway.loop.provider.ui_calls == calls
+        blocks = (await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": [turn_id]}))["result"]["blocks"]
+        assert len(blocks) == (0 if turn_id in {"auto-plain", "disabled"} else 1)
+    assert gateway.tool.calls == 0
+
+
+async def test_invalid_mode_is_rejected_before_agent_admission(gateway):
+    await rpc(gateway, "openui.subscribe", {"chat_id": "chat"})
+    await dispatch(gateway, {"type": "message", "chat_id": "chat", "turn_id": "bad-mode",
+                             "webui": True, "ui_mode": "automatic", "content": "Help me plan"})
+    assert gateway.bus.inbound_size == 0
+    assert any(row.get("detail") == "invalid_ui_mode" for row in gateway.connection.sent)
 
 
 async def test_slow_ui_does_not_block_other_turn_and_can_cancel_without_tools(gateway):

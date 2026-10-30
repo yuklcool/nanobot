@@ -2507,6 +2507,9 @@
     }
   },
   "openui": {
+    "modeMarkdown": "Nonaktif",
+    "modeAuto": "Otomatis",
+    "modeOpenui": "Selalu",
     "enable": "Balasan interaktif",
     "followup": "Pertanyaan lanjutan",
     "submit": "Kirim",

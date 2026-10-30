@@ -2507,6 +2507,9 @@
     }
   },
   "openui": {
+    "modeMarkdown": "Tắt",
+    "modeAuto": "Tự động",
+    "modeOpenui": "Luôn bật",
     "enable": "Phản hồi tương tác",
     "followup": "Câu hỏi tiếp theo",
     "submit": "Gửi",

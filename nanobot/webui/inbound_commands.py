@@ -575,7 +575,7 @@ class WebUICommandRouter:
                 if set(envelope) - {"type", "chat_id", "content", "turn_id", "webui", "ui_action", "ui_mode"}:
                     raise ValueError("INVALID_PARAMS")
                 ui_admission = await runtime.admit_action(chat_id, turn_id, content, envelope["ui_action"])
-                _, _, admission = ui_admission
+                _, _, admission, _ = ui_admission
                 if admission == "unknown":
                     raise ValueError("RESULT_UNKNOWN")
                 if admission == "accepted":
@@ -702,9 +702,15 @@ class WebUICommandRouter:
             metadata["webui"] = True
             metadata.update(self._transcripts.client_turn_metadata(envelope.get("turn_id")))
         trusted_webui = metadata.get("webui") is True and connection in self._webui_connections
+        ui_mode = envelope.get("ui_mode", "markdown")
+        if trusted_webui and ui_mode not in ("markdown", "openui", "auto"):
+            await self._transport.webui_send_event(
+                connection, "error", detail="invalid_ui_mode", **rejection_fields,
+            )
+            return
         if (trusted_webui and self.gateway.openui is not None
-                and connection in self._openui_connections and envelope.get("ui_mode") == "openui"):
-            metadata["_openui_mode"] = "openui"
+                and connection in self._openui_connections and ui_mode in ("openui", "auto")):
+            metadata["_openui_mode"] = ui_mode
         # The settings Restart button uses the existing silent command protocol.
         # Its routing chat ID is not a new conversation or a workspace update.
         restart_control = (
@@ -839,6 +845,8 @@ class WebUICommandRouter:
                 )
             if trusted_webui:
                 context_blocks: list[RuntimeContextBlock] = []
+                if ui_admission is not None and ui_admission[3] is not None:
+                    context_blocks.append(ui_admission[3])
                 if not is_user_shell and envelope.get("intent") == "create_automation":
                     context_blocks.append(RuntimeContextBlock(
                         source="webui_automation_creation",

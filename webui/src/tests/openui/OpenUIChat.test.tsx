@@ -32,7 +32,7 @@ function setup(capability: unknown = { protocol: 1, library_hash: manifest.libra
         if (frame.type === "webui_request") {
           if (frame.action === "openui.state") saved = { ...saved, state: { $question: frame.payload.question }, state_version: saved.state_version + 1 };
           socket.onmessage?.({ data: JSON.stringify({ event: "webui_response", ok: true, request_id: frame.request_id,
-            result: frame.action === "openui.prepare_record" ? { content: `Analyze captured ${frame.payload.record_id}` }
+            result: frame.action === "openui.prepare_record" ? { content: "Analyze captured record" }
               : frame.action === "openui.state" ? { snapshot: saved }
               : { capability, session_generation: "generation", blocks: frame.payload.turn_ids?.includes(saved.turn_id) ? [saved] : [] } }) } as MessageEvent);
         }
@@ -72,7 +72,7 @@ it("restores only the canonical anchor, saves drafts explicitly and sends one st
     expect(fixture.frames.find((frame) => frame.action === "openui.state")).toMatchObject({ payload: {
       chat_id: "chat", question: "Inspect updated result", expected_state_version: 1,
     } });
-    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.change(screen.getByRole("combobox", { name: "openui.enable" }), { target: { value: "openui" } });
     const submit = screen.getByRole("button", { name: "openui.submit" });
     fireEvent.click(submit); fireEvent.click(submit);
     await screen.findByText("openui.submitted");
@@ -93,7 +93,7 @@ it("does not request OpenUI from an older host and rejects another generation", 
   const old = setup(null); const view = old.mount();
   await act(async () => {});
   expect(old.frames.filter((frame) => frame.action === "openui.subscribe")).toHaveLength(0);
-  expect(screen.queryByRole("checkbox")).toBeNull();
+  expect(screen.queryByRole("combobox", { name: "openui.enable" })).toBeNull();
   view.unmount(); old.client.close();
   const current = setup(); current.mount();
   try {
@@ -103,6 +103,30 @@ it("does not request OpenUI from an older host and rejects another generation", 
     await waitFor(() => expect(screen.getByRole("textbox")).toHaveValue("Look up again"));
     expect(screen.queryByText("foreign")).toBeNull();
   } finally { cleanup(); current.client.close(); }
+});
+
+it("negotiates auto mode and clears it when reconnecting to a host without it", async () => {
+  const fixture = setup({ protocol: 1, library_hash: manifest.library_hash, modes: ["markdown", "openui", "auto"] });
+  const view = fixture.mount();
+  try {
+    const select = await screen.findByRole("combobox", { name: "openui.enable" });
+    await screen.findByRole("option", { name: "openui.modeAuto" });
+    expect(select).toHaveValue("markdown");
+    fireEvent.change(select, { target: { value: "auto" } });
+    fireEvent.click(screen.getByRole("button", { name: "openui.submit" }));
+    await screen.findByText("openui.submitted");
+    expect(fixture.frames.find((frame) => frame.type === "message")).toMatchObject({ ui_mode: "auto" });
+    act(() => fixture.socket.onclose?.());
+    act(() => {
+      fixture.client.connect();
+      fixture.socket.onopen?.();
+      fixture.socket.onmessage?.({ data: JSON.stringify({ event: "ready", chat_id: "chat", client_id: "browser",
+        openui: { protocol: 1, library_hash: manifest.library_hash } }) } as MessageEvent);
+    });
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "openui.enable" })).toHaveValue("markdown"));
+    expect(screen.queryByRole("option", { name: "openui.modeAuto" })).toBeNull();
+    expect(() => fixture.client.setOpenUIMode("chat", "auto")).toThrow("UI_MODE_UNSUPPORTED");
+  } finally { view.unmount(); fixture.client.close(); }
 });
 
 it("sends a contextual choice as one same-session reply, without sending on restore", async () => {
@@ -182,7 +206,7 @@ it("restores loaded history in bounded batches including turns older than the la
   } finally { view.unmount(); fixture.client.close(); }
 });
 
-it("renders critical cells from the saved dataset, filters locally and sends a scoped record action", async () => {
+it("filters locally and distinguishes scoped record actions even when summaries match", async () => {
   const table = { data_ref: "data_1", title: "Captured tasks", columns: { name: "Task", energy: "Energy", status: "Status" },
     rows: [{ id: "task_08", values: { name: "Task 08", energy: 5412.5, status: "ready" } },
       { id: "task_09", values: { name: "Task 09", energy: 0, status: "pending" } }],
@@ -202,10 +226,20 @@ it("renders critical cells from the saved dataset, filters locally and sends a s
     fireEvent.click(screen.getByRole("button", { name: "openui.analyzeRecord" }));
     await screen.findByText("openui.submitted");
     expect(fixture.frames.find((frame) => frame.type === "message")).toMatchObject({
-      content: "Analyze captured task_09", chat_id: "chat", ui_action: {
+      content: "Analyze captured record", chat_id: "chat", ui_action: {
         action_id: "record.analyze", data_ref: "data_1", record_id: "task_09", block_id: "block",
       },
     });
+    fireEvent.change(screen.getByRole("textbox", { name: "openui.filterRecords" }), { target: { value: "ready" } });
+    fireEvent.click(screen.getByRole("button", { name: "openui.analyzeRecord" }));
+    await screen.findByText("openui.submitted");
+    const sent = fixture.frames.filter((frame) => frame.type === "message");
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toMatchObject({ content: sent[0].content, ui_action: { record_id: "task_08" } });
+    expect(sent[1].turn_id).not.toBe(sent[0].turn_id);
+    fireEvent.click(screen.getByRole("button", { name: "openui.analyzeRecord" }));
+    await screen.findByText("openui.submitted");
+    expect(fixture.frames.filter((frame) => frame.type === "message")).toHaveLength(2);
   } finally { view.unmount(); fixture.client.close(); }
 });
 
@@ -224,7 +258,7 @@ it("drops cached views on disconnect and requires fresh host capability before r
       fixture.socket.onmessage?.({ data: JSON.stringify({ event: "openui.snapshot", chat_id: "chat", snapshot: initial }) } as MessageEvent);
     });
     await act(async () => {});
-    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "openui.enable" })).toBeNull();
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(fixture.frames.filter((frame) => frame.action === "openui.subscribe")).toHaveLength(before);
     expect(screen.getByRole("list", { name: "Conversation" })).toHaveTextContent("Lookup result 1");

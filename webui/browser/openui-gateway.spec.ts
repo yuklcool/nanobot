@@ -10,7 +10,7 @@ test("native model adapter, captured data, record actions and refresh recovery",
     if (frame.type === "message") messages.push(frame);
   }));
   await page.goto("/browser/openui-gateway.html");
-  await page.getByText("Interactive replies", { exact: true }).click();
+  await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("openui");
   await page.getByRole("button", { name: "Ask", exact: true }).click();
   const followup = page.getByRole("textbox", { name: "Follow-up question" });
   await expect(followup).toBeVisible();
@@ -31,7 +31,7 @@ test("native model adapter, captured data, record actions and refresh recovery",
   await page.reload();
   await expect(followup).toHaveValue("Look up again");
   expect(messages).toHaveLength(1);
-  await page.getByText("Interactive replies", { exact: true }).click();
+  await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("openui");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.getByRole("list", { name: "Conversation" })).toContainText("Lookup result 2");
   expect(messages).toHaveLength(2);
@@ -48,12 +48,12 @@ test("native model adapter, captured data, record actions and refresh recovery",
   expect(messages[2]).toMatchObject({ chat_id: "gateway-poc", ui_action: {
     action_id: "record.analyze", record_id: "task_08", request_id: messages[2].turn_id,
   } });
-  expect(String(messages[2].content)).toContain('"energy":5412.5');
+  expect(messages[2].content).toBe("Analyze Tasks: Energy review");
   await page.getByRole("button", { name: "Delete conversation", exact: true }).click();
-  await expect(page.getByRole("checkbox", { name: "Interactive replies" })).toBeAttached();
+  await expect(page.getByRole("combobox", { name: "Interactive replies" })).toBeAttached();
   await expect(page.getByRole("textbox", { name: "Follow-up question" })).toHaveCount(0);
   await expect(page.getByRole("list", { name: "Conversation" })).not.toContainText("Lookup result 1");
-  await page.getByText("Interactive replies", { exact: true }).click();
+  await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("openui");
   await page.getByRole("button", { name: "Ask", exact: true }).click();
   await expect(page.getByRole("list", { name: "Conversation" })).toContainText("Lookup result 4");
   await expect(page.getByRole("textbox", { name: "Follow-up question" })).toHaveCount(1);
@@ -71,11 +71,11 @@ test("inline choices, short forms and confirmations continue the native conversa
   }));
   await page.goto("/browser/openui-gateway.html");
   await page.getByRole("button", { name: "Delete conversation", exact: true }).click();
-  await page.getByText("Interactive replies", { exact: true }).click();
+  await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
   await page.getByRole("textbox", { name: "Question", exact: true }).fill("Plan a small project");
   await page.getByRole("button", { name: "Ask", exact: true }).click();
   await expect(page.getByRole("group", { name: "Where should we start?" })).toBeVisible();
-  await expect(page.getByText("We can define a new project or review an existing draft.", { exact: true }).filter({ visible: true })).toHaveCount(1);
+  await expect(page.getByText("Please choose whether to define a new project or review an existing draft.", { exact: true }).filter({ visible: true })).toHaveCount(1);
   await expect(page.getByRole("textbox", { name: "Follow-up question" })).toHaveCount(0);
   expect(messages).toHaveLength(1);
   await page.screenshot({ path: test.info().outputPath("inline-choices-desktop.png"), fullPage: true });
@@ -108,8 +108,49 @@ test("inline choices, short forms and confirmations continue the native conversa
   expect(messages[3]).toMatchObject({ content: "Confirm the proposed project plan.", ui_action: {
     action_id: "conversation.followup", request_id: messages[3].turn_id,
   } });
+  expect(messages.every((message) => message.ui_mode === "auto")).toBe(true);
   await page.reload();
   await expect(page.getByText("Confirmed. We can now prepare the plan in this conversation.", { exact: true }).filter({ visible: true })).toBeVisible();
   expect(messages).toHaveLength(4);
+  expect(errors).toEqual([]);
+});
+
+test("auto mode uses real session search and read tools without replaying history actions", async ({ page }) => {
+  const errors: string[] = [];
+  const messages: Record<string, unknown>[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("websocket", (socket) => socket.on("framesent", ({ payload }) => {
+    const frame = JSON.parse(String(payload));
+    if (frame.type === "message") messages.push(frame);
+  }));
+  await page.goto("/browser/openui-gateway.html");
+  await page.getByRole("button", { name: "Delete conversation", exact: true }).click();
+  await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
+  await page.getByRole("textbox", { name: "Question", exact: true }).fill("Explain variables");
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  await expect(page.getByText("A variable stores a value.", { exact: true }).filter({ visible: true })).toBeVisible();
+  await expect(page.getByRole("table")).toHaveCount(0);
+  await page.getByRole("textbox", { name: "Question", exact: true }).fill("Find saved planning conversations");
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  const table = page.getByRole("table", { name: "Saved conversations" });
+  await expect(table).toContainText("Planning notes");
+  await expect(table).not.toContainText("Planning detail");
+  await page.getByRole("textbox", { name: "Filter records" }).fill("not a matching title");
+  await expect(table).not.toContainText("Planning notes");
+  expect(messages).toHaveLength(2);
+  await page.getByRole("textbox", { name: "Filter records" }).fill("");
+  await table.getByRole("button", { name: "Analyze snapshot" }).click();
+  await expect(page.getByRole("button", { name: "Summarize notes" })).toBeVisible();
+  await expect(page.getByRole("list", { name: "Conversation" })).toContainText("Planning detail: Ship the read-only workflow.");
+  expect(messages).toHaveLength(3);
+  expect(messages[2]).toMatchObject({ chat_id: "gateway-poc", ui_mode: "auto", ui_action: {
+    action_id: "record.analyze", record_id: "websocket:saved-planning",
+  } });
+  await expect(page.locator("[data-user-text-bubble] > p").last()).toHaveText("Analyze Saved conversations: Planning notes");
+  await page.screenshot({ path: test.info().outputPath("auto-native-session-tools.png"), fullPage: true });
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Summarize notes" })).toBeVisible();
+  await expect(page.locator("[data-user-text-bubble] > p").last()).toHaveText("Analyze Saved conversations: Planning notes");
+  expect(messages).toHaveLength(3);
   expect(errors).toEqual([]);
 });

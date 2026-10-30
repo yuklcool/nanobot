@@ -1,4 +1,4 @@
-import { openUICapability, type OpenUICapability, type OpenUIAction } from "../../../packages/client-events/openui";
+import { openUICapability, type OpenUICapability, type OpenUIAction, type OpenUIMode } from "../../../packages/client-events/openui";
 import { uploadAttachments, uploadCapability, type AttachmentReference, type UploadCapability } from "../../../packages/client-events/attachments";
 import { DeliveryReceipts } from "../../../packages/client-events/delivery";
 import { decodeNotification } from "../../../packages/client-events/notifications";
@@ -274,11 +274,12 @@ export class NanobotClient {
   private readyChatId: string | null = null;
   private openui: OpenUICapability | null = null;
   private openuiHandlers = new Set<(event: unknown) => void>();
-  private openuiModes = new Set<string>();
+  private openuiModes = new Map<string, OpenUIMode>();
 
   getOpenUI(): OpenUICapability | null { return this.openui; }
-  setOpenUIMode(chatId: string, enabled: boolean): void {
-    if (enabled) this.openuiModes.add(chatId); else this.openuiModes.delete(chatId);
+  setOpenUIMode(chatId: string, mode: OpenUIMode): void {
+    if (mode === "auto" && !this.openui?.modes?.includes("auto")) throw new Error("UI_MODE_UNSUPPORTED");
+    if (mode === "markdown") this.openuiModes.delete(chatId); else this.openuiModes.set(chatId, mode);
   }
   onOpenUI(handler: (event: unknown) => void): Unsubscribe {
     this.openuiHandlers.add(handler);
@@ -851,7 +852,7 @@ export class NanobotClient {
       ...(options?.workspaceScope ? { workspace_scope: options.workspaceScope } : {}),
       ...(options?.turnId ? { turn_id: options.turnId } : {}),
       webui: true,
-      ...(this.openui && this.openuiModes.has(chatId) && !options?.userShell ? { ui_mode: "openui" as const } : {}),
+      ...(this.openui && this.openuiModes.has(chatId) && !options?.userShell ? { ui_mode: this.openuiModes.get(chatId)! } : {}),
       ...(options?.uiAction ? { ui_action: options.uiAction } : {}),
     };
     if (!this.frameFitsTransport(frame)) {
@@ -1043,6 +1044,9 @@ export class NanobotClient {
     if (parsed.event === "ready") {
       this.openui = openUICapability(parsed.openui);
       if (!this.openui) this.openuiModes.clear();
+      else if (!this.openui.modes?.includes("auto")) {
+        for (const [chatId, mode] of this.openuiModes) if (mode === "auto") this.openuiModes.delete(chatId);
+      }
       this.upload = uploadCapability(parsed.upload);
       this.readyChatId = parsed.chat_id;
       this.knownChats.add(parsed.chat_id);

@@ -12,6 +12,7 @@ from loguru import logger
 
 from nanobot.agent.loop import AgentLoop
 from nanobot.agent.tools.base import Tool
+from nanobot.agent.tools.sessions import ReadSessionTool, SearchSessionsTool
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.manager import ChannelManager
 from nanobot.channels.websocket.runtime import WebSocketChannel, WebSocketConfig
@@ -50,12 +51,28 @@ class FixtureProvider(LLMProvider):
     async def chat(self, messages, **kwargs):
         index = max(i for i, row in enumerate(messages) if row["role"] == "user")
         question = str(messages[index]["content"])
+        has_result = any(row["role"] == "tool" for row in messages[index + 1:])
+        if "Explain variables" in question:
+            return LLMResponse(content="A variable stores a value.", tool_calls=[])
+        if "Find saved planning conversations" in question:
+            if not has_result:
+                return LLMResponse(content=None, tool_calls=[ToolCallRequest(
+                    id=uuid4().hex, name="search_sessions", arguments={"query": "planning"},
+                )])
+            return LLMResponse(content="Saved planning conversations are ready to inspect.", tool_calls=[])
+        if '"record_id":"websocket:saved-planning"' in question:
+            if not has_result:
+                return LLMResponse(content=None, tool_calls=[ToolCallRequest(
+                    id=uuid4().hex, name="read_session", arguments={"session_key": "websocket:saved-planning"},
+                )])
+            detail = json.loads(str(messages[-1]["content"]))["messages"][-1]["content"]
+            return LLMResponse(content=f"Saved conversation: {detail} Please choose whether to summarize or compare it.", tool_calls=[])
         if "Plan a small project" in question:
-            return LLMResponse(content="We can define a new project or review an existing draft.", tool_calls=[])
+            return LLMResponse(content="Please choose whether to define a new project or review an existing draft.", tool_calls=[])
         if "I want to define a new project." in question:
-            return LLMResponse(content="A name and priority are enough to get started.", tool_calls=[])
+            return LLMResponse(content="Please provide a name and priority to get started.", tool_calls=[])
         if "Project details\nProject name:" in question:
-            return LLMResponse(content="I have the details. Confirm when you are ready to prepare the plan.", tool_calls=[])
+            return LLMResponse(content="I have the details. Please confirm when you are ready to prepare the plan.", tool_calls=[])
         if "Confirm the proposed project plan." in question:
             return LLMResponse(content="Confirmed. We can now prepare the plan in this conversation.", tool_calls=[])
         if not any(row["role"] == "tool" for row in messages[index + 1:]):
@@ -69,16 +86,18 @@ class FixtureProvider(LLMProvider):
             return await super().chat_stream(messages, on_content_delta=on_content_delta, **kwargs)
         payload = json.loads(messages[-1]["content"])
         datasets = payload["datasets"]
-        if datasets:
+        if datasets and datasets[0]["title"] == "Saved conversations":
+            source = 'root = Panel([data])\n' + f'data = DataTable({json.dumps(datasets[0]["data_ref"])})\n'
+        elif datasets:
             source = ('$question = ""\nroot = Panel([heading, data, followup])\n'
                   'heading = Text("Captured lookup records")\n'
                   + f'data = DataTable({json.dumps(datasets[0]["data_ref"])})\n'
                   + 'followup = Followup($question)\n')
-        elif payload["public_answer"].startswith("We can define"):
+        elif payload["public_answer"].startswith("Please choose whether to define"):
             source = ('root = Panel([next])\nnext = Choices("Where should we start?", ['
                       '{label: "Define the project", question: "I want to define a new project."}, '
                       '{label: "Review a draft", question: "I want to review an existing project draft."}])\n')
-        elif payload["public_answer"].startswith("A name and priority"):
+        elif payload["public_answer"].startswith("Please provide a name"):
             source = ('root = Panel([details])\ndetails = Form("Project details", ['
                       '{label: "Project name", placeholder: "Give your project a name"}, '
                       '{label: "Priority", options: ["Normal", "High"]}])\n')
@@ -86,6 +105,10 @@ class FixtureProvider(LLMProvider):
             source = ('root = Panel([confirm])\nconfirm = Choices("Ready to continue?", ['
                       '{label: "Confirm plan", question: "Confirm the proposed project plan."}, '
                       '{label: "Change details", question: "I want to change the project details first."}])\n')
+        elif payload["public_answer"].startswith("Saved conversation:"):
+            source = ('root = Panel([next])\nnext = Choices("Continue with these notes", ['
+                      '{label: "Summarize notes", question: "Summarize the saved planning notes."}, '
+                      '{label: "Compare notes", question: "Compare the saved planning notes."}])\n')
         else:
             source = "root = Panel([])\n"
         if on_content_delta is not None:
@@ -107,9 +130,15 @@ async def run(port):
         save_config(config)
         bus = MessageBus()
         sessions = SessionManager(workspace)
+        saved = sessions.get_or_create("websocket:saved-planning")
+        saved.metadata["title"] = "Planning notes"
+        saved.add_message("user", "Planning detail: Ship the read-only workflow.")
+        sessions.save(saved)
         ws_config = WebSocketConfig(port=port, openui_enabled=True, openui=OpenUIOptions.model_validate({
             "generation": "model", "tables": {"lookup": {"title": "Tasks",
-                "columns": {"name": "Name", "energy": "Energy", "status": "Status"}}},
+                "columns": {"name": "Name", "energy": "Energy", "status": "Status"}},
+                "search_sessions": {"title": "Saved conversations", "recordsKey": "results", "idField": "session_key",
+                    "columns": {"title": "Title", "updated_at": "Updated"}}},
         }))
         collector = OpenUICollector(bus, enabled=True, adapters=ws_config.openui.tables)
         services = build_gateway_services(
@@ -123,6 +152,8 @@ async def run(port):
                           workspace=workspace, session_manager=sessions, max_iterations=5,
                           hook_factories=[collector.hook])
         agent.tools.register(Lookup())
+        agent.tools.register(SearchSessionsTool(sessions))
+        agent.tools.register(ReadSessionTool(sessions))
         disconnect = WebuiTurnCoordinator(bus, sessions, schedule_background=asyncio.ensure_future).subscribe()
 
         async def outbound():

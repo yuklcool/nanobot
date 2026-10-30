@@ -1798,7 +1798,7 @@ export type Outbound =
       quoted_context?: string;
       intent?: "create_automation";
       user_shell?: true;
-      ui_mode?: "openui";
+      ui_mode?: import("../../../packages/client-events/openui").OpenUIMode;
       ui_action?: import("../../../packages/client-events/openui").OpenUIAction;
       workspace_scope?: WorkspaceScopePayload;
       turn_id?: string;
