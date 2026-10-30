@@ -449,14 +449,14 @@ it("renders a whole questionnaire with conditional fields and sends one canonica
     expect(original).not.toHaveAttribute("open");
     expect(submit).toBeDisabled();
     fireEvent.click(form.getByRole("radio", { name: "Yes" }));
-    fireEvent.click(form.getByRole("checkbox", { name: "Other", exact: true }));
+    fireEvent.click(form.getByRole("checkbox", { name: "Other" }));
     fireEvent.change(form.getByRole("textbox", { name: "Other reason" }), { target: { value: "Remove this answer" } });
     fireEvent.click(form.getByRole("radio", { name: "No" }));
     expect(form.queryByRole("group", { name: "Reasons" })).toBeNull();
     expect(submit).toBeEnabled();
     fireEvent.click(form.getByRole("radio", { name: "Yes" }));
-    expect(form.getByRole("checkbox", { name: "Other", exact: true })).not.toBeChecked();
-    fireEvent.click(form.getByRole("checkbox", { name: "Pay", exact: true }));
+    expect(form.getByRole("checkbox", { name: "Other" })).not.toBeChecked();
+    fireEvent.click(form.getByRole("checkbox", { name: "Pay" }));
     expect(submit).toBeEnabled();
     expect(fixture.frames.filter((frame) => frame.type === "message")).toHaveLength(0);
     fireEvent.click(submit); fireEvent.click(submit);
