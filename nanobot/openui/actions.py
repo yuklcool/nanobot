@@ -20,10 +20,11 @@ class UiActionLedger:
 
     def reserve(
         self, scope: UiScope, *, request_id: str, block_id: str,
-        revision: int, content: str,
+        revision: int, content: str, action_id: str = "conversation.followup",
+        data_ref: str | None = None, record_id: str | None = None,
     ) -> Literal["new", "accepted", "unknown"]:
         digest = hashlib.sha256(json.dumps(
-            [block_id, revision, content], ensure_ascii=False, separators=(",", ":"),
+            [block_id, revision, action_id, data_ref, record_id, content], ensure_ascii=False, separators=(",", ":"),
         ).encode()).hexdigest()
         with self.store.transaction() as db:
             row = db.execute(

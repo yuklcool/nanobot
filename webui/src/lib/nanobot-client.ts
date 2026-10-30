@@ -133,6 +133,7 @@ interface PendingRequest<T> {
 
 interface PendingWebUIRequest extends PendingRequest<unknown> {
   serializedFrame: string;
+  reconnectable: boolean;
 }
 
 class WebUIMutationError extends Error {
@@ -574,10 +575,14 @@ export class NanobotClient {
     this.setStatus("connecting");
     const sock = this.socketFactory(this.currentUrl);
     this.socket = sock;
-    sock.onopen = () => this.handleOpen();
-    sock.onmessage = (ev) => this.handleMessage(ev);
-    sock.onerror = () => this.setStatus("error");
-    sock.onclose = (ev) => this.handleClose(ev);
+    // A replaced socket can still deliver queued browser events. Never let it
+    // mutate the active host's capability, requests, or connection state.
+    sock.onopen = () => { if (this.socket === sock) this.handleOpen(); };
+    sock.onmessage = (ev) => { if (this.socket === sock) this.handleMessage(ev); };
+    sock.onerror = () => { if (this.socket === sock) this.setStatus("error"); };
+    sock.onclose = (ev) => {
+      if (this.socket === sock || (this.socket === null && this.intentionallyClosed)) this.handleClose(ev);
+    };
   }
 
   close(): void {
@@ -664,7 +669,8 @@ export class NanobotClient {
   /**
    * Send one WebUI mutation over the authenticated socket. Pending requests are
    * replayed with the same request_id after reconnect so the gateway can join or
-   * replay the original operation. A client-side timeout still ends all retries.
+   * replay the original operation. OpenUI requests stay bound to their negotiated
+   * connection and are rejected on disconnect. Timeouts end all retries.
    */
   requestMutation<T>(
     action: string,
@@ -712,6 +718,8 @@ export class NanobotClient {
         reject,
         timer,
         serializedFrame,
+        // Snapshot operations are scoped to the socket that negotiated them.
+        reconnectable: !action.startsWith("openui."),
       });
       try {
         socket.send(serializedFrame);
@@ -824,6 +832,7 @@ export class NanobotClient {
     },
   ): boolean {
     if (options?.userShell && this.socket?.readyState !== WS_OPEN) return false;
+    if (options?.uiAction && (this.socket?.readyState !== WS_OPEN || !this.openui)) return false;
     const temporary = this.temporaryChatIds.has(chatId);
     if (!temporary) this.knownChats.add(chatId);
     const frame: Outbound = {
@@ -864,7 +873,13 @@ export class NanobotClient {
         role: options.startsNewRun === false ? "supplement" : "candidate-owner",
       }));
     }
-    if (options?.userShell) return this.rawSend(frame);
+    if (options?.userShell || options?.uiAction) {
+      const sent = this.rawSend(frame);
+      if (!sent && options.uiAction && options.turnId) {
+        this.applyRunEffects(this.runs.transition({ kind: "reject", chatId, turnId: options.turnId }));
+      }
+      return sent;
+    }
     this.queueSend(frame);
     return true;
   }
@@ -1184,14 +1199,11 @@ export class NanobotClient {
       this.pendingNewChat = null;
     }
     this.rejectAllTranscriptions("socket closed");
-    if (!willReconnect) {
-      for (const pending of this.pendingWebUIRequests.values()) {
-        clearTimeout(pending.timer);
-        pending.reject(
-          new WebUIMutationError(503, "Socket closed before WebUI response"),
-        );
-      }
-      this.pendingWebUIRequests.clear();
+    for (const [requestId, pending] of this.pendingWebUIRequests) {
+      if (willReconnect && pending.reconnectable) continue;
+      clearTimeout(pending.timer);
+      pending.reject(new WebUIMutationError(503, "Socket closed before WebUI response"));
+      this.pendingWebUIRequests.delete(requestId);
     }
     for (const pending of this.pendingSystemCommands.values()) {
       clearTimeout(pending.timer);
@@ -1352,8 +1364,8 @@ export class NanobotClient {
       }
       return true;
     } catch {
-      // Shell commands require a new explicit submission, never reconnect replay.
-      if (frame.type !== "message" || !frame.user_shell) this.sendQueue.push(frame);
+      // Shell commands and negotiated UI actions require an explicit retry.
+      if (frame.type !== "message" || (!frame.user_shell && !frame.ui_action)) this.sendQueue.push(frame);
       return false;
     }
   }

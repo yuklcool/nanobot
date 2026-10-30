@@ -19,7 +19,9 @@ from nanobot.bus.events import INBOUND_META_LOCAL_MEDIA, INBOUND_META_USER_SHELL
 from nanobot.channels.websocket.attachment_policy import validate_attachment_batch
 from nanobot.channels.websocket.attachment_store import AttachmentUploadError
 from nanobot.command.builtin import USER_SHELL_COMMAND, builtin_command_starts_agent_turn
+from nanobot.openui.coordinator import store_call
 from nanobot.openui.snapshots import UiConflictError, UiSnapshot
+from nanobot.runtime_admission import RuntimeMaintenanceError
 from nanobot.runtime_context import (
     RUNTIME_CONTEXT_INPUT_META,
     WEBUI_QUOTE_METADATA,
@@ -57,7 +59,13 @@ from nanobot.webui.metadata import (
     WEBUI_RESTART_CONTROL_METADATA_KEY,
     WEBUI_SYSTEM_COMMAND_TURN_PREFIX,
 )
-from nanobot.webui.openui_runtime import REQUEST_ERRORS, UiRequest, UiStateRequest
+from nanobot.webui.openui_runtime import (
+    REQUEST_ERRORS,
+    UiBlockRequest,
+    UiRecordRequest,
+    UiRequest,
+    UiStateRequest,
+)
 from nanobot.webui.session_access import (
     SessionMention,
     WebuiSessionAccess,
@@ -868,7 +876,7 @@ class WebUICommandRouter:
             )
             accepted = True
             if ui_admission is not None and self.gateway.openui is not None:
-                await asyncio.to_thread(self.gateway.openui.actions.accept, ui_admission[0], ui_admission[1].request_id)
+                await store_call(self.gateway.openui.actions.accept, ui_admission[0], ui_admission[1].request_id)
             if turn_id:
                 self._accepted_messages[(chat_id, turn_id)] = time.monotonic() + 600
                 if len(self._accepted_messages) > 1024:
@@ -945,51 +953,57 @@ class WebUICommandRouter:
             await self.send_webui_response(connection, request_id, status=404, message="UI_DISABLED")
             return
         try:
-            action = envelope.get("action")
-            if action == "openui.subscribe":
-                request = UiRequest.model_validate(envelope.get("payload"))
-                if request.chat_id not in self._transport.webui_connection_chats(connection):
+            with self.gateway.http.bus.admission.activity():
+                action = envelope.get("action")
+                if action == "openui.subscribe":
+                    request = UiRequest.model_validate(envelope.get("payload"))
+                    if request.chat_id not in self._transport.webui_connection_chats(connection):
+                        raise ValueError("ACTION_NOT_ALLOWED")
+                    self._temporary_chats.validate_attach(request.chat_id)
+                    # Temporary/private conversations have no durable UI sidecar.
+                    if self._temporary_chats.message_policy(connection, request.chat_id, "") is not None:
+                        raise ValueError("ACTION_NOT_ALLOWED")
+                    self._openui_connections.add(connection)
+                    result = await runtime.list_blocks(request)
+                elif action in {"openui.cancel", "openui.retry", "openui.prepare_record"}:
+                    block_request = (UiRecordRequest if action == "openui.prepare_record" else UiBlockRequest).model_validate(envelope.get("payload"))
+                    if (connection not in self._openui_connections
+                            or block_request.chat_id not in self._transport.webui_connection_chats(connection)):
+                        raise ValueError("ACTION_NOT_ALLOWED")
+                    if isinstance(block_request, UiRecordRequest):
+                        result = {"content": await runtime.prepare_record(block_request)}
+                    else:
+                        snapshot = await runtime.control(block_request, cancel=action == "openui.cancel",
+                                                         emit=self.emit_openui)
+                        result = {"snapshot": snapshot.model_dump()}
+                elif action == "openui.state":
+                    state_request = UiStateRequest.model_validate(envelope.get("payload"))
+                    if (connection not in self._openui_connections
+                            or state_request.chat_id not in self._transport.webui_connection_chats(connection)):
+                        raise ValueError("ACTION_NOT_ALLOWED")
+                    snapshot = await runtime.save_state(state_request)
+                    result = {"snapshot": snapshot.model_dump()}
+                else:
                     raise ValueError("ACTION_NOT_ALLOWED")
-                self._temporary_chats.validate_attach(request.chat_id)
-                # Temporary/private conversations have no durable UI sidecar.
-                if self._temporary_chats.message_policy(connection, request.chat_id, "") is not None:
-                    raise ValueError("ACTION_NOT_ALLOWED")
-                self._openui_connections.add(connection)
-                result = await runtime.list_blocks(request)
-            elif action == "openui.state":
-                state_request = UiStateRequest.model_validate(envelope.get("payload"))
-                if (connection not in self._openui_connections
-                        or state_request.chat_id not in self._transport.webui_connection_chats(connection)):
-                    raise ValueError("ACTION_NOT_ALLOWED")
-                snapshot = await runtime.save_state(state_request)
-                result = {"snapshot": snapshot.model_dump()}
-            else:
-                raise ValueError("ACTION_NOT_ALLOWED")
-        except (*REQUEST_ERRORS, TemporaryChatError) as exc:
-            detail = str(exc) if isinstance(exc, UiConflictError) else "INVALID_PARAMS"
+        except (*REQUEST_ERRORS, TemporaryChatError, RuntimeMaintenanceError) as exc:
+            detail = "UI_BUSY" if isinstance(exc, RuntimeMaintenanceError) else str(exc) if isinstance(exc, UiConflictError) else "INVALID_PARAMS"
             await self.send_webui_response(connection, request_id, status=409, message=detail)
         else:
             await self.send_webui_response(connection, request_id, result=result)
+
+    async def emit_openui(self, snapshot: UiSnapshot) -> None:
+        for connection in self._transport.webui_subscribers(snapshot.chat_id):
+            if connection in self._openui_connections and connection in self._webui_connections:
+                await self._transport.webui_send_event(
+                    connection, "openui.snapshot", chat_id=snapshot.chat_id, snapshot=snapshot.model_dump(),
+                )
 
     async def capture_openui_turn(
         self, chat_id: str, event: dict[str, Any], *, metadata: dict[str, Any] | None,
     ) -> None:
         runtime = self.gateway.openui
-        if runtime is None:
-            return
-
-        async def emit(snapshot: UiSnapshot) -> None:
-            for connection in self._transport.webui_subscribers(chat_id):
-                if connection in self._openui_connections and connection in self._webui_connections:
-                    await self._transport.webui_send_event(
-                        connection, "openui.snapshot", chat_id=chat_id, snapshot=snapshot.model_dump(),
-                    )
-
-        try:
-            await runtime.capture_turn(chat_id, event, metadata=metadata, emit=emit)
-        except Exception:
-            # UI storage or transport failure must not fail canonical delivery.
-            logger.warning("OpenUI display unavailable for chat_id={}", chat_id)
+        if runtime is not None:
+            runtime.schedule_turn(chat_id, event, metadata=metadata, emit=self.emit_openui)
 
     async def start_webui_request(
         self,
@@ -1311,6 +1325,8 @@ class WebUICommandRouter:
 
     async def close(self) -> None:
         """Cancel command work and release application-owned gateway state."""
+        if self.gateway.openui is not None:
+            await self.gateway.openui.close()
         self._openui_connections.clear()
         delivery_tasks = tuple(self.request_tasks.values())
         operation_tasks = tuple(operation.task for operation in self.request_operations.values())

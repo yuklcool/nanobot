@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'nanobot/openui/**'
+      - 'nanobot/cli/gateway_runtime.py'
       - 'nanobot/webui/**'
       - 'nanobot/channels/websocket/**'
       - 'webui/**'
@@ -31,6 +32,8 @@ jobs:
       - run: bun install --frozen-lockfile
         working-directory: webui
       - run: bun run openui:check
+        working-directory: webui
+      - run: bun x vitest run src/tests/openui src/tests/nanobot-client.test.ts src/tests/useNanobotStream.test.tsx
         working-directory: webui
       - run: bun x playwright install --with-deps chromium
         working-directory: webui

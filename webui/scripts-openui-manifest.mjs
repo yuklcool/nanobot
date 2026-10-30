@@ -15,6 +15,7 @@ try {
   const pkg = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
   const basis = { schema_version: 1, sdk: pkg.dependencies['@openuidev/react-lang'],
     core: pkg.dependencies['@openuidev/lang-core'],
+    data_contract_hash: createHash('sha256').update(await readFile(path.join(root, 'src/openui/data-contract.ts'))).digest('hex'),
     source_hash: createHash('sha256').update(await readFile(source)).digest('hex'), prompt: chatLibrary.prompt() };
   const manifest = JSON.stringify({ ...basis,
     library_hash: createHash('sha256').update(JSON.stringify(basis)).digest('hex') }, null, 2) + '\n';

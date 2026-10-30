@@ -11,6 +11,7 @@ from nanobot.agent.loop import AgentLoop
 from nanobot.agent.tools.base import Tool
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.websocket.runtime import WebSocketChannel, WebSocketConfig
+from nanobot.openui.collector import OpenUICollector
 from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from nanobot.session.manager import SessionManager
 from nanobot.session.webui_turns import WebuiTurnCoordinator, clear_websocket_turns
@@ -32,6 +33,33 @@ class Lookup(Tool):
 
 
 class Provider(LLMProvider):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.ui_calls = 0
+        self.ui_requests = []
+        self.ui_started = asyncio.Event()
+        self.ui_gate = None
+        self.ui_invalid_tool = False
+
+    async def chat_stream(self, messages, on_content_delta=None, **kwargs):
+        if "Generate only OpenUI Lang" not in str(messages[0].get("content", "")):
+            return await super().chat_stream(messages, on_content_delta=on_content_delta, **kwargs)
+        self.ui_calls += 1
+        self.ui_requests.append((messages, kwargs))
+        datasets = json.loads(messages[-1]["content"])["datasets"]
+        children = ["heading", *[f"table{i}" for i in range(len(datasets))], "followup"]
+        prefix = '$question = ""\nroot = Panel([' + ", ".join(children) + '])\nheading = Text("Task overview")\n'
+        if on_content_delta:
+            await on_content_delta(prefix)
+        self.ui_started.set()
+        if self.ui_gate is not None:
+            await self.ui_gate.wait()
+        suffix = "".join(f'table{i} = DataTable({json.dumps(item["data_ref"])})\n' for i, item in enumerate(datasets))
+        suffix += "followup = Followup($question)\n"
+        if on_content_delta:
+            await on_content_delta(suffix)
+        return LLMResponse(content=prefix + suffix, tool_calls=[ToolCallRequest(id="forged", name="lookup", arguments={})] if self.ui_invalid_tool else [])
+
     def get_default_model(self):
         return "test"
 
@@ -39,7 +67,14 @@ class Provider(LLMProvider):
         index = max(i for i, row in enumerate(messages) if row["role"] == "user")
         if not any(row["role"] == "tool" for row in messages[index + 1:]):
             return LLMResponse(content=None, tool_calls=[ToolCallRequest(id=uuid4().hex, name="lookup", arguments={})])
-        return LLMResponse(content=str(messages[-1]["content"]), tool_calls=[])
+        content = str(messages[-1]["content"])
+        try:
+            payload = json.loads(content)
+            if isinstance(payload, dict) and isinstance(payload.get("summary"), str):
+                content = payload["summary"]
+        except ValueError:
+            pass
+        return LLMResponse(content=content, tool_calls=[])
 
 
 class Connection:
@@ -69,12 +104,13 @@ async def gateway(tmp_path, request):
     connection = Connection()
     channel._webui_connections.add(connection)
     channel._attach(connection, "chat")
-    loop = AgentLoop(bus=bus, provider=Provider(provider_name="offline-p0"), workspace=workspace, session_manager=sessions, max_iterations=5, unified_session=request.param)
+    collector = OpenUICollector(bus, enabled=True, adapters=config.openui.tables)
+    loop = AgentLoop(bus=bus, provider=Provider(provider_name="offline-p0"), workspace=workspace, session_manager=sessions, max_iterations=5, unified_session=request.param, hook_factories=[collector.hook])
     tool = Lookup()
     loop.tools.register(tool)
     disconnect = WebuiTurnCoordinator(bus, sessions, schedule_background=asyncio.ensure_future).subscribe()
     value = SimpleNamespace(bus=bus, sessions=sessions, config=config, services=services,
-                            channel=channel, connection=connection, loop=loop, tool=tool)
+                            channel=channel, connection=connection, loop=loop, tool=tool, collector=collector)
     try:
         yield value
     finally:
@@ -105,13 +141,15 @@ async def rpc(gateway, action, payload, connection=None):
     raise AssertionError("Gateway did not return an RPC response")
 
 
-async def execute(gateway):
+async def execute(gateway, *, wait_ui=True):
     message = await asyncio.wait_for(gateway.bus.consume_inbound(), 2)
     await gateway.loop._enqueue_session_message(message)
     tasks = gateway.loop._active_tasks[gateway.loop._effective_session_key(message)]
     await asyncio.gather(*tuple(tasks))
     while gateway.bus.outbound_size:
         await gateway.channel.send(await gateway.bus.consume_outbound())
+    if wait_ui:
+        await gateway.services.openui.jobs.drain()
     await asyncio.sleep(0)
     return message
 
@@ -155,7 +193,7 @@ async def test_native_two_turn_card_action_and_refresh(gateway):
     from nanobot.webui.inbound_commands import WebUICommandRouter
     from nanobot.webui.openui_runtime import OpenUIRuntime
     await gateway.channel._commands.close()
-    services = replace(gateway.services, openui=OpenUIRuntime(gateway.sessions))
+    services = replace(gateway.services, openui=OpenUIRuntime(gateway.sessions, gateway.bus))
     gateway.channel._commands = WebUICommandRouter(gateway.channel, services)
     gateway.channel._webui_connections.add(gateway.connection)
     await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": ["turn-1"]})
@@ -265,3 +303,166 @@ async def test_native_delete_retires_ui_and_cannot_resurrect_old_cards(gateway):
     current = await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": ["turn-1", "new-generation"]})
     assert current["result"]["session_generation"] != block["session_generation"]
     assert [item["turn_id"] for item in current["result"]["blocks"]] == ["new-generation"]
+
+
+class TaskLookup(Lookup):
+    async def execute(self, **kwargs):
+        self.calls += 1
+        return json.dumps({"summary": f"Lookup result {self.calls}", "records": [
+            {"id": "task_08", "name": "Task 08", "energy": 5412.5, "status": "ready", "secret": "PRIVATE-FIELD"},
+            {"id": "task_09", "name": "Task 09", "energy": 0, "status": "pending", "secret": "PRIVATE-FIELD"},
+        ]})
+
+
+def enable_model_tables(gateway):
+    from nanobot.openui.data import TableAdapterConfig
+
+    gateway.services.openui.options.generation = "model"
+    gateway.collector.adapters["lookup"] = TableAdapterConfig(
+        title="Captured tasks", columns={"name": "Task", "energy": "Energy", "status": "Status"},
+    )
+    gateway.tool = TaskLookup()
+    gateway.loop.tools.register(gateway.tool)
+    return gateway.loop.provider
+
+
+async def test_model_table_values_and_record_action_use_authorized_snapshot(gateway):
+    provider = enable_model_tables(gateway)
+    block = await first_card(gateway)
+    assert block["generation_mode"] == "model" and provider.ui_calls == 1
+    assert "PRIVATE-FIELD" not in json.dumps(block)
+    assert "PRIVATE-FIELD" not in provider.ui_requests[0][0][-1]["content"]
+    # The UI model sees descriptors, not critical cell values.
+    assert "5412.5" not in json.dumps(json.loads(provider.ui_requests[0][0][-1]["content"])["datasets"])
+    table = next(iter(block["tables"].values()))
+    assert table["rows"][0]["values"]["energy"] == 5412.5
+    assert table["rows"][1]["values"]["energy"] == 0
+    request = {"chat_id": "chat", "block_id": block["block_id"], "revision": 1,
+               "session_generation": block["session_generation"], "data_ref": table["data_ref"], "record_id": "task_08"}
+    result = await rpc(gateway, "openui.prepare_record", request)
+    assert result["ok"] and "5412.5" in result["result"]["content"]
+    ui_action = {key: value for key, value in request.items() if key != "chat_id"}
+    ui_action.update(action_id="record.analyze", request_id="analyze-task")
+    await dispatch(gateway, {"type": "message", "chat_id": "chat", "webui": True, "ui_mode": "openui",
+                             "turn_id": "analyze-task", "content": result["result"]["content"], "ui_action": ui_action})
+    message = await execute(gateway)
+    assert message.session_generation is not None
+    assert gateway.tool.calls == 2 and provider.ui_calls == 2
+    forged = await rpc(gateway, "openui.prepare_record", {**request, "record_id": "not-in-snapshot"})
+    assert not forged["ok"] and gateway.tool.calls == 2
+
+
+async def test_slow_ui_does_not_block_other_turn_and_can_cancel_without_tools(gateway):
+    provider = enable_model_tables(gateway)
+    provider.ui_gate = asyncio.Event()
+    await rpc(gateway, "openui.subscribe", {"chat_id": "chat"})
+    await dispatch(gateway, {"type": "message", "chat_id": "chat", "turn_id": "slow-ui", "webui": True,
+                             "content": "Lookup", "ui_mode": "openui"})
+    await execute(gateway, wait_ui=False)
+    await asyncio.wait_for(provider.ui_started.wait(), 2)
+    block = [row["snapshot"] for row in gateway.connection.sent if row["event"] == "openui.snapshot"][-1]
+    assert block["status"] == "streaming" and "Task overview" in block["source"]
+    gateway.channel._attach(gateway.connection, "other")
+    await dispatch(gateway, {"type": "message", "chat_id": "other", "turn_id": "plain-other",
+                             "webui": True, "content": "Lookup"})
+    await asyncio.wait_for(execute(gateway, wait_ui=False), 2)
+    assert gateway.tool.calls == 2 and provider.ui_calls == 1
+    assert not provider.ui_gate.is_set()
+    from nanobot.runtime_admission import RuntimeBusyError
+    with pytest.raises(RuntimeBusyError):
+        with gateway.bus.admission.pause_if_idle(lambda: False):
+            pass
+    result = await rpc(gateway, "openui.cancel", {
+        "chat_id": "chat", "session_generation": block["session_generation"], "block_id": block["block_id"], "revision": 1,
+    })
+    assert result["ok"] and result["result"]["snapshot"]["status"] == "cancelled"
+    assert gateway.tool.calls == 2 and gateway.bus.inbound_size == 0
+
+
+async def test_ui_failure_retry_is_display_only_and_idempotent(gateway):
+    provider = enable_model_tables(gateway)
+    provider.ui_invalid_tool = True
+    await rpc(gateway, "openui.subscribe", {"chat_id": "chat"})
+    await dispatch(gateway, {"type": "message", "chat_id": "chat", "turn_id": "failed-ui", "webui": True,
+                             "content": "Lookup", "ui_mode": "openui"})
+    await execute(gateway)
+    block = [row["snapshot"] for row in gateway.connection.sent if row["event"] == "openui.snapshot"][-1]
+    assert block["status"] == "failed" and gateway.tool.calls == 1
+    provider.ui_invalid_tool = False
+    request = {"chat_id": "chat", "session_generation": block["session_generation"], "block_id": block["block_id"], "revision": 1}
+    assert (await rpc(gateway, "openui.retry", request))["ok"]
+    await gateway.services.openui.jobs.drain()
+    assert (await rpc(gateway, "openui.retry", request))["result"]["snapshot"]["revision"] == 2
+    restored = await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": ["failed-ui"]})
+    assert restored["result"]["blocks"][0]["status"] == "complete"
+    assert provider.ui_calls == 2 and gateway.tool.calls == 1 and gateway.bus.inbound_size == 0
+
+
+async def test_ui_timeout_keeps_native_answer(gateway):
+    provider = enable_model_tables(gateway)
+    provider.ui_gate = asyncio.Event()
+    gateway.services.openui.jobs.timeout = 0.05
+    await rpc(gateway, "openui.subscribe", {"chat_id": "chat"})
+    await dispatch(gateway, {"type": "message", "chat_id": "chat", "turn_id": "timeout-ui", "webui": True,
+                             "content": "Lookup", "ui_mode": "openui"})
+    await execute(gateway)
+    block = [row["snapshot"] for row in gateway.connection.sent if row["event"] == "openui.snapshot"][-1]
+    assert block["status"] == "failed" and block["error_code"] == "UI_TIMEOUT"
+    assert block["fallback_text"] and gateway.tool.calls == 1
+    assert any(row["event"] == "message" for row in gateway.connection.sent)
+
+
+async def test_restart_restores_model_snapshot_without_business_or_model_replay(gateway):
+    from dataclasses import replace
+
+    from nanobot.webui.inbound_commands import WebUICommandRouter
+    from nanobot.webui.openui_runtime import OpenUIRuntime
+
+    provider = enable_model_tables(gateway)
+    block = await first_card(gateway)
+    await gateway.channel._commands.close()
+    services = replace(gateway.services, openui=OpenUIRuntime(gateway.sessions, gateway.bus))
+    gateway.channel._commands = WebUICommandRouter(gateway.channel, services)
+    gateway.channel._webui_connections.add(gateway.connection)
+    restored = await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": ["turn-1"]})
+    assert restored["result"]["blocks"][0]["tables"] == block["tables"]
+    assert restored["result"]["blocks"][0]["source"] == block["source"]
+    retry = await rpc(gateway, "openui.retry", {
+        "chat_id": "chat", "session_generation": block["session_generation"],
+        "block_id": block["block_id"], "revision": 1,
+    })
+    assert not retry["ok"] and retry["error"]["message"] == "UI_MODEL_UNAVAILABLE"
+    assert gateway.tool.calls == 1 and provider.ui_calls == 1
+
+
+async def test_maintenance_at_ui_handoff_preserves_native_delivery(gateway):
+    from nanobot.session.display_history import HISTORY_GENERATION_METADATA_KEY
+
+    block = await first_card(gateway)
+    with gateway.bus.admission.pause_if_idle(lambda: False):
+        await gateway.channel._commands.capture_openui_turn(
+            "chat", {"turn_id": "waiting-turn", "outcome": "completed"},
+            metadata={"_openui_mode": "openui", HISTORY_GENERATION_METADATA_KEY: block["session_generation"]},
+        )
+    result = await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": ["waiting-turn"]})
+    assert result["ok"] and result["result"]["blocks"] == []
+    await dispatch(gateway, {"type": "message", "chat_id": "chat", "turn_id": "ordinary",
+                             "content": "Continue normally", "webui": True})
+    await execute(gateway)
+    assert gateway.tool.calls == 2
+    assert any(row.get("text") == "Lookup result 2" for row in gateway.connection.sent)
+
+
+async def test_duplicate_completion_preserves_original_captured_data(gateway, monkeypatch):
+    provider = enable_model_tables(gateway)
+    runtime = gateway.services.openui
+    schedule = runtime.schedule_turn
+
+    def duplicate(*args, **kwargs):
+        schedule(*args, **kwargs)
+        schedule(*args, **kwargs)
+
+    monkeypatch.setattr(runtime, "schedule_turn", duplicate)
+    block = await first_card(gateway)
+    assert block["status"] == "complete" and block["tables"]
+    assert provider.ui_calls == 1 and gateway.tool.calls == 1

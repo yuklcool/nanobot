@@ -2514,6 +2514,12 @@
     "saved": "Brouillon enregistré",
     "submitted": "Envoyé",
     "checkConversation": "Envoi non confirmé. Consultez la conversation.",
-    "unavailable": "Vue interactive indisponible. La réponse texte est conservée."
+    "unavailable": "Vue interactive indisponible. La réponse texte est conservée.",
+    "filterRecords": "Filtrer les lignes",
+    "analyzeRecord": "Analyser cet instantané",
+    "snapshotTime": "Instantané : {{time}}",
+    "showingRows": "{{shown}} enregistrements affichés sur {{total}}",
+    "retryView": "Réessayer la vue",
+    "cancelView": "Annuler la vue"
   }
 }

@@ -7,7 +7,8 @@ import type { NanobotClient } from "@/lib/nanobot-client";
 import type { UIMessage } from "@/lib/types";
 import type { SendOptions, SubmittedTurn } from "@/hooks/useNanobotStream";
 import { acceptSnapshot, uiSnapshotSchema, type UiSnapshot } from "./snapshot";
-import { ChatInteraction, chatLibrary, followupSchema } from "./chat-library";
+import type { OpenUIAction } from "../../../packages/client-events/openui";
+import { ChatInteraction, DisplayDataContext, chatLibrary, followupSchema } from "./chat-library";
 
 interface ChatViews {
   blocks: UiSnapshot[];
@@ -16,6 +17,8 @@ interface ChatViews {
   toggle: (enabled: boolean) => void;
   send: (question: string, options: SendOptions) => SubmittedTurn | null;
   save: (snapshot: UiSnapshot, question: string) => Promise<void>;
+  control: (snapshot: UiSnapshot, action: "cancel" | "retry") => Promise<void>;
+  prepareRecord: (snapshot: UiSnapshot, dataRef: string, recordId: string) => Promise<string>;
 }
 const Views = createContext<ChatViews | null>(null);
 const responseSchema = z.object({ capability: z.object({ protocol: z.literal(1), library_hash: z.string() }),
@@ -32,6 +35,7 @@ export function OpenUIChatProvider({ client, chatId, messages, send, children }:
   const [enabled, setEnabled] = useState(false);
   const generation = useRef<string | null>(null);
   const mode = useRef(false);
+  const epoch = useRef(0);
   const turnIds = JSON.stringify([...new Set(messages.map((message) => message.turnId).filter(Boolean))]);
 
   const merge = useCallback((next: UiSnapshot) => {
@@ -47,9 +51,21 @@ export function OpenUIChatProvider({ client, chatId, messages, send, children }:
   }, [chatId]);
 
   useEffect(() => {
+    epoch.current += 1;
+    generation.current = null;
+    setBlocks([]);
+    setAvailable(false);
+    mode.current = false;
+    setEnabled(false);
+  }, [client, chatId]);
+
+  useEffect(() => {
     let active = true;
+    let latestLoad = 0;
     const supported = () => client.getOpenUI()?.library_hash === manifest.library_hash;
     async function load() {
+      const requestEpoch = epoch.current;
+      const invocation = ++latestLoad;
       if (!chatId || !supported()) { if (active) setAvailable(false); return; }
       try {
         const turns: string[] = JSON.parse(turnIds);
@@ -57,7 +73,8 @@ export function OpenUIChatProvider({ client, chatId, messages, send, children }:
           const result = responseSchema.parse(await client.requestMutation("openui.subscribe", {
             chat_id: chatId, turn_ids: turns.slice(offset, offset + 100),
           }));
-          if (!active || !supported() || result.capability.library_hash !== manifest.library_hash) return;
+          if (!active || requestEpoch !== epoch.current || invocation !== latestLoad
+            || !supported() || result.capability.library_hash !== manifest.library_hash) return;
           if (generation.current !== result.session_generation) {
             generation.current = result.session_generation;
             setBlocks([]);
@@ -66,12 +83,17 @@ export function OpenUIChatProvider({ client, chatId, messages, send, children }:
           client.setOpenUIMode(chatId, mode.current);
           result.blocks.forEach(merge);
         }
-      } catch { if (active) setAvailable(false); }
+      } catch { if (active && requestEpoch === epoch.current && invocation === latestLoad) setAvailable(false); }
     }
     const unready = client.onReady(() => { void load(); });
     const unsession = client.onSessionUpdate((updated) => { if (updated === chatId) void load(); });
     const unstatus = client.onStatus((status) => {
-      if (status !== "open" && active) setAvailable(false);
+      if (status !== "open" && active) {
+        epoch.current += 1;
+        generation.current = null;
+        setBlocks([]);
+        setAvailable(false);
+      }
     });
     const unevent = client.onOpenUI((value) => {
       if (!active || !supported()) return;
@@ -84,20 +106,38 @@ export function OpenUIChatProvider({ client, chatId, messages, send, children }:
 
   useEffect(() => () => { if (chatId) client.setOpenUIMode(chatId, false); }, [client, chatId]);
   const save = useCallback(async (snapshot: UiSnapshot, question: string) => {
+    const requestEpoch = epoch.current;
     const result = z.object({ snapshot: uiSnapshotSchema }).parse(await client.requestMutation("openui.state", {
       chat_id: snapshot.chat_id, session_generation: snapshot.session_generation, block_id: snapshot.block_id,
       revision: snapshot.revision, expected_state_version: snapshot.state_version, question,
     }));
-    merge(result.snapshot);
+    if (requestEpoch === epoch.current) merge(result.snapshot);
   }, [client, merge]);
+  const control = useCallback(async (snapshot: UiSnapshot, action: "cancel" | "retry") => {
+    const requestEpoch = epoch.current;
+    const result = z.object({ snapshot: uiSnapshotSchema }).parse(await client.requestMutation(`openui.${action}`, {
+      chat_id: snapshot.chat_id, session_generation: snapshot.session_generation,
+      block_id: snapshot.block_id, revision: snapshot.revision,
+    }));
+    if (requestEpoch === epoch.current) merge(result.snapshot);
+  }, [client, merge]);
+  const prepareRecord = useCallback(async (snapshot: UiSnapshot, dataRef: string, recordId: string) => {
+    const requestEpoch = epoch.current;
+    const result = z.object({ content: z.string().min(1).max(8192) }).parse(await client.requestMutation("openui.prepare_record", {
+      chat_id: snapshot.chat_id, session_generation: snapshot.session_generation, block_id: snapshot.block_id,
+      revision: snapshot.revision, data_ref: dataRef, record_id: recordId,
+    }));
+    if (requestEpoch !== epoch.current) throw new Error("Connection changed");
+    return result.content;
+  }, [client]);
   const toggle = useCallback((next: boolean) => {
     mode.current = next;
     setEnabled(next);
     if (chatId) client.setOpenUIMode(chatId, next);
   }, [chatId, client]);
-  const value = useMemo(() => ({ blocks, available, enabled, toggle, save,
+  const value = useMemo(() => ({ blocks, available, enabled, toggle, save, control, prepareRecord,
     send: (question: string, options: SendOptions) => send(question, undefined, options),
-  }), [blocks, available, enabled, toggle, save, send]);
+  }), [blocks, available, enabled, toggle, save, control, prepareRecord, send]);
   return <Views.Provider value={value}>{children}</Views.Provider>;
 }
 
@@ -128,8 +168,18 @@ function Block({ snapshot, views }: { snapshot: UiSnapshot; views: ChatViews }) 
     setParseFailed(errors.some((error) => error.severity !== "warning"));
   }, []);
   const editable = views.available && snapshot.status === "complete" && !parseFailed && !busy;
-  const fallback = <p role="status">{t("openui.unavailable")}</p>;
-  if (snapshot.status !== "streaming" && snapshot.status !== "complete") return fallback;
+  async function control(action: "cancel" | "retry") {
+    if (pending.current || !views.available) return;
+    pending.current = true;
+    setBusy(true);
+    try { await views.control(snapshot, action); }
+    catch { setNotice(t("openui.checkConversation")); }
+    finally { pending.current = false; setBusy(false); }
+  }
+  const fallback = <div><p role="status">{t("openui.unavailable")}</p>
+    <button type="button" className="rounded-control border px-2 py-1" disabled={!views.available || busy}
+      onClick={() => { void control("retry"); }}>{t("openui.retryView")}</button></div>;
+  const failed = snapshot.status !== "streaming" && snapshot.status !== "complete";
 
   async function action(event: unknown) {
     if (!editable || pending.current) return;
@@ -142,20 +192,26 @@ function Block({ snapshot, views }: { snapshot: UiSnapshot; views: ChatViews }) 
         await views.save(snapshot, draft.data.params.question);
         setNotice(t("openui.saved"));
       } else {
-        const parsed = followupSchema.parse(event);
-        const question = parsed.params.question;
-        if (confirmed.current.has(question)) { setNotice(t("openui.submitted")); return; }
-        // Reuse the key for an unresolved identical submission. A missing ACK
-        // must not silently turn into a second Agent turn.
-        let requestId = requests.current.get(question);
-        if (!requestId) { requestId = crypto.randomUUID(); requests.current.set(question, requestId); }
-        const result = views.send(question, { uiAction: {
+        const record = z.object({ type: z.literal("record_analyze"), params: z.object({
+          data_ref: z.string().min(1).max(128), record_id: z.string().min(1).max(256),
+        }).strict() }).safeParse(event);
+        const question = record.success
+          ? await views.prepareRecord(snapshot, record.data.params.data_ref, record.data.params.record_id)
+          : followupSchema.parse(event).params.question;
+        const identity = JSON.stringify([record.success ? "record.analyze" : "conversation.followup", question]);
+        if (confirmed.current.has(identity)) { setNotice(t("openui.submitted")); return; }
+        let requestId = requests.current.get(identity);
+        if (!requestId) { requestId = crypto.randomUUID(); requests.current.set(identity, requestId); }
+        const uiAction: OpenUIAction = {
           session_generation: snapshot.session_generation, block_id: snapshot.block_id,
-          revision: snapshot.revision, request_id: requestId, action_id: "conversation.followup",
-        } });
+          revision: snapshot.revision, request_id: requestId,
+          action_id: record.success ? "record.analyze" : "conversation.followup",
+          ...(record.success ? record.data.params : {}),
+        };
+        const result = views.send(question, { uiAction });
         if (!result?.delivery) throw new Error("No admission receipt");
         await result.delivery;
-        confirmed.current.add(question);
+        confirmed.current.add(identity);
         setNotice(t("openui.submitted"));
       }
     } catch { setNotice(t("openui.checkConversation")); }
@@ -163,10 +219,14 @@ function Block({ snapshot, views }: { snapshot: UiSnapshot; views: ChatViews }) 
   }
   return <Boundary fallback={fallback}>
     <ChatInteraction.Provider value={editable}>
-      {parseFailed && snapshot.status === "complete" ? fallback : <Renderer library={chatLibrary}
+    <DisplayDataContext.Provider value={snapshot.tables ?? {}}>
+      {failed || (parseFailed && snapshot.status === "complete") ? fallback : <Renderer library={chatLibrary}
         response={snapshot.source} isStreaming={snapshot.status === "streaming"} initialState={snapshot.state}
         onAction={(event) => { void action(event); }} onError={onError} publishObservability={false} />}
+      {snapshot.status === "streaming" && <button type="button" className="rounded-control border px-2 py-1"
+        disabled={!views.available || busy} onClick={() => { void control("cancel"); }}>{t("openui.cancelView")}</button>}
       {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
+    </DisplayDataContext.Provider>
     </ChatInteraction.Provider>
   </Boundary>;
 }

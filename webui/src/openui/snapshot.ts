@@ -1,3 +1,4 @@
+import { displayTablesSchema } from "./data-contract";
 import { z } from "zod";
 
 const id = z.string().min(1).max(128);
@@ -17,6 +18,11 @@ export const uiSnapshotSchema = z.object({
   library_hash: id,
   status: z.enum(["streaming", "complete", "failed", "cancelled", "superseded"]),
   source: z.string().refine((value) => bytes(value) <= 128 * 1024),
+  fallback_text: z.string().max(32000).optional(),
+  tables: displayTablesSchema.optional(),
+  generation_mode: z.enum(["preview", "model"]).optional(),
+  error_code: z.string().nullable().optional(),
+  usage: z.record(z.string(), z.number().int().nonnegative()).optional(),
   state: z.record(z.string(), z.json()).refine((value) => bytes(JSON.stringify(value)) <= 16 * 1024),
   state_version: z.number().int().min(0),
 }).strict();
@@ -34,7 +40,9 @@ export function acceptSnapshot(
   if (next.chat_id !== identity.chat_id || next.session_generation !== identity.session_generation
     || next.block_id !== identity.block_id || next.library_hash !== identity.library_hash) return current;
   if (current) {
-    if (next.turn_id !== current.turn_id || next.revision < current.revision) return current;
+    if (next.turn_id !== current.turn_id || next.anchor_seq !== current.anchor_seq || next.revision < current.revision) return current;
+    if (JSON.stringify(next.tables ?? {}) !== JSON.stringify(current.tables ?? {})
+      || (next.fallback_text ?? "") !== (current.fallback_text ?? "")) return current;
     if (next.revision === current.revision) {
       if (next.seq < current.seq || next.state_version < current.state_version) return current;
       // State saves may follow completion, but the completed source is immutable.

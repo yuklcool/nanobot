@@ -2720,6 +2720,12 @@
     "saved": "草稿已保存",
     "submitted": "已提交",
     "checkConversation": "未能确认提交状态，请查看会话。",
-    "unavailable": "交互视图不可用，文字回答已保留。"
+    "unavailable": "交互视图不可用，文字回答已保留。",
+    "filterRecords": "筛选记录",
+    "analyzeRecord": "分析快照",
+    "snapshotTime": "数据截至：{{time}}",
+    "showingRows": "显示 {{shown}} 条，共 {{total}} 条记录",
+    "retryView": "重试视图",
+    "cancelView": "取消生成"
   }
 }

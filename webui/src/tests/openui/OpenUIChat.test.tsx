@@ -20,18 +20,20 @@ const initial: UiSnapshot = {
   state: { $question: "Look up again" }, state_version: 1,
 };
 
-function setup(capability: unknown = { protocol: 1, library_hash: manifest.library_hash }, seed = [message]) {
+function setup(capability: unknown = { protocol: 1, library_hash: manifest.library_hash }, seed = [message], snapshot = initial) {
   const frames: Record<string, unknown>[] = [];
-  let saved = { ...initial };
+  let saved = { ...snapshot };
   const socket = { readyState: 1, onopen: null as (() => void) | null,
-    onmessage: null as ((event: MessageEvent) => void) | null, close() {},
+    onmessage: null as ((event: MessageEvent) => void) | null,
+    onclose: null as (() => void) | null, close() {},
     send(raw: string) {
       const frame = JSON.parse(raw); frames.push(frame);
       queueMicrotask(() => {
         if (frame.type === "webui_request") {
           if (frame.action === "openui.state") saved = { ...saved, state: { $question: frame.payload.question }, state_version: saved.state_version + 1 };
           socket.onmessage?.({ data: JSON.stringify({ event: "webui_response", ok: true, request_id: frame.request_id,
-            result: frame.action === "openui.state" ? { snapshot: saved }
+            result: frame.action === "openui.prepare_record" ? { content: `Analyze captured ${frame.payload.record_id}` }
+              : frame.action === "openui.state" ? { snapshot: saved }
               : { capability, session_generation: "generation", blocks: frame.payload.turn_ids?.includes(saved.turn_id) ? [saved] : [] } }) } as MessageEvent);
         }
         if (frame.type === "message") socket.onmessage?.({ data: JSON.stringify({ event: "message_accepted",
@@ -117,4 +119,74 @@ it("restores loaded history in bounded batches including turns older than the la
     expect(screen.getByRole("textbox")).toHaveValue("Look up again");
     expect(fixture.frames.filter((frame) => frame.type === "message")).toHaveLength(0);
   } finally { view.unmount(); fixture.client.close(); }
+});
+
+it("renders critical cells from the saved dataset, filters locally and sends a scoped record action", async () => {
+  const table = { data_ref: "data_1", title: "Captured tasks", columns: { name: "Task", energy: "Energy", status: "Status" },
+    rows: [{ id: "task_08", values: { name: "Task 08", energy: 5412.5, status: "ready" } },
+      { id: "task_09", values: { name: "Task 09", energy: 0, status: "pending" } }],
+    source_tool: "lookup", source_call_id: "call_1", captured_at: 1700000000, total_rows: 2 };
+  const fixture = setup({ protocol: 1, library_hash: manifest.library_hash }, [message], {
+    ...initial, tables: { data_1: table }, source: initial.source.replace("[heading, followup]", "[heading, dataTable, followup]")
+      + 'dataTable = DataTable("data_1")\n',
+  });
+  const view = fixture.mount();
+  try {
+    expect(await screen.findByRole("table")).toHaveTextContent("5412.5");
+    fireEvent.change(screen.getByRole("textbox", { name: "openui.filterRecords" }), { target: { value: "pending" } });
+    expect(screen.getByRole("table")).not.toHaveTextContent("Task 08");
+    expect(screen.getByRole("table")).toHaveTextContent("Task 09");
+    expect(fixture.frames.filter((frame) => frame.type === "message")).toHaveLength(0);
+    expect(fixture.frames.filter((frame) => frame.action === "openui.prepare_record")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "openui.analyzeRecord" }));
+    await screen.findByText("openui.submitted");
+    expect(fixture.frames.find((frame) => frame.type === "message")).toMatchObject({
+      content: "Analyze captured task_09", chat_id: "chat", ui_action: {
+        action_id: "record.analyze", data_ref: "data_1", record_id: "task_09", block_id: "block",
+      },
+    });
+  } finally { view.unmount(); fixture.client.close(); }
+});
+
+
+it("drops cached views on disconnect and requires fresh host capability before restoring", async () => {
+  const fixture = setup(); const view = fixture.mount();
+  try {
+    await screen.findByRole("textbox");
+    const before = fixture.frames.filter((frame) => frame.action === "openui.subscribe").length;
+    act(() => fixture.socket.onclose?.());
+    await waitFor(() => expect(screen.queryByRole("textbox")).toBeNull());
+    act(() => {
+      fixture.client.connect();
+      fixture.socket.onopen?.();
+      fixture.socket.onmessage?.({ data: JSON.stringify({ event: "ready", chat_id: "chat", client_id: "browser" }) } as MessageEvent);
+      fixture.socket.onmessage?.({ data: JSON.stringify({ event: "openui.snapshot", chat_id: "chat", snapshot: initial }) } as MessageEvent);
+    });
+    await act(async () => {});
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(fixture.frames.filter((frame) => frame.action === "openui.subscribe")).toHaveLength(before);
+    expect(screen.getByRole("list", { name: "Conversation" })).toHaveTextContent("Lookup result 1");
+  } finally { view.unmount(); fixture.client.close(); }
+});
+
+it("isolates views when two hosts share the same chat and generation identifiers", async () => {
+  const first = setup();
+  const second = setup({ protocol: 1, library_hash: manifest.library_hash }, [message], {
+    ...initial, state: { $question: "Second host draft" },
+  });
+  function Host({ client }: { client: NanobotClient }) {
+    return <OpenUIChatProvider client={client} chatId="chat" messages={[message]} send={() => null}>
+      <OpenUIControls /><OpenUIMessage message={message} />
+    </OpenUIChatProvider>;
+  }
+  const view = render(<Host client={first.client} />);
+  try {
+    expect(await screen.findByRole("textbox")).toHaveValue("Look up again");
+    view.rerender(<Host client={second.client} />);
+    await waitFor(() => expect(screen.getByRole("textbox")).toHaveValue("Second host draft"));
+    act(() => first.socket.onmessage?.({ data: JSON.stringify({ event: "openui.snapshot", chat_id: "chat",
+      snapshot: { ...initial, state_version: 2, state: { $question: "Late first host" } } }) } as MessageEvent));
+    expect(screen.getByRole("textbox")).toHaveValue("Second host draft");
+  } finally { view.unmount(); first.client.close(); second.client.close(); }
 });

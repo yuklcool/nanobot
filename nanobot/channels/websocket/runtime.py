@@ -32,6 +32,7 @@ from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.channels.websocket.binary_http import BinaryHTTPBridge
 from nanobot.config_base import Base
+from nanobot.openui.config import OpenUIOptions
 from nanobot.pairing.events import PairingChanged
 from nanobot.runtime_admission import RuntimeMaintenanceError
 from nanobot.session.webui_turns import (
@@ -214,6 +215,7 @@ class WebSocketConfig(Base):
     websocket_requires_token: bool = True
     allow_from: list[str] = Field(default_factory=lambda: ["*"])
     openui_enabled: bool = False
+    openui: OpenUIOptions = Field(default_factory=OpenUIOptions)
     streaming: bool = True
     # Keep the existing configurable guard (also used for non-attachment
     # frames and older clients). HTTP attachments are outside this limit.
@@ -1506,7 +1508,7 @@ class WebSocketChannel(BaseChannel):
         raw = json.dumps(body, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=f" {body['event']} ")
-        if persistence == "turn_complete" and persisted and body.get("outcome", "completed") == "completed":
+        if persistence == "turn_complete" and persisted:
             await self._commands.capture_openui_turn(chat_id, body, metadata=metadata)
 
     async def send_goal_state(self, chat_id: str, blob: dict[str, Any]) -> None:

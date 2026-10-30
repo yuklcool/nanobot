@@ -127,7 +127,7 @@ def build_gateway_services(
         logger=logger,
     )
     session_projection = WebUISessionProjection(session_manager, subagent_manager=subagent_manager, log=logger)
-    openui = (OpenUIRuntime(session_manager)
+    openui = (OpenUIRuntime(session_manager, bus, options=config.openui)
               if config.openui_enabled and session_manager is not None else None)
 
     async def discard_with_openui(session_key: str) -> None:

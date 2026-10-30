@@ -2,6 +2,8 @@
 
 关联 Issue #1、PR #3。此批基于 `48da8994552b6eb9aa00b0cf7b5c26445ac2ac9e`，继续在 `feature/openui-p0` 开发，目标仍为 develop。本文记录 Gateway 最小接入；完整设计目标未缩减，P0 仍未整体放行。
 
+本文为第二批历史记录；后续模型生成、表格和任务生命周期进度见 [第三批验证记录](openui-generation-validation.md)。
+
 ## 当前实现与边界
 
 正式聊天组件已挂载受功能开关和协议协商控制的 OpenUI 入口。仅在配置 `channels.websocket.openuiEnabled=true`、连接通过原生 WebUI 认证、客户端组件库哈希匹配、用户勾选“交互视图（预览）”时，新回合才生成 UI。默认关闭；CLI、旧客户端、临时会话和普通文本回合不生成 UI，不增加模型请求。

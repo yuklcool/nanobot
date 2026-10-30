@@ -5,7 +5,9 @@ export interface OpenUIAction {
   block_id: string;
   revision: number;
   request_id: string;
-  action_id: "conversation.followup";
+  action_id: "conversation.followup" | "record.analyze";
+  data_ref?: string;
+  record_id?: string;
 }
 export function openUICapability(value: unknown): OpenUICapability | null {
   if (!value || typeof value !== "object") return null;

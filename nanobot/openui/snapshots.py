@@ -15,6 +15,8 @@ from typing import Annotated, Generator, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
+from nanobot.openui.data import DisplayTable
+
 MAX_SOURCE_BYTES = 128 * 1024
 MAX_STATE_BYTES = 16 * 1024
 Identifier = Annotated[str, Field(min_length=1, max_length=128)]
@@ -43,6 +45,11 @@ class UiSnapshot(BaseModel):
     library_hash: Identifier
     status: Status = "streaming"
     source: str = ""
+    fallback_text: Annotated[str, Field(max_length=16000)] = ""
+    tables: dict[str, DisplayTable] = Field(default_factory=dict)
+    generation_mode: Literal["preview", "model"] = "preview"
+    error_code: str | None = None
+    usage: dict[str, int] = Field(default_factory=dict)
     state: dict[str, JsonValue] = Field(default_factory=dict)
     state_version: Annotated[int, Field(ge=0)] = 0
 
@@ -51,6 +58,14 @@ class UiSnapshot(BaseModel):
     def bounded_source(cls, value: str) -> str:
         if len(value.encode("utf-8")) > MAX_SOURCE_BYTES:
             raise ValueError("UI source exceeds size limit")
+        return value
+
+    @field_validator("tables")
+    @classmethod
+    def bounded_tables(cls, value: dict[str, DisplayTable]) -> dict[str, DisplayTable]:
+        if (len(value) > 4 or any(key != table.data_ref for key, table in value.items())
+                or sum(len(table.model_dump_json().encode()) for table in value.values()) > 64 * 1024):
+            raise ValueError("display data exceeds size limit")
         return value
 
     @field_validator("state")
@@ -157,7 +172,8 @@ class UiSnapshotStore:
 
     def advance(
         self, scope: UiScope, block_id: str, *, revision: int, expected_seq: int,
-        delta: str = "", status: Status = "streaming",
+        delta: str = "", status: Status = "streaming", error_code: str | None = None,
+        usage: dict[str, int] | None = None,
     ) -> UiSnapshot:
         with self.transaction() as db:
             current = self._read(db, scope, block_id)
@@ -169,7 +185,8 @@ class UiSnapshotStore:
             # Revalidate the whole record; model_copy(update=...) skips validation.
             updated = UiSnapshot.model_validate({
                 **current.model_dump(), "source": current.source + delta,
-                "seq": current.seq + 1, "status": status,
+                "seq": current.seq + 1, "status": status, "error_code": error_code,
+                "usage": current.usage if usage is None else usage,
             })
             self._write(db, scope, updated)
             return updated
@@ -244,3 +261,18 @@ class UiSnapshotStore:
                            [(owner, session_key, value) for value in generations])
             db.execute("DELETE FROM ui_snapshots WHERE owner=? AND session_key=?", (owner, session_key))
             db.execute("DELETE FROM ui_actions WHERE owner=? AND session_key=?", (owner, session_key))
+
+    def restart(self, scope: UiScope, block_id: str, *, revision: int) -> UiSnapshot:
+        with self.transaction() as db:
+            current = self._read(db, scope, block_id)
+            if current.revision != revision or current.status == "streaming":
+                raise UiConflictError("STALE_REVISION")
+            if revision >= 3:
+                raise UiConflictError("BUDGET_EXCEEDED")
+            snapshot = UiSnapshot.model_validate({
+                **current.model_dump(), "revision": revision + 1, "seq": 0,
+                "source": "", "status": "streaming", "state": {}, "state_version": 0,
+                "error_code": None, "usage": {},
+            })
+            self._write(db, scope, snapshot)
+            return snapshot

@@ -778,3 +778,6 @@ E2E 的业务测试工具应提供可观测计数器、资源版本和幂等回�
 
 
 开发进度补充：Gateway 第二批接入、最小确定性视图的阶段边界、动作至多一次放行及剩余验收见 [openui-gateway-validation.md](openui-gateway-validation.md)。该增量不代表模型生成 UI、Query/Mutation 或全部 P0 验收已经完成。
+
+
+开发进度补充（第三批）：独立 UI 任务、冻结模型配置、受控表格数据、记录分析、取消/重试及其限制见 [openui-generation-validation.md](openui-generation-validation.md)。这是原设计的增量实现，真实模型/MCP 与完整阶段验收仍未完成。

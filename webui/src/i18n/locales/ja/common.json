@@ -2514,6 +2514,12 @@
     "saved": "下書きを保存しました",
     "submitted": "送信済み",
     "checkConversation": "送信状態を確認できません。会話を確認してください。",
-    "unavailable": "表示を利用できません。テキストの回答は保持されています。"
+    "unavailable": "表示を利用できません。テキストの回答は保持されています。",
+    "filterRecords": "記録を絞り込む",
+    "analyzeRecord": "スナップショットを分析",
+    "snapshotTime": "取得日時：{{time}}",
+    "showingRows": "{{total}} 件中 {{shown}} 件を表示",
+    "retryView": "表示を再試行",
+    "cancelView": "生成をキャンセル"
   }
 }

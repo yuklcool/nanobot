@@ -2515,6 +2515,12 @@
     "saved": "Borrador guardado",
     "submitted": "Enviado",
     "checkConversation": "No se pudo confirmar el envío. Revisa la conversación.",
-    "unavailable": "Vista interactiva no disponible. Se conserva la respuesta de texto."
+    "unavailable": "Vista interactiva no disponible. Se conserva la respuesta de texto.",
+    "filterRecords": "Filtrar registros",
+    "analyzeRecord": "Analizar instantánea",
+    "snapshotTime": "Instantánea: {{time}}",
+    "showingRows": "Se muestran {{shown}} de {{total}} registros",
+    "retryView": "Reintentar vista",
+    "cancelView": "Cancelar vista"
   }
 }

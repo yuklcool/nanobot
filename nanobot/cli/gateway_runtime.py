@@ -25,6 +25,7 @@ from nanobot.agent.tools.mcp import MCPProvider
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
+from nanobot.channels.websocket.runtime import WebSocketConfig
 from nanobot.cli import terminal as cli_terminal
 from nanobot.cli.dock import watch_gateway_icon
 from nanobot.cli.runtime_config import _migrate_cron_store
@@ -45,6 +46,7 @@ from nanobot.config.paths import get_data_dir, is_default_workspace
 from nanobot.config.schema import Config
 from nanobot.gateway.runtime import GatewayHealthIdentity, GatewayInstance, GatewayRuntime
 from nanobot.installation_lock import installation_access
+from nanobot.openui.collector import OpenUICollector
 from nanobot.security.network import is_loopback_host
 from nanobot.session.keys import (
     HEARTBEAT_SESSION_KEY,
@@ -606,6 +608,9 @@ def _run_claimed_gateway(
         unified_session=config.agents.defaults.unified_session,
     )
 
+    openui_config = WebSocketConfig.model_validate(config.channels.model_dump().get("websocket", {}))
+    openui_collector = OpenUICollector(bus, enabled=openui_config.openui_enabled,
+                                       adapters=openui_config.openui.tables)
     # Create agent with cron service
     agent = AgentLoop.from_config(
         config, bus,
@@ -620,7 +625,7 @@ def _run_claimed_gateway(
         provider_signature=provider_snapshot.signature,
         local_trigger_store=trigger_store,
         hooks=[_MCPReadinessHook(mcp_provider)],
-        hook_factories=[create_file_edit_activity_hook],
+        hook_factories=[create_file_edit_activity_hook, openui_collector.hook],
         tool_registry=tools,
         recovery_admission=recovery,
     )

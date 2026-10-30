@@ -2514,6 +2514,12 @@
     "saved": "Đã lưu bản nháp",
     "submitted": "Đã gửi",
     "checkConversation": "Không thể xác nhận việc gửi. Hãy kiểm tra cuộc trò chuyện.",
-    "unavailable": "Chế độ tương tác không khả dụng. Câu trả lời văn bản được giữ lại."
+    "unavailable": "Chế độ tương tác không khả dụng. Câu trả lời văn bản được giữ lại.",
+    "filterRecords": "Lọc bản ghi",
+    "analyzeRecord": "Phân tích ảnh chụp dữ liệu",
+    "snapshotTime": "Dữ liệu lúc: {{time}}",
+    "showingRows": "Hiển thị {{shown}} trong {{total}} bản ghi",
+    "retryView": "Thử lại chế độ xem",
+    "cancelView": "Hủy tạo chế độ xem"
   }
 }

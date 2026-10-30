@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import json
 import signal
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -16,6 +17,8 @@ from nanobot.channels.websocket.runtime import WebSocketChannel, WebSocketConfig
 from nanobot.config.home import set_home_path
 from nanobot.config.loader import save_config, set_config_path
 from nanobot.config.schema import Config
+from nanobot.openui.collector import OpenUICollector
+from nanobot.openui.config import OpenUIOptions
 from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from nanobot.session.manager import SessionManager
 from nanobot.session.webui_turns import WebuiTurnCoordinator
@@ -33,7 +36,10 @@ class Lookup(Tool):
 
     async def execute(self, **kwargs):
         self.calls += 1
-        return f"Lookup result {self.calls}"
+        return json.dumps({"summary": f"Lookup result {self.calls}", "records": [
+            {"id": "task_08", "name": "Energy review", "energy": 5412.5, "status": "pending", "private": "not-for-display"},
+            {"id": "task_09", "name": "Zero energy", "energy": 0, "status": "complete", "private": "not-for-display"},
+        ]})
 
 
 class FixtureProvider(LLMProvider):
@@ -46,7 +52,21 @@ class FixtureProvider(LLMProvider):
             return LLMResponse(content=None, tool_calls=[ToolCallRequest(
                 id=uuid4().hex, name="lookup", arguments={},
             )])
-        return LLMResponse(content=str(messages[-1]["content"]), tool_calls=[])
+        return LLMResponse(content=json.loads(str(messages[-1]["content"]))["summary"], tool_calls=[])
+
+    async def chat_stream(self, messages, *, on_content_delta=None, **kwargs):
+        if "Generate only OpenUI Lang" not in str(messages[0].get("content")):
+            return await super().chat_stream(messages, on_content_delta=on_content_delta, **kwargs)
+        dataset = json.loads(messages[-1]["content"])["datasets"][0]
+        source = ('$question = ""\nroot = Panel([heading, data, followup])\n'
+                  'heading = Text("Captured lookup records")\n'
+                  + f'data = DataTable({json.dumps(dataset["data_ref"])})\n'
+                  + 'followup = Followup($question)\n')
+        if on_content_delta is not None:
+            await on_content_delta(source[:40])
+            await asyncio.sleep(0.02)
+            await on_content_delta(source[40:])
+        return LLMResponse(content=source, tool_calls=[])
 
 
 async def run(port):
@@ -61,7 +81,11 @@ async def run(port):
         save_config(config)
         bus = MessageBus()
         sessions = SessionManager(workspace)
-        ws_config = WebSocketConfig(port=port, openui_enabled=True)
+        ws_config = WebSocketConfig(port=port, openui_enabled=True, openui=OpenUIOptions.model_validate({
+            "generation": "model", "tables": {"lookup": {"title": "Tasks",
+                "columns": {"name": "Name", "energy": "Energy", "status": "Status"}}},
+        }))
+        collector = OpenUICollector(bus, enabled=True, adapters=ws_config.openui.tables)
         services = build_gateway_services(
             config=ws_config, bus=bus, session_manager=sessions, static_dist_path=None,
             workspace_path=workspace, default_restrict_to_workspace=True,
@@ -70,7 +94,8 @@ async def run(port):
         )
         channel = WebSocketChannel(ws_config, bus, gateway=services)
         agent = AgentLoop(bus=bus, provider=FixtureProvider(provider_name="offline-browser"),
-                          workspace=workspace, session_manager=sessions, max_iterations=5)
+                          workspace=workspace, session_manager=sessions, max_iterations=5,
+                          hook_factories=[collector.hook])
         agent.tools.register(Lookup())
         disconnect = WebuiTurnCoordinator(bus, sessions, schedule_background=asyncio.ensure_future).subscribe()
 
