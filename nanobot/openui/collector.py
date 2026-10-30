@@ -30,6 +30,7 @@ class UITurnPrepared(AgentEvent):
     generation: str
     runtime: LLMRuntime | None
     tables: tuple[DisplayTable, ...]
+    question: str
 
 
 class OpenUICollector:
@@ -43,22 +44,24 @@ class OpenUICollector:
         turn_id = context.metadata.get(INBOUND_META_TURN_ID)
         generation = context.metadata.get(HISTORY_GENERATION_METADATA_KEY)
         if (not self.enabled or context.channel != "websocket" or context.ephemeral
-                or context.metadata.get("_openui_mode") != "openui"
+                or context.metadata.get("_openui_mode") not in {"openui", "auto"}
                 or not isinstance(turn_id, str) or not isinstance(generation, str)
                 or request is None or not request.persist_session):
             return None
-        return _Capture(self, context.chat_id, turn_id, generation, request.runtime)
+        return _Capture(self, context.chat_id, turn_id, generation, request.runtime,
+                        (request.original_user_text or "")[:4000])
 
 
 class _Capture(AgentHook):
     def __init__(
         self, collector: OpenUICollector, chat_id: str, turn_id: str,
-        generation: str, runtime: LLMRuntime | None,
+        generation: str, runtime: LLMRuntime | None, question: str,
     ) -> None:
         super().__init__()
         self.collector = collector
         self.chat_id, self.turn_id, self.generation = chat_id, turn_id, generation
         self.runtime = runtime
+        self.question = question
         self.tables: dict[str, DisplayTable] = {}
 
     async def after_execute_tool(
@@ -77,5 +80,5 @@ class _Capture(AgentHook):
 
     async def after_run(self, context: AgentRunHookContext) -> None:
         await self.collector.bus.publish(UITurnPrepared(
-            self.chat_id, self.turn_id, self.generation, self.runtime, tuple(self.tables.values()),
+            self.chat_id, self.turn_id, self.generation, self.runtime, tuple(self.tables.values()), self.question,
         ))

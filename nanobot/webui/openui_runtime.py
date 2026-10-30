@@ -19,6 +19,7 @@ from nanobot.openui.config import OpenUIOptions
 from nanobot.openui.coordinator import JobFailure, JobKey, UIJobCoordinator, store_call
 from nanobot.openui.data import DisplayRow
 from nanobot.openui.generator import generate_view
+from nanobot.openui.policy import should_generate_view
 from nanobot.openui.snapshots import (
     Identifier,
     UiConflictError,
@@ -111,7 +112,7 @@ class OpenUIRuntime:
 
     @staticmethod
     def capability() -> dict[str, object]:
-        return {"protocol": 1, "library_hash": LIBRARY_HASH}
+        return {"protocol": 1, "library_hash": LIBRARY_HASH, "modes": ["markdown", "openui", "auto"]}
 
     def _prepare(self, event: UITurnPrepared) -> None:
         if self._closed:
@@ -204,7 +205,8 @@ class OpenUIRuntime:
     ) -> None:
         meta = metadata or {}
         turn_id, generation = event.get("turn_id"), meta.get(HISTORY_GENERATION_METADATA_KEY)
-        if (self._closed or meta.get("_openui_mode") != "openui"
+        mode = meta.get("_openui_mode")
+        if (self._closed or mode not in {"openui", "auto"}
                 or not isinstance(turn_id, str) or not isinstance(generation, str)):
             return
         if event.get("outcome", "completed") != "completed":
@@ -214,7 +216,7 @@ class OpenUIRuntime:
         holder: list[UiSnapshot] = []
 
         async def work() -> None:
-            await self._capture_turn(scope, chat_id, turn_id, emit, holder)
+            await self._capture_turn(scope, chat_id, turn_id, emit, holder, auto=mode == "auto")
 
         async def failed(reason: JobFailure) -> None:
             if holder:
@@ -229,6 +231,7 @@ class OpenUIRuntime:
 
     async def _capture_turn(
         self, scope: UiScope, chat_id: str, turn_id: str, emit: EmitSnapshot, holder: list[UiSnapshot],
+        *, auto: bool,
     ) -> None:
         if await self.scope(chat_id) != scope:
             return
@@ -252,6 +255,9 @@ class OpenUIRuntime:
         if answer is None or not isinstance(answer.get("text"), str) or not answer["text"].strip():
             return
         if answer.get("resuming") or answer.get("merge_next") or type(answer.get("turn_seq")) is not int:
+            return
+        if auto and not should_generate_view(prepared.question if prepared else "", answer["text"],
+                                             has_tables=bool(prepared and prepared.tables)):
             return
         if self.options.generation == "preview" and (prepared is None or not prepared.tables):
             return

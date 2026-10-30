@@ -2507,6 +2507,9 @@
     }
   },
   "openui": {
+    "modeMarkdown": "끄기",
+    "modeAuto": "자동",
+    "modeOpenui": "항상",
     "enable": "대화형 응답",
     "followup": "추가 질문",
     "submit": "보내기",

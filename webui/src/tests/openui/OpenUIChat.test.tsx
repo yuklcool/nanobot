@@ -72,7 +72,7 @@ it("restores only the canonical anchor, saves drafts explicitly and sends one st
     expect(fixture.frames.find((frame) => frame.action === "openui.state")).toMatchObject({ payload: {
       chat_id: "chat", question: "Inspect updated result", expected_state_version: 1,
     } });
-    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.change(screen.getByRole("combobox", { name: "openui.enable" }), { target: { value: "openui" } });
     const submit = screen.getByRole("button", { name: "openui.submit" });
     fireEvent.click(submit); fireEvent.click(submit);
     await screen.findByText("openui.submitted");
@@ -93,7 +93,7 @@ it("does not request OpenUI from an older host and rejects another generation", 
   const old = setup(null); const view = old.mount();
   await act(async () => {});
   expect(old.frames.filter((frame) => frame.action === "openui.subscribe")).toHaveLength(0);
-  expect(screen.queryByRole("checkbox")).toBeNull();
+  expect(screen.queryByRole("combobox", { name: "openui.enable" })).toBeNull();
   view.unmount(); old.client.close();
   const current = setup(); current.mount();
   try {
@@ -103,6 +103,30 @@ it("does not request OpenUI from an older host and rejects another generation", 
     await waitFor(() => expect(screen.getByRole("textbox")).toHaveValue("Look up again"));
     expect(screen.queryByText("foreign")).toBeNull();
   } finally { cleanup(); current.client.close(); }
+});
+
+it("negotiates auto mode and clears it when reconnecting to a host without it", async () => {
+  const fixture = setup({ protocol: 1, library_hash: manifest.library_hash, modes: ["markdown", "openui", "auto"] });
+  const view = fixture.mount();
+  try {
+    const select = await screen.findByRole("combobox", { name: "openui.enable" });
+    await screen.findByRole("option", { name: "openui.modeAuto" });
+    expect(select).toHaveValue("markdown");
+    fireEvent.change(select, { target: { value: "auto" } });
+    fireEvent.click(screen.getByRole("button", { name: "openui.submit" }));
+    await screen.findByText("openui.submitted");
+    expect(fixture.frames.find((frame) => frame.type === "message")).toMatchObject({ ui_mode: "auto" });
+    act(() => fixture.socket.onclose?.());
+    act(() => {
+      fixture.client.connect();
+      fixture.socket.onopen?.();
+      fixture.socket.onmessage?.({ data: JSON.stringify({ event: "ready", chat_id: "chat", client_id: "browser",
+        openui: { protocol: 1, library_hash: manifest.library_hash } }) } as MessageEvent);
+    });
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "openui.enable" })).toHaveValue("markdown"));
+    expect(screen.queryByRole("option", { name: "openui.modeAuto" })).toBeNull();
+    expect(() => fixture.client.setOpenUIMode("chat", "auto")).toThrow("UI_MODE_UNSUPPORTED");
+  } finally { view.unmount(); fixture.client.close(); }
 });
 
 it("sends a contextual choice as one same-session reply, without sending on restore", async () => {
@@ -224,7 +248,7 @@ it("drops cached views on disconnect and requires fresh host capability before r
       fixture.socket.onmessage?.({ data: JSON.stringify({ event: "openui.snapshot", chat_id: "chat", snapshot: initial }) } as MessageEvent);
     });
     await act(async () => {});
-    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "openui.enable" })).toBeNull();
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(fixture.frames.filter((frame) => frame.action === "openui.subscribe")).toHaveLength(before);
     expect(screen.getByRole("list", { name: "Conversation" })).toHaveTextContent("Lookup result 1");

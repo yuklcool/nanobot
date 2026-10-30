@@ -2507,6 +2507,9 @@
     }
   },
   "openui": {
+    "modeMarkdown": "オフ",
+    "modeAuto": "自動",
+    "modeOpenui": "常に",
     "enable": "対話コンポーネント",
     "followup": "追加の質問",
     "submit": "送信",

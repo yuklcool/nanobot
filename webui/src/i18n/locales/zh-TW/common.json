@@ -2507,6 +2507,9 @@
     }
   },
   "openui": {
+    "modeMarkdown": "關閉",
+    "modeAuto": "自動",
+    "modeOpenui": "始終",
     "enable": "互動元件",
     "followup": "繼續提問",
     "submit": "提交",

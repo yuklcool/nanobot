@@ -2713,6 +2713,9 @@
     }
   },
   "openui": {
+    "modeMarkdown": "Off",
+    "modeAuto": "Automatic",
+    "modeOpenui": "Always",
     "enable": "Interactive replies",
     "followup": "Follow-up question",
     "submit": "Send",

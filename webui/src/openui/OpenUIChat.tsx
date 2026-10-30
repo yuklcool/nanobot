@@ -8,14 +8,15 @@ import type { NanobotClient } from "@/lib/nanobot-client";
 import type { UIMessage } from "@/lib/types";
 import type { SendOptions, SubmittedTurn } from "@/hooks/useNanobotStream";
 import { acceptSnapshot, uiSnapshotSchema, type UiSnapshot } from "./snapshot";
-import type { OpenUIAction } from "../../../packages/client-events/openui";
+import type { OpenUIAction, OpenUIMode } from "../../../packages/client-events/openui";
 import { ChatInteraction, DisplayDataContext, chatLibrary, followupSchema } from "./chat-library";
 
 interface ChatViews {
   blocks: UiSnapshot[];
   available: boolean;
-  enabled: boolean;
-  toggle: (enabled: boolean) => void;
+  mode: OpenUIMode;
+  autoAvailable: boolean;
+  selectMode: (mode: OpenUIMode) => void;
   send: (question: string, options: SendOptions) => SubmittedTurn | null;
   save: (snapshot: UiSnapshot, question: string) => Promise<void>;
   control: (snapshot: UiSnapshot, action: "cancel" | "retry") => Promise<void>;
@@ -33,9 +34,10 @@ export function OpenUIChatProvider({ client, chatId, messages, send, children }:
 }) {
   const [blocks, setBlocks] = useState<UiSnapshot[]>([]);
   const [available, setAvailable] = useState(false);
-  const [enabled, setEnabled] = useState(false);
+  const [selectedMode, setSelectedMode] = useState<OpenUIMode>("markdown");
+  const [autoAvailable, setAutoAvailable] = useState(false);
   const generation = useRef<string | null>(null);
-  const mode = useRef(false);
+  const mode = useRef<OpenUIMode>("markdown");
   const epoch = useRef(0);
   const turnIds = JSON.stringify([...new Set(messages.map((message) => message.turnId).filter(Boolean))]);
 
@@ -56,8 +58,9 @@ export function OpenUIChatProvider({ client, chatId, messages, send, children }:
     generation.current = null;
     setBlocks([]);
     setAvailable(false);
-    mode.current = false;
-    setEnabled(false);
+    mode.current = "markdown";
+    setSelectedMode("markdown");
+    setAutoAvailable(false);
   }, [client, chatId]);
 
   useEffect(() => {
@@ -81,6 +84,12 @@ export function OpenUIChatProvider({ client, chatId, messages, send, children }:
             setBlocks([]);
           }
           setAvailable(true);
+          const supportsAuto = client.getOpenUI()?.modes?.includes("auto") === true;
+          setAutoAvailable(supportsAuto);
+          if (mode.current === "auto" && !supportsAuto) {
+            mode.current = "markdown";
+            setSelectedMode("markdown");
+          }
           client.setOpenUIMode(chatId, mode.current);
           result.blocks.forEach(merge);
         }
@@ -105,7 +114,7 @@ export function OpenUIChatProvider({ client, chatId, messages, send, children }:
     return () => { active = false; unready(); unsession(); unstatus(); unevent(); };
   }, [client, chatId, merge, turnIds]);
 
-  useEffect(() => () => { if (chatId) client.setOpenUIMode(chatId, false); }, [client, chatId]);
+  useEffect(() => () => { if (chatId) client.setOpenUIMode(chatId, "markdown"); }, [client, chatId]);
   const save = useCallback(async (snapshot: UiSnapshot, question: string) => {
     const requestEpoch = epoch.current;
     const result = z.object({ snapshot: uiSnapshotSchema }).parse(await client.requestMutation("openui.state", {
@@ -131,14 +140,14 @@ export function OpenUIChatProvider({ client, chatId, messages, send, children }:
     if (requestEpoch !== epoch.current) throw new Error("Connection changed");
     return result.content;
   }, [client]);
-  const toggle = useCallback((next: boolean) => {
-    mode.current = next;
-    setEnabled(next);
+  const selectMode = useCallback((next: OpenUIMode) => {
     if (chatId) client.setOpenUIMode(chatId, next);
+    mode.current = next;
+    setSelectedMode(next);
   }, [chatId, client]);
-  const value = useMemo(() => ({ blocks, available, enabled, toggle, save, control, prepareRecord,
+  const value = useMemo(() => ({ blocks, available, mode: selectedMode, autoAvailable, selectMode, save, control, prepareRecord,
     send: (question: string, options: SendOptions) => send(question, undefined, options),
-  }), [blocks, available, enabled, toggle, save, control, prepareRecord, send]);
+  }), [blocks, available, selectedMode, autoAvailable, selectMode, save, control, prepareRecord, send]);
   return <Views.Provider value={value}>{children}</Views.Provider>;
 }
 
@@ -146,11 +155,16 @@ export function OpenUIControls() {
   const views = useContext(Views);
   const { t } = useTranslation();
   if (!views?.available) return null;
-  return <label className="mx-3 my-1 inline-flex w-fit cursor-pointer items-center gap-2 rounded-control px-2 py-1.5 text-reading-small text-muted-foreground hover:bg-muted/40 has-[:focus-visible]:ring-1 has-[:focus-visible]:ring-ring">
-    <input type="checkbox" className="peer sr-only" checked={views.enabled} onChange={(event) => views.toggle(event.target.checked)} />
-    <MousePointer2 className="h-3.5 w-3.5 peer-checked:text-foreground" aria-hidden />
-    <span className="peer-checked:text-foreground">{t("openui.enable")}</span>
-    <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/30 peer-checked:bg-foreground" aria-hidden />
+  return <label className="mx-3 my-1 inline-flex w-fit items-center gap-2 rounded-control px-2 py-1.5 text-reading-small text-muted-foreground">
+    <MousePointer2 className="h-3.5 w-3.5" aria-hidden />
+    <span>{t("openui.enable")}</span>
+    <select aria-label={t("openui.enable")} value={views.mode}
+      className="rounded-control border border-input bg-background px-2 py-1 text-reading-small text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      onChange={(event) => views.selectMode(event.target.value as OpenUIMode)}>
+      <option value="markdown">{t("openui.modeMarkdown")}</option>
+      {views.autoAvailable && <option value="auto">{t("openui.modeAuto")}</option>}
+      <option value="openui">{t("openui.modeOpenui")}</option>
+    </select>
   </label>;
 }
 

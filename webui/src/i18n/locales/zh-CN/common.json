@@ -2713,6 +2713,9 @@
     }
   },
   "openui": {
+    "modeMarkdown": "关闭",
+    "modeAuto": "自动",
+    "modeOpenui": "始终",
     "enable": "交互组件",
     "followup": "继续提问",
     "submit": "提交",

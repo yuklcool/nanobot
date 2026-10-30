@@ -702,9 +702,15 @@ class WebUICommandRouter:
             metadata["webui"] = True
             metadata.update(self._transcripts.client_turn_metadata(envelope.get("turn_id")))
         trusted_webui = metadata.get("webui") is True and connection in self._webui_connections
+        ui_mode = envelope.get("ui_mode", "markdown")
+        if trusted_webui and ui_mode not in ("markdown", "openui", "auto"):
+            await self._transport.webui_send_event(
+                connection, "error", detail="invalid_ui_mode", **rejection_fields,
+            )
+            return
         if (trusted_webui and self.gateway.openui is not None
-                and connection in self._openui_connections and envelope.get("ui_mode") == "openui"):
-            metadata["_openui_mode"] = "openui"
+                and connection in self._openui_connections and ui_mode in ("openui", "auto")):
+            metadata["_openui_mode"] = ui_mode
         # The settings Restart button uses the existing silent command protocol.
         # Its routing chat ID is not a new conversation or a workspace update.
         restart_control = (

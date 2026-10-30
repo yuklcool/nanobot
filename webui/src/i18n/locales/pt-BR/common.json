@@ -2521,6 +2521,9 @@
     }
   },
   "openui": {
+    "modeMarkdown": "Desativado",
+    "modeAuto": "Automático",
+    "modeOpenui": "Sempre",
     "enable": "Respostas interativas",
     "followup": "Pergunta de acompanhamento",
     "submit": "Enviar",
