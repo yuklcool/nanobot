@@ -30,7 +30,7 @@ function Thread({ client }: { client: NanobotClient }) {
       <div className="flex-1" role="list" aria-label="Conversation">
         <ThreadMessages messages={displayed} isStreaming={isStreaming} />
       </div>
-      <form className="sticky bottom-0 flex items-center gap-2 bg-background py-4" onSubmit={(event) => { event.preventDefault(); send(question); }}>
+      <form className="flex items-center gap-2 bg-background py-4" onSubmit={(event) => { event.preventDefault(); if (send(question)) setQuestion(""); }}>
         <input className="h-12 min-w-0 flex-1 rounded-control border border-input bg-background px-4 text-reading-small" aria-label="Question" value={question} onChange={(event) => setQuestion(event.target.value)} />
         <button className="h-10 rounded-control bg-primary px-4 text-reading-small text-primary-foreground disabled:opacity-50" disabled={isStreaming}>Ask</button>
       </form>

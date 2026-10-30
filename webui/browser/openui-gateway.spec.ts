@@ -90,11 +90,15 @@ test("inline choices, short forms and confirmations continue the native conversa
   await page.screenshot({ path: test.info().outputPath("inline-form-desktop.png"), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const formBounds = await form.boundingBox();
+  const composerBounds = await page.getByRole("textbox", { name: "Question", exact: true }).boundingBox();
+  expect(formBounds!.y + formBounds!.height).toBeLessThanOrEqual(composerBounds!.y);
   await page.screenshot({ path: test.info().outputPath("inline-form-mobile.png"), fullPage: true });
   await page.evaluate(() => { document.documentElement.classList.add("dark"); });
   await page.screenshot({ path: test.info().outputPath("inline-form-mobile-dark.png"), fullPage: true });
   await submit.click();
   await expect(page.getByRole("button", { name: "Confirm plan", exact: true })).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath("inline-confirmation-mobile-dark.png"), fullPage: true });
   expect(messages).toHaveLength(3);
   expect(messages[2]).toMatchObject({ content: "Project details\nProject name: Nanobot interaction\nPriority: High",
     ui_action: { action_id: "conversation.followup", request_id: messages[2].turn_id } });
