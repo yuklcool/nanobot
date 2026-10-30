@@ -4,6 +4,8 @@ import { ClientProvider } from "../src/providers/ClientProvider";
 import { NanobotClient } from "../src/lib/nanobot-client";
 import { useNanobotStream } from "../src/hooks/useNanobotStream";
 import { ThreadMessages } from "../src/components/thread/ThreadMessages";
+import { ThreadShell } from "../src/components/thread/ThreadShell";
+import type { ChatSummary } from "../src/lib/types";
 import { TooltipProvider } from "../src/components/ui/tooltip";
 import { useReadingTypography } from "../src/hooks/useReadingTypography";
 import { projectWebuiThreadMessages } from "../src/lib/thread-display-projection";
@@ -37,6 +39,16 @@ function Thread({ client }: { client: NanobotClient }) {
     </main>
   </OpenUIChatProvider>;
 }
+function NewConversation({ client }: { client: NanobotClient }) {
+  const [session, setSession] = useState<ChatSummary | null>(null);
+  return <div className="flex h-dvh flex-col"><ThreadShell session={session} title="Nanobot" onToggleSidebar={() => {}}
+    onCreateChat={async () => {
+      const id = await client.newChat();
+      setSession({ key: `websocket:${id}`, channel: "websocket", chatId: id,
+        createdAt: null, updatedAt: null, preview: "" });
+      return id;
+    }} /></div>;
+}
 async function start() {
   await initializeI18n();
   const bootstrap = await (await fetch("/webui/bootstrap")).json();
@@ -48,7 +60,8 @@ async function start() {
   client.connect();
   createRoot(document.getElementById("root")!).render(
     <ClientProvider client={client} token={bootstrap.api_token} allowUpdateFlow={false}>
-      <TooltipProvider><Thread client={client} /></TooltipProvider>
+      <TooltipProvider>{new URLSearchParams(location.search).has("new")
+        ? <NewConversation client={client} /> : <Thread client={client} />}</TooltipProvider>
     </ClientProvider>);
 }
 void start();

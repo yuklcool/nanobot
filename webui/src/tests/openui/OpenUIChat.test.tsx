@@ -20,7 +20,8 @@ const initial: UiSnapshot = {
   state: { $question: "Look up again" }, state_version: 1,
 };
 
-function setup(capability: unknown = { protocol: 1, library_hash: manifest.library_hash }, seed = [message], snapshot = initial) {
+function setup(capability: unknown = { protocol: 1, library_hash: manifest.library_hash }, seed = [message], snapshot = initial,
+  chatId: string | null = "chat", disabled = false) {
   const frames: Record<string, unknown>[] = [];
   let saved = { ...snapshot };
   const socket = { readyState: 1, onopen: null as (() => void) | null,
@@ -45,8 +46,8 @@ function setup(capability: unknown = { protocol: 1, library_hash: manifest.libra
   client.connect(); socket.onopen?.();
   socket.onmessage?.({ data: JSON.stringify({ event: "ready", chat_id: "chat", client_id: "browser", openui: capability }) } as MessageEvent);
   function Thread() {
-    const { send, messages } = useNanobotStream("chat", seed);
-    return <OpenUIChatProvider client={client} chatId="chat" messages={messages} send={send}>
+    const { send, messages } = useNanobotStream(chatId, seed);
+    return <OpenUIChatProvider client={client} chatId={chatId} disabled={disabled} messages={messages} send={send}>
       <OpenUIControls />
       <OpenUIMessage message={message} />
       <OpenUIMessage message={{ ...message, turnSeq: 6, id: "wrong-anchor" }} />
@@ -56,6 +57,27 @@ function setup(capability: unknown = { protocol: 1, library_hash: manifest.libra
   const mount = () => render(<ClientProvider client={client} token="test" allowUpdateFlow={false}><Thread /></ClientProvider>);
   return { client, frames, socket, mount };
 }
+
+it("shows modes on the blank new-chat page without creating a session and hides them for private chats", async () => {
+  const capability = { protocol: 1, library_hash: manifest.library_hash, modes: ["markdown", "openui", "auto"] };
+  const draft = setup(capability, [], initial, null);
+  const view = draft.mount();
+  try {
+    const mode = await screen.findByRole("combobox", { name: "openui.enable" });
+    expect(mode).toHaveValue("markdown");
+    fireEvent.change(mode, { target: { value: "auto" } });
+    expect(draft.client.getOpenUIMode(null)).toBe("auto");
+    expect(draft.frames).toHaveLength(0);
+  } finally { view.unmount(); draft.client.close(); }
+  expect(draft.client.getOpenUIMode(null)).toBe("markdown");
+  const privateChat = setup(capability, [], initial, null, true);
+  const hidden = privateChat.mount();
+  try {
+    await act(async () => {});
+    expect(screen.queryByRole("combobox", { name: "openui.enable" })).toBeNull();
+    expect(privateChat.frames).toHaveLength(0);
+  } finally { hidden.unmount(); privateChat.client.close(); }
+});
 
 it("restores only the canonical anchor, saves drafts explicitly and sends one structured same-session turn", async () => {
   const fixture = setup();

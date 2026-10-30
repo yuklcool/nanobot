@@ -2135,6 +2135,53 @@ describe("NanobotClient", () => {
     await expect(promise).resolves.toBe("fresh-id");
   });
 
+  it.each(["auto", "openui"] as const)("subscribes before resolving a new chat with draft mode %s", async (mode) => {
+    const client = new NanobotClient({ url: "ws://test", reconnect: false,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket });
+    client.connect();
+    lastSocket().fakeOpen();
+    lastSocket().fakeMessage({ event: "ready", chat_id: "initial", openui: {
+      protocol: 1, library_hash: "a".repeat(64), modes: ["markdown", "auto", "openui"],
+    } });
+    client.setOpenUIMode(null, mode);
+    const creation = client.newChat();
+    lastSocket().fakeMessage({ event: "attached", chat_id: "fresh-id" });
+    await Promise.resolve();
+    const request = JSON.parse(lastSocket().sent.at(-1)!);
+    expect(request).toMatchObject({ type: "webui_request", action: "openui.subscribe", payload: { chat_id: "fresh-id" } });
+    expect(client.getOpenUIMode("fresh-id")).toBe("markdown");
+    lastSocket().fakeMessage({ event: "webui_response", ok: true, request_id: request.request_id, result: {} });
+    await expect(creation).resolves.toBe("fresh-id");
+    expect(client.getOpenUIMode("fresh-id")).toBe(mode);
+    expect(client.getOpenUIMode(null)).toBe("markdown");
+    client.sendMessage("fresh-id", "First question");
+    expect(JSON.parse(lastSocket().sent.at(-1)!)).toMatchObject({ chat_id: "fresh-id", ui_mode: mode });
+    client.close();
+  });
+
+  it("keeps the new-chat selection when the host rejects OpenUI subscription", async () => {
+    const client = new NanobotClient({ url: "ws://test", reconnect: false,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket });
+    client.connect();
+    lastSocket().fakeOpen();
+    lastSocket().fakeMessage({ event: "ready", chat_id: "initial", openui: {
+      protocol: 1, library_hash: "a".repeat(64), modes: ["markdown", "auto", "openui"],
+    } });
+    client.setOpenUIMode(null, "auto");
+    const creation = client.newChat();
+    const rejected = expect(creation).rejects.toThrow();
+    lastSocket().fakeMessage({ event: "attached", chat_id: "fresh-id" });
+    await Promise.resolve();
+    const request = JSON.parse(lastSocket().sent.at(-1)!);
+    lastSocket().fakeMessage({ event: "webui_response", ok: false, request_id: request.request_id,
+      error: { status: 403, message: "ACTION_NOT_ALLOWED" } });
+    await rejected;
+    expect(client.getOpenUIMode(null)).toBe("auto");
+    expect(client.getOpenUIMode("fresh-id")).toBe("markdown");
+    expect(lastSocket().sent.map((raw) => JSON.parse(raw)).filter((frame) => frame.type === "message")).toHaveLength(0);
+    client.close();
+  });
+
   it("serializes workspace scope for new chats and messages", async () => {
     const client = new NanobotClient({
       url: "ws://test",

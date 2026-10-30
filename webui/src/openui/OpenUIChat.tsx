@@ -27,8 +27,9 @@ const responseSchema = z.object({ capability: z.object({ protocol: z.literal(1),
   session_generation: z.string().nullable(), blocks: z.array(uiSnapshotSchema).max(100) });
 const eventSchema = z.object({ event: z.literal("openui.snapshot"), chat_id: z.string(), snapshot: uiSnapshotSchema });
 
-export function OpenUIChatProvider({ client, chatId, messages, send, children }: {
+export function OpenUIChatProvider({ client, chatId, disabled = false, messages, send, children }: {
   client: NanobotClient; chatId: string | null; messages: UIMessage[];
+  disabled?: boolean;
   send: (question: string, images?: undefined, options?: SendOptions) => SubmittedTurn | null;
   children: ReactNode;
 }) {
@@ -58,19 +59,30 @@ export function OpenUIChatProvider({ client, chatId, messages, send, children }:
     generation.current = null;
     setBlocks([]);
     setAvailable(false);
-    mode.current = "markdown";
-    setSelectedMode("markdown");
+    mode.current = disabled ? "markdown" : client.getOpenUIMode(chatId);
+    setSelectedMode(mode.current);
     setAutoAvailable(false);
-  }, [client, chatId]);
+  }, [client, chatId, disabled]);
 
   useEffect(() => {
     let active = true;
     let latestLoad = 0;
     const supported = () => client.getOpenUI()?.library_hash === manifest.library_hash;
+    function activate() {
+      const supportsAuto = client.getOpenUI()?.modes?.includes("auto") === true;
+      setAutoAvailable(supportsAuto);
+      if (mode.current === "auto" && !supportsAuto) {
+        mode.current = "markdown";
+        setSelectedMode("markdown");
+      }
+      client.setOpenUIMode(chatId, mode.current);
+      setAvailable(true);
+    }
     async function load() {
       const requestEpoch = epoch.current;
       const invocation = ++latestLoad;
-      if (!chatId || !supported()) { if (active) setAvailable(false); return; }
+      if (disabled || !supported()) { if (active) setAvailable(false); return; }
+      if (!chatId) { if (active) activate(); return; }
       try {
         const turns: string[] = JSON.parse(turnIds);
         for (let offset = 0; offset < Math.max(1, turns.length); offset += 100) {
@@ -83,14 +95,7 @@ export function OpenUIChatProvider({ client, chatId, messages, send, children }:
             generation.current = result.session_generation;
             setBlocks([]);
           }
-          setAvailable(true);
-          const supportsAuto = client.getOpenUI()?.modes?.includes("auto") === true;
-          setAutoAvailable(supportsAuto);
-          if (mode.current === "auto" && !supportsAuto) {
-            mode.current = "markdown";
-            setSelectedMode("markdown");
-          }
-          client.setOpenUIMode(chatId, mode.current);
+          activate();
           result.blocks.forEach(merge);
         }
       } catch { if (active && requestEpoch === epoch.current && invocation === latestLoad) setAvailable(false); }
@@ -112,9 +117,9 @@ export function OpenUIChatProvider({ client, chatId, messages, send, children }:
     });
     void load();
     return () => { active = false; unready(); unsession(); unstatus(); unevent(); };
-  }, [client, chatId, merge, turnIds]);
+  }, [client, chatId, disabled, merge, turnIds]);
 
-  useEffect(() => () => { if (chatId) client.setOpenUIMode(chatId, "markdown"); }, [client, chatId]);
+  useEffect(() => () => { client.setOpenUIMode(chatId, "markdown"); }, [client, chatId, disabled]);
   const save = useCallback(async (snapshot: UiSnapshot, question: string) => {
     const requestEpoch = epoch.current;
     const result = z.object({ snapshot: uiSnapshotSchema }).parse(await client.requestMutation("openui.state", {
@@ -141,7 +146,7 @@ export function OpenUIChatProvider({ client, chatId, messages, send, children }:
     return result.content;
   }, [client]);
   const selectMode = useCallback((next: OpenUIMode) => {
-    if (chatId) client.setOpenUIMode(chatId, next);
+    client.setOpenUIMode(chatId, next);
     mode.current = next;
     setSelectedMode(next);
   }, [chatId, client]);

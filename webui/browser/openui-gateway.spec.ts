@@ -1,6 +1,28 @@
 import { expect, test } from "@playwright/test";
 
 test.skip(!process.env.NANOBOT_OPENUI_GATEWAY_PYTHON, "Requires the disposable native Gateway; run test:openui:gateway.");
+
+test("new conversation selects a mode before its first message through the production thread shell", async ({ page }) => {
+  const frames: Record<string, unknown>[] = [];
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("websocket", (socket) => socket.on("framesent", ({ payload }) => frames.push(JSON.parse(String(payload)))));
+  await page.goto("/browser/openui-gateway.html?new");
+  const mode = page.getByRole("combobox", { name: "Interactive replies" });
+  await expect(mode).toHaveValue("markdown");
+  await mode.selectOption("auto");
+  expect(frames.filter((frame) => frame.type === "new_chat" || frame.type === "message")).toHaveLength(0);
+  await page.getByRole("textbox", { name: "Message input", exact: true }).fill("Plan a small project");
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Define the project", exact: true })).toBeVisible();
+  await expect(mode).toHaveValue("auto");
+  const messages = frames.filter((frame) => frame.type === "message");
+  expect(messages).toHaveLength(1);
+  expect(messages[0]).toMatchObject({ content: "Plan a small project", ui_mode: "auto" });
+  expect(frames.findIndex((frame) => frame.action === "openui.subscribe")).toBeLessThan(frames.indexOf(messages[0]));
+  await page.screenshot({ path: test.info().outputPath("new-conversation-auto-first-message.png"), fullPage: true });
+  expect(errors).toEqual([]);
+});
 test("native model adapter, captured data, record actions and refresh recovery", async ({ page }) => {
   const errors: string[] = [];
   const messages: Record<string, unknown>[] = [];
