@@ -50,7 +50,7 @@ Refs #1。开发基线为 `develop` 的 `ff5f15054db1e35de25289e805854d528792000
 - 浏览器：自动模式下的选项 → 表单 → 确认；真实 `SearchSessionsTool` → 授权快照 → 本地筛选 → 记录动作 → 真实 `ReadSessionTool` → 新组件 → 刷新无重放。业务工具使用生产实现和临时 SQLite 会话数据，Provider 使用确定性测试替身，不使用外部模型凭据。
 - 继续运行前后端导入边界、类型检查、静态检查、现有 OpenUI 单测、wheel 安装启动与 Docker 启动检查。
 
-尚未验证真实外部 Provider 生成质量或外部 MCP；受控实时 Query/Mutation、业务写入确认、崩溃对账仍属于后续批次。表单恢复范围见下节。本批不修改 Agent Loop、原生历史 schema、默认功能开关或部署实例配置。
+上述固定夹具不验证真实外部 Provider 生成质量；后续真实模型实测及失败样本见 [真实模型与现有只读工具验收](openui-live-validation.md)。外部 MCP、受控实时 Query/Mutation、业务写入确认、崩溃对账仍属于后续批次。表单恢复范围见下节。本批不修改 Agent Loop、原生历史 schema、默认功能开关或部署实例配置。
 
 
 ## 表单草稿与提交恢复
