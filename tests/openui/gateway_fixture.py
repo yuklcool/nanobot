@@ -26,7 +26,6 @@ from nanobot.session.manager import SessionManager
 from nanobot.session.webui_turns import WebuiTurnCoordinator
 from nanobot.webui.gateway_services import build_gateway_services
 
-
 SURVEY_TITLE = "公司员工就业情况调查表"
 SURVEY_DESCRIPTION = "本问卷用于了解员工今年的工作情况，结果仅作汇总分析。"
 SURVEY_ANSWER = f"""# {SURVEY_TITLE}

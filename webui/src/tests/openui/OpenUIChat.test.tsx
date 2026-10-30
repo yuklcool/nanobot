@@ -480,6 +480,7 @@ it("keeps the original answer visible when a questionnaire is incomplete or inva
     act(() => fixture.socket.onmessage?.({ data: JSON.stringify({ event: "openui.snapshot", chat_id: "chat", snapshot: {
       ...initial, seq: initial.seq + 1, source: surveySource.replace('field: 0, value: "Yes"', 'field: 9, value: "Yes"'),
     } }) } as MessageEvent));
-    await waitFor(() => expect(screen.getByTestId("native-answer").closest("details")).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("button", { name: "openui.cancelView" })).toBeNull());
+    expect(screen.getByTestId("native-answer").closest("details")).toBeNull();
   } finally { view.unmount(); fixture.client.close(); }
 });
