@@ -146,7 +146,8 @@ test("live model searches, selects and reads a saved conversation without refres
       expect(datasets.length).toBeGreaterThanOrEqual(2);
       expect(datasets.some((item) => item.rows.length === 0)).toBe(scenario.empty);
       await latestReply.scrollIntoViewIfNeeded();
-      await expect.soft(latestReply.getByRole("table")).toHaveCount(scenario.tables);
+      await expect.soft(latestReply.getByRole("textbox", { name: "Filter records", exact: true })).toHaveCount(scenario.tables);
+      if (scenario.tables) await expect.soft(latestReply.getByRole("table")).toHaveCount(scenario.tables);
       if (!scenario.tables) expect.soft(block.source).toMatch(/root\s*=\s*Panel\(\s*\[\s*\](?:\s*,\s*"supplement")?\s*\)/);
       expect(messages).toHaveLength(previousMessages + 1);
       await page.screenshot({ path: test.info().outputPath(`live-${scenario.name}-desktop.png`), fullPage: true });
@@ -157,7 +158,8 @@ test("live model searches, selects and reads a saved conversation without refres
       const settled = evidence();
       await page.reload();
       await latestReply.scrollIntoViewIfNeeded();
-      await expect.soft(latestReply.getByRole("table")).toHaveCount(scenario.tables);
+      await expect.soft(latestReply.getByRole("textbox", { name: "Filter records", exact: true })).toHaveCount(scenario.tables);
+      if (scenario.tables) await expect.soft(latestReply.getByRole("table")).toHaveCount(scenario.tables);
       await expect(ask).toBeEnabled();
       expect(evidence()).toEqual(settled);
       expect(messages).toHaveLength(previousMessages + 1);
