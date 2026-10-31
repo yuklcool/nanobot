@@ -182,6 +182,7 @@ test("live model searches, selects and reads a saved conversation without refres
         expect(evidence().tools.slice(previousTools).some((tool) => tool.selection_applied
           && tool.selected_count === 1)).toBe(true);
         expect(block.fallback_text).toContain("LANTERN-681");
+        await expect(latestReply.locator("p").filter({ hasText: "权限审查" })).toBeVisible();
         await expect(latestReply.getByRole("table")).toContainText("Meridian approved roadmap");
         await expect(latestReply.getByRole("table")).not.toContainText("Meridian lookup request");
       }
