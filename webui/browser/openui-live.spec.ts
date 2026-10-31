@@ -393,6 +393,7 @@ test("live model creates, revises and confirms a conditional questionnaire witho
     await submit.dblclick();
     const confirm = page.getByRole("button", { name: "确认需求", exact: true }).last();
     await expect(confirm).toBeVisible({ timeout: 90_000 });
+    await expect(confirm).toBeEnabled({ timeout: 60_000 });
     await expect(latestReply.getByRole("button", { name: "修改需求", exact: true })).toBeVisible();
     await expect(latestReply).toContainText("LANTERN-2026");
     await expect(latestReply).toContainText("文档");
@@ -468,6 +469,7 @@ test("live model creates, revises and confirms a conditional questionnaire witho
     await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
     await revisedSubmit.dblclick();
     await expect(latestReply.getByRole("button", { name: "确认需求", exact: true })).toBeVisible({ timeout: 90_000 });
+    await expect(latestReply.getByRole("button", { name: "确认需求", exact: true })).toBeEnabled({ timeout: 60_000 });
     await expect(latestReply).toContainText("LANTERN-2026-R2");
     await expect(latestReply).toContainText("演示");
     await expect(revised.getByRole("status")).toHaveText("Submitted");
