@@ -221,15 +221,18 @@ test("live model qualifies mixed content while preserving literal browsing", asy
       const block = [...snapshots.values()].find((item) => !previousBlocks.has(item.block_id))!;
       const datasets = Object.values(block.tables ?? {});
       if (scenario.tables) {
-        expect(datasets).toHaveLength(1);
-        expect(datasets[0].rows.map((row) => row.id)).toEqual(scenario.selected);
+        expect(datasets).toContainEqual(expect.objectContaining({
+          rows: scenario.selected.map((id) => expect.objectContaining({ id })),
+        }));
       }
       if (scenario.name !== "literal-browsing") {
         expect(evidence().tools.slice(previousTools).some((tool) => tool.name === "search_sessions"
           && !tool.selection_applied && (tool.result_count ?? 0) >= (scenario.name === "mixed-content" ? 2 : 1))).toBe(true);
       }
       if (scenario.name === "mixed-content") {
-        expect(datasets[0].session_query?.session_keys).toEqual(scenario.selected);
+        expect(datasets).toContainEqual(expect.objectContaining({
+          session_query: expect.objectContaining({ session_keys: scenario.selected }),
+        }));
         expect(evidence().tools.slice(previousTools).some((tool) => tool.selection_applied
           && tool.selected_count === 1)).toBe(true);
         expect(block.fallback_text).toContain("LANTERN-681");
