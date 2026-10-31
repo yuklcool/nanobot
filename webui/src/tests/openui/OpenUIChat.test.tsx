@@ -122,7 +122,11 @@ function setup(capability: unknown = { protocol: 1, library_hash: manifest.libra
     </OpenUIChatProvider>;
   }
   const mount = () => render(<ClientProvider client={client} token="test" allowUpdateFlow={false}><Thread /></ClientProvider>);
-  return { client, frames, socket, mount, failures };
+  function receiveSnapshot(next: UiSnapshot) {
+    saved = next;
+    socket.onmessage?.({ data: JSON.stringify({ event: "openui.snapshot", chat_id: next.chat_id, snapshot: next }) } as MessageEvent);
+  }
+  return { client, frames, socket, mount, failures, receiveSnapshot };
 }
 
 it("reviews and confirms a title edit, restores its receipt, and never sends an Agent message", async () => {
@@ -445,6 +449,129 @@ it("allows a new explicit analysis after another tab refreshes the same record",
 const recoverableForm: UiSnapshot = { ...initial,
   source: 'root = Panel([details])\ndetails = Form("Project details", [{label: "Project name", persist: true}, {label: "Priority", options: ["Normal", "High"], persist: true}, {label: "Ephemeral note"}])\n',
 };
+const savedProjectForm: UiSnapshot = { ...recoverableForm, state_version: 2,
+  state: { $forms: { "form-0": { schema: "test", status: "draft", values: ["Original", "Normal", ""] } } },
+};
+function projectDraft(title: string, stateVersion: number): UiSnapshot {
+  return { ...savedProjectForm, state_version: stateVersion,
+    state: { $forms: { "form-0": { schema: "test", status: "draft", values: [title, "High", ""] } } } };
+}
+
+it("loads another tab's saved fields without writing them back or clearing memory-only input", async () => {
+  const fixture = setup({ protocol: 1, library_hash: manifest.library_hash, form_recovery: true }, [message], savedProjectForm);
+  const view = fixture.mount();
+  try {
+    expect(await screen.findByRole("textbox", { name: "Project name" })).toHaveValue("Original");
+    fireEvent.change(screen.getByRole("textbox", { name: "Ephemeral note" }), { target: { value: "Only this tab" } });
+    act(() => fixture.receiveSnapshot(projectDraft("Shared project", 3)));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Project name" })).toHaveValue("Shared project"));
+    expect(screen.getByRole("combobox", { name: "Priority" })).toHaveValue("High");
+    expect(screen.getByRole("textbox", { name: "Ephemeral note" })).toHaveValue("Only this tab");
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 650)); });
+    expect(fixture.frames.filter((frame) => frame.action === "openui.form")).toHaveLength(0);
+  } finally { view.unmount(); fixture.client.close(); }
+});
+
+it("preserves conflicting edits until the user loads the latest draft or explicitly saves this tab", async () => {
+  const fixture = setup({ protocol: 1, library_hash: manifest.library_hash, form_recovery: true }, [message], savedProjectForm);
+  const view = fixture.mount();
+  try {
+    const name = await screen.findByRole("textbox", { name: "Project name" });
+    fireEvent.change(screen.getByRole("textbox", { name: "Ephemeral note" }), { target: { value: "Memory only" } });
+    fireEvent.change(name, { target: { value: "My unsaved project" } });
+    act(() => fixture.receiveSnapshot(projectDraft("Shared project", 3)));
+    await screen.findByText("openui.draftConflict");
+    expect(name).toHaveValue("My unsaved project");
+    expect(screen.getByRole("button", { name: "openui.submit" })).toBeDisabled();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 650)); });
+    expect(fixture.frames.filter((frame) => frame.action === "openui.form")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "openui.reloadDraft" }));
+    expect(name).toHaveValue("Shared project");
+    expect(screen.getByRole("textbox", { name: "Ephemeral note" })).toHaveValue("Memory only");
+    fireEvent.change(name, { target: { value: "Keep this project" } });
+    act(() => fixture.receiveSnapshot(projectDraft("Newer shared project", 4)));
+    await screen.findByText("openui.draftConflict");
+    fireEvent.click(screen.getByRole("button", { name: "openui.keepDraft" }));
+    await screen.findByText("openui.saved");
+    expect(screen.queryByText("openui.draftConflict")).toBeNull();
+    expect(fixture.frames.filter((frame) => frame.action === "openui.form")).toEqual([
+      expect.objectContaining({ payload: expect.objectContaining({ expected_state_version: 4,
+        form: expect.objectContaining({ submit: false, values: ["Keep this project", "High", ""] }) }) }),
+    ]);
+    expect(fixture.frames.filter((frame) => frame.type === "message")).toHaveLength(0);
+  } finally { view.unmount(); fixture.client.close(); }
+});
+
+it("keeps a newer remote draft when an earlier save receipt arrives late", async () => {
+  const fixture = setup({ protocol: 1, library_hash: manifest.library_hash, form_recovery: true }, [message], savedProjectForm);
+  const view = fixture.mount();
+  try {
+    const name = await screen.findByRole("textbox", { name: "Project name" });
+    const receive = fixture.socket.onmessage!;
+    let release: (() => void) | undefined;
+    fixture.socket.onmessage = (event) => {
+      const frame = JSON.parse(event.data);
+      if (frame.event === "webui_response" && fixture.frames.some((request) =>
+        request.action === "openui.form" && request.request_id === frame.request_id)) {
+        release = () => receive(event);
+      } else receive(event);
+    };
+    fireEvent.change(name, { target: { value: "My pending draft" } });
+    await waitFor(() => expect(release).toBeTypeOf("function"));
+    act(() => fixture.receiveSnapshot(projectDraft("Newer shared project", 4)));
+    await screen.findByText("openui.draftConflict");
+    act(() => release!());
+    await screen.findByText("openui.draftFailed");
+    expect(name).toHaveValue("My pending draft");
+    expect(screen.getByText("openui.draftConflict")).toBeVisible();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 650)); });
+    expect(fixture.frames.filter((frame) => frame.action === "openui.form")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "openui.reloadDraft" }));
+    expect(name).toHaveValue("Newer shared project");
+  } finally { view.unmount(); fixture.client.close(); }
+});
+
+it("rejects a queued draft changed by another tab while allowing an unrelated form's save receipt", async () => {
+  const snapshot: UiSnapshot = { ...savedProjectForm,
+    source: 'root = Panel([first, second])\nfirst = Form("First", [{label: "First name", persist: true}])\nsecond = Form("Second", [{label: "Second name", persist: true}])\n',
+    state: { $forms: {
+      "form-0": { schema: "test", status: "draft", values: ["Original first"] },
+      "form-1": { schema: "test", status: "draft", values: ["Original second"] },
+    } },
+  };
+  const fixture = setup({ protocol: 1, library_hash: manifest.library_hash, form_recovery: true }, [message], snapshot);
+  const view = fixture.mount();
+  try {
+    const first = await screen.findByRole("textbox", { name: "First name" });
+    const second = screen.getByRole("textbox", { name: "Second name" });
+    const receive = fixture.socket.onmessage!;
+    let release: (() => void) | undefined;
+    fixture.socket.onmessage = (event) => {
+      const frame = JSON.parse(event.data);
+      if (frame.event === "webui_response" && fixture.frames.some((request) =>
+        request.action === "openui.form" && request.request_id === frame.request_id)) release = () => receive(event);
+      else receive(event);
+    };
+    fireEvent.change(first, { target: { value: "Saved first" } });
+    await waitFor(() => expect(release).toBeTypeOf("function"));
+    fireEvent.change(second, { target: { value: "My queued second" } });
+    await screen.findByText("openui.savingDraft");
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 650)); });
+    act(() => fixture.receiveSnapshot({ ...snapshot, state_version: 4, state: { $forms: {
+      "form-0": { schema: "test", status: "draft", values: ["Saved first"] },
+      "form-1": { schema: "test", status: "draft", values: ["Shared second"] },
+    } } }));
+    await screen.findByText("openui.draftConflict");
+    act(() => release!());
+    await screen.findByText("openui.saved");
+    await screen.findByText("openui.draftFailed");
+    expect(second).toHaveValue("My queued second");
+    expect(fixture.frames.filter((frame) => frame.action === "openui.form")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "openui.reloadDraft" }));
+    expect(second).toHaveValue("Shared second");
+  } finally { view.unmount(); fixture.client.close(); }
+});
+
 it("restores only opted-in form drafts and retains submitted receipts without sending again", async () => {
   const fixture = setup({ protocol: 1, library_hash: manifest.library_hash, form_recovery: true }, [message], recoverableForm);
   let view = fixture.mount();

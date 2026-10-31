@@ -66,6 +66,7 @@ function DetailForm({ props }: { props: z.infer<typeof formDefinitionSchema> }) 
     const [values, setValues] = useState<FormValue[]>(() => props.fields.map((field, index) => restored?.values[index] ?? emptyFormValue(field)));
     const [notice, setNotice] = useState("");
     const [saveFailed, setSaveFailed] = useState(false);
+    const [draftConflict, setDraftConflict] = useState(false);
     const [sending, setSending] = useState(false);
     const [submitted, setSubmitted] = useState(false);
     const saving = useRef(false);
@@ -81,6 +82,23 @@ function DetailForm({ props }: { props: z.infer<typeof formDefinitionSchema> }) 
     const questionnaire = props.presentation === "questionnaire";
     const remembered = JSON.stringify(normalizeFormValues(props.fields, values, true));
     const saved = JSON.stringify(restored?.values ?? props.fields.map(emptyFormValue));
+    const acknowledgedDraft = useRef(saved);
+    const ownDraft = useRef<string | null>(null);
+    useEffect(() => {
+      if (saved === acknowledgedDraft.current) return;
+      const previous = acknowledgedDraft.current;
+      acknowledgedDraft.current = saved;
+      const own = ownDraft.current;
+      ownDraft.current = null;
+      if (saved === own || saved === remembered || locked) return;
+      if (remembered !== previous) {
+        setDraftConflict(true);
+        setNotice("");
+      } else {
+        setValues((current) => normalizeFormValues(props.fields, props.fields.map((field, index) =>
+          field.persist ? restored?.values[index] ?? emptyFormValue(field) : current[index] ?? emptyFormValue(field))));
+      }
+    }, [saved, remembered, locked, props.fields, restored?.values]);
     const total = props.fields.filter((field, index) => visible[index] && field.required !== false).length;
     const done = props.fields.filter((field, index) => visible[index] && field.required !== false && formComplete([ { ...field, when: undefined } ], [values[index] ?? emptyFormValue(field)])).length;
     function change(index: number, value: FormValue) {
@@ -93,23 +111,26 @@ function DetailForm({ props }: { props: z.infer<typeof formDefinitionSchema> }) 
       if (!current.recovery || saving.current || submitting.current) return;
       saving.current = true;
       setNotice(t("openui.savingDraft"));
+      const draftValues = normalizeFormValues(current.props.fields, current.values, true);
+      ownDraft.current = JSON.stringify(draftValues);
       try {
         await current.recovery.update({ form_id: formId, ...current.props,
-          values: normalizeFormValues(current.props.fields, current.values, true), submit: false });
+          values: draftValues, submit: false });
         setNotice(t("openui.saved"));
         setSaveFailed(false);
-      } catch { setNotice(t("openui.draftFailed")); setSaveFailed(true); }
+        setDraftConflict(false);
+      } catch { ownDraft.current = null; setNotice(t("openui.draftFailed")); setSaveFailed(true); }
       finally { saving.current = false; }
     }
     const saveRef = useRef(saveDraft);
     saveRef.current = saveDraft;
     useEffect(() => {
-      if (!recovery || !enabled || streaming || locked || restored?.request_id || remembered === saved || saveFailed) return;
+      if (!recovery || !enabled || streaming || locked || draftConflict || restored?.request_id || remembered === saved || saveFailed) return;
       const timer = setTimeout(() => { void saveRef.current(); }, 500);
       return () => clearTimeout(timer);
-    }, [recovery, enabled, streaming, locked, restored?.request_id, remembered, saved, saveFailed]);
+    }, [recovery, enabled, streaming, locked, draftConflict, restored?.request_id, remembered, saved, saveFailed]);
     async function submit() {
-      if (!enabled || streaming || !complete || locked || submitting.current) return;
+      if (!enabled || streaming || !complete || locked || draftConflict || submitting.current) return;
       const form = { form_id: formId, ...props, values: normalizeFormValues(props.fields, values), submit: true };
       const question = formContent(form);
       if ([...question].length > (recovery ? 4000 : 2000)) { setNotice(t("openui.formTooLong")); return; }
@@ -171,14 +192,28 @@ function DetailForm({ props }: { props: z.infer<typeof formDefinitionSchema> }) 
       })}</div>
       <div className="flex flex-wrap items-center justify-between gap-3">
         {questionnaire && <span className="text-caption tabular-nums text-muted-foreground">{t("openui.formProgress", { done, total })}</span>}
-        <Button type="submit" size="sm" className="ml-auto gap-2" disabled={disabled || !complete}>
+        <Button type="submit" size="sm" className="ml-auto gap-2" disabled={disabled || !complete || draftConflict}>
           {t(questionnaire ? "openui.submitForm" : "openui.submit")}<ArrowUp className="h-3.5 w-3.5" aria-hidden />
         </Button>
       </div>
       {(locked || notice) && <p role="status" className="text-caption text-muted-foreground">{
         restored?.status === "unknown" ? t("openui.submissionUnknown") : locked ? t("openui.submitted") : notice
       }</p>}
-      {saveFailed && !locked && <Button type="button" variant="ghost" size="sm" className="self-start"
+      {draftConflict && !locked && <div role="alert" className="flex flex-col items-start gap-2 text-reading-small">
+        <p>{t("openui.draftConflict")}</p>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" size="sm" disabled={disabled || saving.current}
+            onClick={() => {
+              setValues((current) => normalizeFormValues(props.fields, props.fields.map((field, index) =>
+                field.persist ? restored?.values[index] ?? emptyFormValue(field) : current[index] ?? emptyFormValue(field))));
+              ownDraft.current = null;
+              setDraftConflict(false); setSaveFailed(false); setNotice("");
+            }}>{t("openui.reloadDraft")}</Button>
+          <Button type="button" variant="outline" size="sm" disabled={disabled || saving.current}
+            onClick={() => { void saveDraft(); }}>{t("openui.keepDraft")}</Button>
+        </div>
+      </div>}
+      {saveFailed && !draftConflict && !locked && <Button type="button" variant="ghost" size="sm" className="self-start"
         disabled={disabled} onClick={() => { void saveDraft(); }}>{t("openui.saveDraft")}</Button>}
     </form>;
 }

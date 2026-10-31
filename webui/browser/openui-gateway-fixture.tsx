@@ -58,7 +58,7 @@ async function start() {
   const bootstrap = await (await fetch("/webui/bootstrap")).json();
   const url = new URL(bootstrap.ws_url);
   url.searchParams.set("token", bootstrap.token);
-  url.searchParams.set("client_id", "openui-browser-acceptance");
+  url.searchParams.set("client_id", `openui-browser-acceptance-${crypto.randomUUID()}`);
   const client = new NanobotClient({ url: url.toString(), reconnect: true });
   client.attach(chatId);
   client.connect();
