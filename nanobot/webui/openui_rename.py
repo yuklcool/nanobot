@@ -23,6 +23,18 @@ class RenameReceipt(BaseModel):
 _RECEIPTS = TypeAdapter(dict[str, RenameReceipt])
 
 
+def recent_title_operations(store: UiSnapshotStore, scope: UiScope) -> list[dict[str, str]]:
+    """Bounded receipts for the next Agent turn, without internal action IDs."""
+    with store.transaction() as db:
+        rows = db.execute(
+            "SELECT snapshot FROM ui_snapshots WHERE owner=? AND session_key=? AND generation=? "
+            "AND json_type(snapshot, '$.state.$renames')='object' ORDER BY rowid DESC LIMIT 3",
+            store.key(scope),
+        ).fetchall()
+    return [{"title": entry.title, "status": entry.status} for row in rows
+            for entry in _RECEIPTS.validate_python(UiSnapshot.model_validate_json(row[0]).state["$renames"]).values()][:6]
+
+
 def rename_operation(
     store: UiSnapshotStore, scope: UiScope, block_id: str, *, revision: int,
     form_id: str, operation: Literal["prepare", "confirm", "status"],

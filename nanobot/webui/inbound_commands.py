@@ -848,6 +848,20 @@ class WebUICommandRouter:
                 )
             if trusted_webui:
                 context_blocks: list[RuntimeContextBlock] = []
+                if (metadata.get("_openui_mode") in {"openui", "auto"} and temporary_policy is None and not is_user_shell
+                        and self.gateway.openui is not None and self.gateway.openui.options.generation == "model"):
+                    context_blocks.append(RuntimeContextBlock(
+                        source="openui_actions",
+                        content=("Interactive replies support a form for renaming this current conversation's sidebar title. "
+                                 "When the user explicitly requests that change, propose the title and ask them to review "
+                                 "and confirm the form. The backend writes only after that confirmation. Do not claim "
+                                 "the title is already changed or edit sidebar files with shell/filesystem tools. "
+                                 "This capability does not rename other conversations or files. "
+                                 "Other forms still send their answers back to this conversation."),
+                    ))
+                    title_context = await self.gateway.openui.title_context(chat_id)
+                    if title_context:
+                        context_blocks.append(RuntimeContextBlock(source="openui_title_receipts", content=title_context))
                 if ui_admission is not None and ui_admission[3] is not None:
                     context_blocks.append(ui_admission[3])
                 if not is_user_shell and envelope.get("intent") == "create_automation":

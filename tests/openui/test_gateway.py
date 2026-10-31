@@ -217,6 +217,9 @@ async def test_confirmed_title_change_replays_receipt_without_agent_turn(gateway
     assert replay["result"] == result["result"] == status["result"]
     assert read_webui_sidebar_state() == saved
     assert gateway.bus.inbound_size == 0 and gateway.tool.calls == 1
+    context = await gateway.services.openui.title_context("chat")
+    assert '"current_title": "Project plan"' in context and '"status": "applied"' in context
+    assert entry["operation_id"] not in context
 
 
 async def test_title_operation_rejects_foreign_connection_params_and_retired_generation(gateway, tmp_path, monkeypatch):

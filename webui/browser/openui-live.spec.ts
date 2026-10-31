@@ -218,3 +218,49 @@ test("live model searches, selects and reads a saved conversation without refres
       contentType: "application/json" });
   }
 });
+
+test("live model offers a title form and confirms its saved result without another model call", async ({ page }) => {
+  test.setTimeout(180_000);
+  const evidence = () => JSON.parse(readFileSync(process.env.NANOBOT_OPENUI_LIVE_EVIDENCE!, "utf8")) as Evidence;
+  const frames: Record<string, unknown>[] = [];
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.name));
+  page.on("websocket", (socket) => socket.on("framesent", ({ payload }) => frames.push(JSON.parse(String(payload)))));
+  await page.goto("/browser/openui-gateway.html");
+  await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
+  const before = evidence();
+  await page.getByRole("textbox", { name: "Question", exact: true }).fill(
+    "把这条会话改名为“交互开发计划”，先给我一个可以编辑标题的表单，预览并确认后再保存。请用中文回答。",
+  );
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  const form = page.locator("[data-assistant-message]").last().getByRole("form");
+  const input = form.getByRole("textbox");
+  await expect(input).toHaveValue("交互开发计划", { timeout: 90_000 });
+  await expect(form.getByRole("button", { name: "Review change", exact: true })).toBeEnabled();
+  const generated = evidence();
+  expect(generated.calls.length).toBeGreaterThan(before.calls.length);
+  expect(generated.tools).toEqual(before.tools);
+  await input.fill("交互开发验收计划");
+  await form.getByRole("button", { name: "Review change", exact: true }).click();
+  await expect(form.getByRole("button", { name: "Confirm rename", exact: true })).toBeEnabled();
+  await expect(page.getByLabel("Conversation title", { exact: true })).not.toHaveText("交互开发验收计划");
+  await page.screenshot({ path: test.info().outputPath("live-rename-review.png"), fullPage: true });
+  await form.getByRole("button", { name: "Confirm rename", exact: true }).click();
+  await expect(form.getByRole("status")).toHaveText('Renamed to “交互开发验收计划”.');
+  await expect(page.getByLabel("Conversation title", { exact: true })).toHaveText("交互开发验收计划");
+  await form.getByRole("button", { name: "Check result", exact: true }).click();
+  await expect.poll(() => frames.filter((frame) => frame.action === "openui.rename").length).toBe(3);
+  expect(evidence()).toEqual(generated);
+  expect(frames.filter((frame) => frame.type === "message")).toHaveLength(1);
+  await page.reload();
+  await expect(input).toHaveValue("交互开发验收计划");
+  await expect(input).toBeDisabled();
+  await expect(page.getByLabel("Conversation title", { exact: true })).toHaveText("交互开发验收计划");
+  expect(evidence()).toEqual(generated);
+  expect(frames.filter((frame) => frame.action === "openui.rename")).toHaveLength(3);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: test.info().outputPath("live-rename-restored-mobile.png"), fullPage: true });
+  expect(errors).toEqual([]);
+});
+
