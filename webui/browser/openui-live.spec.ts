@@ -5,12 +5,24 @@ import { uiSnapshotSchema, type UiSnapshot } from "../src/openui/snapshot";
 test.skip(!process.env.NANOBOT_OPENUI_LIVE_CONFIG, "Opt-in live model acceptance; never uses credentials in ordinary CI.");
 
 type Evidence = {
-  calls: { duration_ms: number; finish_reason: string; error_status_code: number | null;
+  calls: { started_at_ms: number; duration_ms: number; finish_reason: string; error_status_code: number | null;
     usage: { total_tokens: number } | null }[];
   tools: { name: string; selected_planning: boolean; error: boolean;
     selection_applied: boolean; selected_count: number | null; result_count: number | null }[];
   runs: { error: boolean }[];
 };
+
+function idleCheckpoint(readEvidence: () => Evidence) {
+  const before = readEvidence();
+  const capturedAt = Date.now();
+  return () => {
+    const current = readEvidence();
+    expect(current.runs).toEqual(before.runs);
+    expect(current.tools).toEqual(before.tools);
+    // An existing background title request can finish after the form is ready.
+    expect(current.calls.filter((call) => call.started_at_ms >= capturedAt)).toEqual([]);
+  };
+}
 
 test("live model searches, selects and reads a saved conversation without refresh replay", async ({ page }) => {
   test.setTimeout(420_000);
@@ -351,7 +363,7 @@ test("live model creates, revises and confirms a conditional questionnaire witho
     await expect(original).not.toHaveAttribute("open");
     await expect(survey.getByRole("textbox", { name: "其他交付说明", exact: true })).toHaveCount(0);
     await expect(detail).toHaveCount(0);
-    const generated = evidence();
+    const checkGeneratedIdle = idleCheckpoint(evidence);
 
     await code.fill("LANTERN-2026");
     await delivery.getByRole("radio", { name: "其他", exact: true }).check();
@@ -373,7 +385,7 @@ test("live model creates, revises and confirms a conditional questionnaire witho
       status: "draft", values: expect.arrayContaining(["LANTERN-2026", "文档", ["易用性", "可靠性", "其他"], "支持键盘操作"]),
     } });
     expect(JSON.stringify([...snapshots.values()][0].state.$forms)).not.toContain("WITHDRAWN");
-    expect(evidence()).toEqual(generated);
+    checkGeneratedIdle();
     expect(messages).toHaveLength(1);
     await page.screenshot({ path: test.info().outputPath("live-questionnaire-desktop.png"), fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
@@ -387,7 +399,7 @@ test("live model creates, revises and confirms a conditional questionnaire witho
     await expect(survey.getByRole("textbox", { name: "其他交付说明", exact: true })).toHaveCount(0);
     await expect(ask).toBeEnabled();
     await page.waitForTimeout(1_000);
-    expect(evidence()).toEqual(generated);
+    checkGeneratedIdle();
     expect(messages).toHaveLength(1);
     await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
 
@@ -408,14 +420,14 @@ test("live model creates, revises and confirms a conditional questionnaire witho
     for (const value of ["项目代号: LANTERN-2026", "交付形式: 文档", "重点关注: 易用性, 可靠性, 其他", "补充说明: 支持键盘操作"]) expect(content).toContain(value);
     expect(content).not.toContain("其他交付说明");
     expect(content).not.toContain("WITHDRAWN");
-    const submitted = evidence();
+    const checkSubmittedIdle = idleCheckpoint(evidence);
     await page.reload();
     await expect(confirm).toBeVisible();
     await expect(submit).toBeDisabled();
     await expect(survey.getByRole("status")).toHaveText("Submitted");
     await expect(ask).toBeEnabled();
     await page.waitForTimeout(1_000);
-    expect(evidence()).toEqual(submitted);
+    checkSubmittedIdle();
     expect(messages).toHaveLength(2);
     await page.screenshot({ path: test.info().outputPath("live-questionnaire-submitted-mobile.png"), fullPage: true });
     await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
@@ -439,7 +451,7 @@ test("live model creates, revises and confirms a conditional questionnaire witho
     await expect(revisedDetail).toHaveValue("支持键盘操作");
     const revisedBlock = [...snapshots.values()].find((item) => !previousBlocks.has(item.block_id))!;
     expect(messages).toHaveLength(3);
-    const editing = evidence();
+    const checkEditingIdle = idleCheckpoint(evidence);
     await expect(submit).toBeDisabled();
 
     await revisedDelivery.getByRole("radio", { name: "其他", exact: true }).check();
@@ -465,7 +477,7 @@ test("live model creates, revises and confirms a conditional questionnaire witho
     await expect(revisedFocus.getByRole("checkbox", { name: "其他", exact: true })).not.toBeChecked();
     await expect(revisedDetail).toHaveCount(0);
     await expect(ask).toBeEnabled();
-    expect(evidence()).toEqual(editing);
+    checkEditingIdle();
     expect(messages).toHaveLength(3);
     await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
     await revisedSubmit.dblclick();
@@ -482,13 +494,13 @@ test("live model creates, revises and confirms a conditional questionnaire witho
     for (const value of ["项目代号: LANTERN-2026-R2", "交付形式: 演示", "重点关注: 可靠性"]) expect(revisionContent).toContain(value);
     for (const value of ["补充说明", "其他交付说明", "支持键盘操作", "WITHDRAWN"]) expect(revisionContent).not.toContain(value);
     expect(snapshots.get(originalBlock.block_id)).toEqual(originalBlock);
-    const revisedSubmission = evidence();
+    const checkRevisedSubmissionIdle = idleCheckpoint(evidence);
     await page.reload();
     await expect(confirm).toBeVisible();
     await expect(revisedSubmit).toBeDisabled();
     await expect(ask).toBeEnabled();
     await page.waitForTimeout(1_000);
-    expect(evidence()).toEqual(revisedSubmission);
+    checkRevisedSubmissionIdle();
     expect(messages).toHaveLength(4);
     await page.screenshot({ path: test.info().outputPath("live-questionnaire-revised-submitted-mobile.png"), fullPage: true });
     await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
