@@ -82,3 +82,13 @@ def test_lost_receipt_after_write_is_unknown_without_reexecution(rename, monkeyp
     assert entry(call("confirm", operation_id=prepared["operation_id"]))["status"] == "unknown"
     with pytest.raises(UiConflictError, match="ACTION_ALREADY_SUBMITTED"):
         call("prepare", title="Do not overwrite")
+
+
+def test_native_title_change_during_review_requires_reconfirmation(rename):
+    store, scope, _ = rename
+    prepared = rename_operation(store, scope, "block", revision=1, form_id="form-0", operation="prepare",
+                                title="Proposed", operation_id=None, native_title="Original")
+    result = rename_operation(store, scope, "block", revision=1, form_id="form-0", operation="confirm",
+                              title=None, operation_id=entry(prepared)["operation_id"], native_title="Changed")
+    assert entry(result)["status"] == "conflict"
+    assert read_webui_sidebar_state()["title_overrides"] == {}

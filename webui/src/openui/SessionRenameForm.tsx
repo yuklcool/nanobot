@@ -46,14 +46,14 @@ export function SessionRenameForm({ formId, title, label, initialTitle, enabled 
       setUncertain(false);
     } catch {
       if (operation === "confirm") setUncertain(true);
-      setError(t(operation === "confirm" ? "openui.renameUncertain" : "openui.renameFailed"));
+      setError(operation === "confirm" ? "" : t("openui.renameFailed"));
     } finally { pending.current = false; setBusy(false); }
   }
   return <form aria-label={title} className="flex w-full max-w-lg flex-col gap-3 rounded-control border border-border/70 p-4"
     onSubmit={(event) => { event.preventDefault(); if (!locked) void request(prepared ? "confirm" : "prepare"); }}>
     <p className="text-reading-small font-medium">{title}</p>
     <label htmlFor={id} className="text-reading-small">{label}</label>
-    <input id={id} value={value} required maxLength={160} disabled={disabled || locked}
+    <input id={id} value={locked && receipt ? receipt.title : value} required maxLength={160} disabled={disabled || locked}
       className="h-10 min-w-0 rounded-control border border-input bg-background px-3 text-reading-small"
       onChange={(event) => { setValue(event.target.value); setError(""); }} />
     {prepared && !locked && <p className="whitespace-pre-wrap text-reading-small text-muted-foreground">{

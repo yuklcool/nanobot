@@ -24,7 +24,7 @@ const initial: UiSnapshot = {
 function setup(capability: unknown = { protocol: 1, library_hash: manifest.library_hash }, seed = [message], snapshot = initial,
   chatId: string | null = "chat", disabled = false) {
   const frames: Record<string, unknown>[] = [];
-  const failures = { save: false, send: false, query: false };
+  const failures = { save: false, send: false, query: false, renameConfirm: false };
   let saved = { ...snapshot };
   const socket = { readyState: 1, onopen: null as (() => void) | null,
     onmessage: null as ((event: MessageEvent) => void) | null,
@@ -41,6 +41,12 @@ function setup(capability: unknown = { protocol: 1, library_hash: manifest.libra
                 ? { operation_id: "a".repeat(32), title: frame.payload.title, previous_title: "Before",
                   expected_revision: "b".repeat(64), status: "prepared" }
                 : { ...entries[form], status: "applied" } } } } as UiSnapshot;
+            if (frame.payload.operation === "confirm" && failures.renameConfirm) {
+              failures.renameConfirm = false;
+              socket.onmessage?.({ data: JSON.stringify({ event: "webui_response", ok: false, request_id: frame.request_id,
+                status: 503, message: "Receipt unavailable" }) } as MessageEvent);
+              return;
+            }
             socket.onmessage?.({ data: JSON.stringify({ event: "webui_response", ok: true, request_id: frame.request_id,
               result: { snapshot: saved } }) } as MessageEvent);
             return;
@@ -152,6 +158,22 @@ it("reviews and confirms a title edit, restores its receipt, and never sends an 
   await screen.findByText("openui.renameUnavailable");
   expect(screen.getByRole("button", { name: "openui.renameReview" })).toBeDisabled();
   expect(old.frames.filter((frame) => frame.action === "openui.rename")).toHaveLength(0);
+});
+
+it("queries a lost rename receipt instead of submitting the write again", async () => {
+  const snapshot = { ...initial, state: {}, source: 'root = Panel([rename])\nrename = Form("Rename conversation", [{label:"New title"}], "", "inline", {type:"session.rename",title:"Plan"})\n' };
+  const fixture = setup({ protocol: 1, library_hash: manifest.library_hash, session_rename: true }, [message], snapshot);
+  fixture.failures.renameConfirm = true;
+  fixture.mount();
+  await waitFor(() => expect(screen.getByRole("button", { name: "openui.renameReview" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "openui.renameReview" }));
+  fireEvent.click(await screen.findByRole("button", { name: "openui.renameConfirm" }));
+  await screen.findByText("openui.renameUncertain");
+  expect(screen.getByRole("textbox", { name: "New title" })).toBeDisabled();
+  expect(screen.queryByRole("button", { name: "openui.renameConfirm" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "openui.renameStatus" }));
+  await screen.findByText("openui.renameApplied");
+  expect(fixture.frames.filter((frame) => frame.action === "openui.rename" && (frame.payload as Record<string, unknown>).operation === "confirm")).toHaveLength(1);
 });
 
 it("shows modes on the blank new-chat page without creating a session and hides them for private chats", async () => {
