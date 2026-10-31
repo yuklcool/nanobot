@@ -145,6 +145,8 @@ class SearchSessionsTool(_SessionTool):
                 " These are literal keyword candidates. For quoted-keyword searches, keyword browsing, "
                 "comparing search scopes or choosing before reading, present the candidates as returned "
                 "without session_keys; unread or pending choices are not empty results. "
+                "Finding conversations about a topic, plan or decision is content finding even when "
+                "a table is requested; keyword browsing requires an explicit request for literal matches. "
                 "Only if the user asks for specific substantive content, select each record if its "
                 "excerpts or read_session supply the requested substance, not merely a topic mention or a "
                 "failed lookup; then repeat this query with only those session_keys ([] if none) before answering."

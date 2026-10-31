@@ -347,6 +347,8 @@ class OpenUIRuntime:
                 "Include the previous answers and state which the user already explicitly allowed to retain; "
                 "prefill only those permitted answers and leave personal or unconsented answers blank. "
                 "Starting a new questionnaire blank does not mean clearing an explicitly requested revision. "
+                "Check the original user questionnaire request for retention permission; an explicit permission "
+                "continues until the user revokes it. Asking to modify or refill is not itself revocation. "
                 "Use only the existing conversation; do not invent answers or new persistence consent.",
             ]))
         result = await store_call(self.actions.reserve, scope, request_id=action.request_id,
