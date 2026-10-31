@@ -7,7 +7,8 @@ test.skip(!process.env.NANOBOT_OPENUI_LIVE_CONFIG, "Opt-in live model acceptance
 type Evidence = {
   calls: { duration_ms: number; finish_reason: string; error_status_code: number | null;
     usage: { total_tokens: number } | null }[];
-  tools: { name: string; selected_planning: boolean; error: boolean }[];
+  tools: { name: string; selected_planning: boolean; error: boolean;
+    selection_applied: boolean; selected_count: number | null }[];
   runs: { error: boolean }[];
 };
 
@@ -144,6 +145,50 @@ test("live model searches, selects and reads a saved conversation without refres
       expect(evidence()).toEqual(settled);
       expect(messages).toHaveLength(previousMessages + 1);
     }
+    const relevanceCases = [
+      { name: "lookup-only", question: "查找之前关于 aurora 的项目规划，用可筛选表格展示。",
+        selected: [], tables: 0 },
+      { name: "mixed-content", question: "查找之前关于 meridian 项目已经确定的规划与下一步，用可筛选表格展示。",
+        selected: ["websocket:meridian-decisions"], tables: 1 },
+      { name: "literal-browsing", question: "浏览所有标题或消息中匹配 aurora 的会话记录，包括之前没有找到方案的查询记录。用可筛选表格展示这些关键词匹配记录，不需要核实是否包含实际规划。",
+        selected: ["websocket:aurora-lookup"], tables: 1 },
+    ];
+    for (const scenario of relevanceCases) {
+      const previousBlocks = new Set(snapshots.keys());
+      const previousTables = await page.getByRole("table").count();
+      const previousTools = evidence().tools.length;
+      await question.fill(scenario.question);
+      await ask.click();
+      await expect.poll(() => [...snapshots.values()].filter((item) => !previousBlocks.has(item.block_id)
+        && item.status === "complete").length, { timeout: 120_000 }).toBe(1);
+      await expect(ask).toBeEnabled();
+      const block = [...snapshots.values()].find((item) => !previousBlocks.has(item.block_id))!;
+      const datasets = Object.values(block.tables ?? {});
+      expect(datasets).toHaveLength(1);
+      expect(datasets[0].rows.map((row) => row.id)).toEqual(scenario.selected);
+      if (scenario.name !== "literal-browsing") {
+        expect(datasets[0].session_query?.session_keys).toEqual(scenario.selected);
+        expect(evidence().tools.slice(previousTools).some((tool) => tool.selection_applied
+          && tool.selected_count === scenario.selected.length)).toBe(true);
+      }
+      if (scenario.name === "mixed-content") {
+        expect(evidence().tools.slice(previousTools).some((tool) => tool.name === "read_session")).toBe(true);
+        expect(block.fallback_text).toContain("LANTERN-681");
+        await expect(page.getByRole("table").last()).toContainText("Meridian approved roadmap");
+        await expect(page.getByRole("table").last()).not.toContainText("Meridian lookup request");
+      }
+      await expect(page.getByRole("table")).toHaveCount(previousTables + scenario.tables);
+      await page.screenshot({ path: test.info().outputPath(`live-${scenario.name}-desktop.png`), fullPage: true });
+      await page.setViewportSize({ width: 390, height: 844 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await page.screenshot({ path: test.info().outputPath(`live-${scenario.name}-mobile.png`), fullPage: true });
+      await page.setViewportSize({ width: 1280, height: 720 });
+      const settled = evidence();
+      await page.reload();
+      await expect(page.getByRole("table")).toHaveCount(previousTables + scenario.tables);
+      await expect(ask).toBeEnabled();
+      expect(evidence()).toEqual(settled);
+    }
     expect(errors).toEqual([]);
     expect([...snapshots.values()].every((item) => item.status === "complete" && item.error_code === null)).toBe(true);
   } finally {
@@ -153,7 +198,9 @@ test("live model searches, selects and reads a saved conversation without refres
       snapshots: [...snapshots.values()].map((item) => ({ status: item.status,
         generation_mode: item.generation_mode, error_code: item.error_code, usage: item.usage,
         source_bytes: Buffer.byteLength(item.source), library_hash: item.library_hash,
-        candidate_rows: Object.values(item.tables ?? {}).map((table) => table.rows.length) })),
+        candidate_rows: Object.values(item.tables ?? {}).map((table) => table.rows.length),
+        source: item.source, answer: item.fallback_text,
+        selected_records: Object.values(item.tables ?? {}).map((table) => table.rows.map((row) => row.id)) })),
     }, null, 2));
     await test.info().attach("live-summary", { contentType: "application/json", path: summaryPath });
     await test.info().attach("live-provider-calls", { path: process.env.NANOBOT_OPENUI_LIVE_EVIDENCE!,

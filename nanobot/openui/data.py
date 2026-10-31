@@ -39,6 +39,7 @@ class SessionQuery(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
     query: Annotated[str, Field(min_length=1, max_length=500)]
     exclude_session_key: Annotated[str, Field(min_length=1, max_length=512)]
+    session_keys: Annotated[list[Annotated[str, Field(min_length=1, max_length=512)]], Field(max_length=5)] | None = None
 
 
 class SessionDetailMessage(BaseModel):
@@ -73,6 +74,7 @@ class DisplayTable(BaseModel):
         }
         if self.session_query is not None:
             result["search_query"] = self.session_query.query
+            result["selection_applied"] = self.session_query.session_keys is not None
         return result
 
 

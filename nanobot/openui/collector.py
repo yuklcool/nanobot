@@ -70,7 +70,7 @@ class _Capture(AgentHook):
         tool: Any, params: Any, result: Any,
     ) -> None:
         config = self.collector.adapters.get(tool_call.name)
-        if config is None or len(self.tables) >= 4:
+        if config is None:
             return
         try:
             table = capture_table(config, tool_name=tool_call.name, call_id=tool_call.id, result=result)
@@ -78,9 +78,17 @@ class _Capture(AgentHook):
             if (isinstance(tool, SearchSessionsTool) and config.records_key == "results"
                     and config.id_field == "session_key" and isinstance(params, dict)
                     and request is not None and request.session_key):
-                table = table.model_copy(update={"session_query": SessionQuery(
+                session_query = SessionQuery(
                     query=params["query"].strip(), exclude_session_key=request.session_key,
-                )})
+                    session_keys=params.get("session_keys"),
+                )
+                table = table.model_copy(update={"session_query": session_query})
+                if session_query.session_keys is not None:
+                    # An explicit Agent selection supersedes this query's candidate batch.
+                    self.tables = {key: item for key, item in self.tables.items()
+                                   if item.session_query is None or item.session_query.query != session_query.query}
+            if len(self.tables) >= 4:
+                return
             if sum(len(item.model_dump_json().encode()) for item in self.tables.values()) + len(table.model_dump_json().encode()) <= 64 * 1024:
                 self.tables[table.data_ref] = table
         except (ValueError, TypeError):

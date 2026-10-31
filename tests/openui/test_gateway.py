@@ -68,6 +68,19 @@ class Provider(LLMProvider):
         self.agent_calls += 1
         index = max(i for i, row in enumerate(messages) if row["role"] == "user")
         question = str(messages[index]["content"])
+        if "Find substantive planning content" in question:
+            results = [row for row in messages[index + 1:] if row["role"] == "tool"]
+            if not results:
+                calls = [("search_sessions", {"query": "planning"})]
+            elif len(results) == 1:
+                calls = [("read_session", {"session_key": key}) for key in
+                         ["websocket:saved-planning", "websocket:failed-lookup"]]
+            elif len(results) == 3:
+                calls = [("search_sessions", {"query": "planning", "session_keys": ["websocket:saved-planning"]})]
+            else:
+                return LLMResponse(content="One substantive planning conversation is ready.", tool_calls=[])
+            return LLMResponse(content=None, tool_calls=[ToolCallRequest(id=uuid4().hex, name=name, arguments=args)
+                                                        for name, args in calls])
         if "Find saved planning conversations" in question:
             if not any(row["role"] == "tool" for row in messages[index + 1:]):
                 return LLMResponse(content=None, tool_calls=[ToolCallRequest(
@@ -491,6 +504,43 @@ async def test_auto_skips_plain_answers_but_preserves_explicit_mode_and_followup
         blocks = (await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": [turn_id]}))["result"]["blocks"]
         assert len(blocks) == (0 if turn_id in {"auto-plain", "disabled"} else 1)
     assert gateway.tool.calls == 0
+
+
+async def test_selected_search_results_survive_refresh_without_restoring_rejected_candidates(gateway):
+    from nanobot.agent.tools.sessions import ReadSessionTool, SearchSessionsTool
+    from nanobot.openui.data import TableAdapterConfig
+
+    for key, title, text in [
+        ("websocket:saved-planning", "Planning decisions", "Approved read-only workflow."),
+        ("websocket:failed-lookup", "Planning lookup", "No substantive discussion found."),
+    ]:
+        saved = await gateway.sessions.state.get(key)
+        saved.metadata["title"] = title
+        saved.add_message("assistant", text)
+        await gateway.sessions.state.finish_turn(saved)
+    adapter = TableAdapterConfig(title="Saved conversations", records_key="results", id_field="session_key",
+                                 columns={"title": "Title", "updated_at": "Updated"})
+    gateway.collector.adapters["search_sessions"] = adapter
+    gateway.services.openui.options.tables["search_sessions"] = adapter
+    gateway.loop.tools.register(SearchSessionsTool(gateway.sessions))
+    gateway.loop.tools.register(ReadSessionTool(gateway.sessions))
+    block = await first_card(gateway, question="Find substantive planning content")
+    assert len(block["tables"]) == 1
+    table = next(iter(block["tables"].values()))
+    assert [row["id"] for row in table["rows"]] == ["websocket:saved-planning"]
+    assert table["session_query"]["session_keys"] == ["websocket:saved-planning"]
+    counts = gateway.loop.provider.agent_calls, gateway.loop.provider.ui_calls
+    request = {"chat_id": "chat", "session_generation": block["session_generation"],
+               "block_id": block["block_id"], "revision": block["revision"], "data_ref": table["data_ref"]}
+    refreshed = await rpc(gateway, "openui.query", {**request, "operation": "refresh"})
+    assert refreshed["ok"]
+    updated = refreshed["result"]["snapshot"]["tables"][table["data_ref"]]
+    assert [row["id"] for row in updated["rows"]] == ["websocket:saved-planning"]
+    rejected = await rpc(gateway, "openui.query", {**request, "operation": "detail", "record_id": "websocket:failed-lookup"})
+    assert not rejected["ok"]
+    restored = await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": ["turn-1"]})
+    assert restored["result"]["blocks"][0]["tables"][table["data_ref"]] == updated
+    assert counts == (gateway.loop.provider.agent_calls, gateway.loop.provider.ui_calls)
 
 
 async def test_readonly_queries_refresh_live_sessions_and_gate_details_without_agent(gateway, monkeypatch):

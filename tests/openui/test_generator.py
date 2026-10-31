@@ -50,7 +50,7 @@ async def test_data_candidates_keep_public_context_and_provenance_without_raw_re
         [], [{"id": "internal-id", "title": "Authorized cell", "secret": "PRIVATE-FIELD"}],
     ])]
     tables[0] = tables[0].model_copy(update={"session_query": SessionQuery(
-        query="项目规划", exclude_session_key="websocket:private-current-session",
+        query="项目规划", exclude_session_key="websocket:private-current-session", session_keys=[],
     )})
 
     async def emit(delta):
@@ -65,6 +65,7 @@ async def test_data_candidates_keep_public_context_and_provenance_without_raw_re
     assert payload["question"] == question and payload["public_answer"] == answer
     assert [item["row_count"] for item in payload["datasets"]] == [0, 1]
     assert payload["datasets"][0]["search_query"] == "项目规划"
+    assert payload["datasets"][0]["selection_applied"] is True
     assert payload["datasets"][1]["source_tool"] == "search_sessions"
     assert payload["datasets"][1]["captured_at"] == tables[1].captured_at
     for private in ["internal-id", "Authorized cell", "PRIVATE-FIELD", "private-current-session"]:

@@ -203,7 +203,7 @@ const Followup = defineComponent({
 });
 const dataTableProps = z.object({ data_ref: z.string().min(1).max(128) });
 const DataTable = defineComponent({
-  name: "DataTable", description: "Show a relevant authoritative dataset, with local filtering and an explicit Agent analysis action. Captured datasets are candidates, not mandatory tables; choose them using the request and final answer. Empty data renders a compact status; include it only when revisiting that dataset helps. Supported session tables provide refresh and inline details without a model call. Never supply cell values or query instructions in the layout.",
+  name: "DataTable", description: "Show a relevant authoritative dataset, with local filtering and an explicit Agent analysis action. Captured datasets are candidates, not mandatory tables; choose them using the request and final answer. For content-finding tasks use the Agent-selected result set; keyword matches alone do not establish useful content. Empty data renders a compact status; include it only when revisiting that dataset helps. Supported session tables provide refresh and inline details without a model call. Never supply cell values or query instructions in the layout.",
   props: dataTableProps,
   component: function CapturedTable({ props }) {
     const { t } = useTranslation();

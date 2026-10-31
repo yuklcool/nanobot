@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from typing import Any, TypedDict, cast
 
 from nanobot.runtime_context import public_history_message
@@ -87,13 +87,15 @@ class SessionHistoryReader:
         limit: int,
         *,
         exclude_session_key: str | None = None,
+        session_keys: Collection[str] | None = None,
     ) -> list[SessionMatch]:
         needle = query.casefold()
         ranked: list[tuple[int, SessionMatch]] = []
         remaining: list[dict[str, Any]] = []
         for row in self._sessions.list_sessions():
             key = row.get("key")
-            if not isinstance(key, str) or key == exclude_session_key:
+            if (not isinstance(key, str) or key == exclude_session_key
+                    or (session_keys is not None and key not in session_keys)):
                 continue
             payload = self._sessions.read_session_metadata(key)
             if payload is None:
@@ -129,7 +131,17 @@ class SessionHistoryReader:
             if match is not None and match["messages"]:
                 match["title"] = _text(row.get("title")) or _text(match["messages"][0]["content"])
                 ranked.append((3, match))
-        return [item[1] for item in ranked[:limit]]
+        results = [item[1] for item in ranked[:limit]]
+        # Title matches also need evidence; a title alone says nothing about the discussion.
+        for match in results:
+            if match["messages"]:
+                continue
+            detail = self.read(match["session_key"], query=query, limit=2)
+            if detail is not None and not detail["messages"]:
+                detail = self.read(match["session_key"], query="", limit=2)
+            if detail is not None:
+                match["messages"] = detail["messages"]
+        return results
 
     def read(
         self,

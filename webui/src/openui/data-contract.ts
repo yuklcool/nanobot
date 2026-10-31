@@ -5,7 +5,9 @@ export const displayTableSchema = z.object({
   columns: z.record(z.string().max(256), z.string().max(320)).refine((value) => Object.keys(value).length <= 8),
   rows: z.array(z.object({ id: z.string().min(1).max(256), values: z.record(z.string(), cell) }).strict()).max(50),
   source_tool: z.string(), source_call_id: z.string(), captured_at: z.number().finite(), total_rows: z.number().int().nonnegative().optional(),
-  session_query: z.object({ query: z.string().min(1).max(500), exclude_session_key: z.string().min(1).max(512) }).strict().nullable().optional(),
+  session_query: z.object({ query: z.string().min(1).max(500), exclude_session_key: z.string().min(1).max(512),
+    session_keys: z.array(z.string().min(1).max(512)).max(5).nullable().optional(),
+  }).strict().nullable().optional(),
 }).strict();
 export const sessionDetailSchema = z.object({
   title: z.string().max(160),
