@@ -73,10 +73,12 @@ def rename_operation(
         store._write(db, scope, updated)
     if operation != "confirm" or entry.status == "conflict":
         return updated
-    applied = rename_webui_sidebar_title(scope.session_key, entry.title, entry.expected_revision)
     with store.transaction() as db:
         current = store._read(db, scope, block_id)
+        if current.revision != revision or current.status != "complete":
+            raise UiConflictError("STALE_REVISION")
         entries = _RECEIPTS.validate_python(current.state.get("$renames", {}))
+        applied = rename_webui_sidebar_title(scope.session_key, entry.title, entry.expected_revision)
         entry.status = "applied" if applied else "conflict"
         entries[form_id] = entry
         updated = UiSnapshot.model_validate({

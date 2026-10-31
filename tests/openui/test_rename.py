@@ -1,5 +1,7 @@
 """Confirmed sidebar edits have durable receipts and never blindly replay."""
 
+from contextlib import contextmanager
+
 import pytest
 
 from nanobot.openui.snapshots import UiConflictError, UiScope, UiSnapshot, UiSnapshotStore
@@ -91,4 +93,29 @@ def test_native_title_change_during_review_requires_reconfirmation(rename):
     result = rename_operation(store, scope, "block", revision=1, form_id="form-0", operation="confirm",
                               title=None, operation_id=entry(prepared)["operation_id"], native_title="Changed")
     assert entry(result)["status"] == "conflict"
+    assert read_webui_sidebar_state()["title_overrides"] == {}
+
+
+@pytest.mark.parametrize("retire", [False, True], ids=["regenerate", "delete"])
+def test_replaced_card_between_fence_and_write_cannot_modify_title(rename, monkeypatch, retire):
+    store, scope, call = rename
+    prepared = entry(call("prepare", title="Do not save a retired proposal"))
+    transaction = store.transaction
+    fenced = False
+
+    @contextmanager
+    def replace_after_fence():
+        nonlocal fenced
+        with transaction() as db:
+            yield db
+        if not fenced:
+            fenced = True
+            if retire:
+                store.delete_generation(scope)
+            else:
+                store.restart(scope, "block", revision=1)
+
+    monkeypatch.setattr(store, "transaction", replace_after_fence)
+    with pytest.raises(KeyError if retire else UiConflictError):
+        call("confirm", operation_id=prepared["operation_id"])
     assert read_webui_sidebar_state()["title_overrides"] == {}
