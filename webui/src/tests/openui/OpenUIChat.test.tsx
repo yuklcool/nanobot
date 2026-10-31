@@ -853,6 +853,19 @@ it("renders a whole questionnaire with conditional fields and sends one canonica
   } finally { view.unmount(); fixture.client.close(); }
 });
 
+it("rejects an invalid initial answer before allowing edits or draft saves", async () => {
+  const fixture = setup({ protocol: 1, library_hash: manifest.library_hash, form_recovery: true }, [message], {
+    ...initial, state: {}, source: 'root = Panel([survey], "replace")\nsurvey = Form("Revise", [{label:"Other details",initial:"Unconsented"}], "", "questionnaire")',
+  });
+  const view = fixture.mount();
+  try {
+    await screen.findByText("openui.unavailable");
+    expect(screen.getByTestId("native-answer")).toBeVisible();
+    expect(screen.queryByRole("form")).toBeNull();
+    expect(fixture.frames.filter((frame) => frame.action === "openui.form")).toHaveLength(0);
+  } finally { view.unmount(); fixture.client.close(); }
+});
+
 it("keeps the original answer visible when a questionnaire is incomplete or invalid", async () => {
   const fixture = setup(undefined, [message], { ...initial, status: "streaming", source: surveySource });
   const view = fixture.mount();

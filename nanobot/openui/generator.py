@@ -80,6 +80,9 @@ async def generate_view(
          "Preserve optionality, descriptions and choices. Leave new questionnaires blank. "
          "For an explicit revision request, use initial only for existing answers actually stated in the public "
          "question or answer and explicitly allowed to persist; create a new Form, never alter the old submission. "
+         "EVERY field with initial MUST include persist:true on that same field, including conditional fields. "
+         'For example: {label:"Other details",type:"text",persist:true,initial:"Existing details",'
+         'when:{field:0,value:"Other"}}. An initial without persist:true is invalid and cannot save or submit. '
          "Do not guess missing answers or prefill personal employee/income answers. "
          "Keep personal employee/income answers in memory by omitting persist. "
          "Do not invent missing requirements, add generic suggestions, or include a Followup on every reply. "
