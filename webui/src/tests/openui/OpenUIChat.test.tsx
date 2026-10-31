@@ -610,9 +610,9 @@ it("initializes a revised form once and gives the saved draft precedence, includ
   let view = fixture.mount();
   try {
     expect(await screen.findByRole("textbox", { name: "Project" })).toHaveValue("Original");
-    expect(screen.getByRole("checkbox", { name: "UI", exact: true })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "UI" })).toBeChecked();
     expect(screen.queryByRole("textbox", { name: "Other note" })).toBeNull();
-    fireEvent.click(screen.getByRole("checkbox", { name: "Other", exact: true }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Other" }));
     expect(screen.getByRole("textbox", { name: "Other note" })).toHaveValue("");
     fireEvent.change(screen.getByRole("textbox", { name: "Other note" }), { target: { value: "Keyboard" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Project" }), { target: { value: "" } });
