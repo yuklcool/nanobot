@@ -261,7 +261,9 @@ async def test_native_two_turn_card_action_and_refresh(gateway):
                     "revision": 1, "request_id": "action-1", "action_id": "conversation.followup",
                 }}
     await dispatch(gateway, envelope)
-    await execute(gateway)
+    message = await execute(gateway)
+    assert message.content == "Look up again"
+    assert message.metadata["_runtime_context_blocks"][0].source == "openui_followup"
     assert gateway.tool.calls == 2
     # Replace the router and UI runtime, retaining only the actual databases.
     from dataclasses import replace

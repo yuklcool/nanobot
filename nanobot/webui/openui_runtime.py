@@ -340,6 +340,17 @@ class OpenUIRuntime:
                 raise UiConflictError("INVALID_PARAMS")
         elif action.form_id is None and len(content) > 2000:
             raise ValueError("INVALID_PARAMS")
+        if action.action_id == "conversation.followup":
+            context = RuntimeContextBlock(source="openui_followup", content=wrap_runtime_context_lines([
+                "Respond to the user's conversational follow-up. If they ask to revise a submitted questionnaire, "
+                "produce a new editable questionnaire preserving its original fields, options and conditions. "
+                "Include the previous answers and state which the user already explicitly allowed to retain; "
+                "prefill only those permitted answers and leave personal or unconsented answers blank. "
+                "Starting a new questionnaire blank does not mean clearing an explicitly requested revision. "
+                "Check the original user questionnaire request for retention permission; an explicit permission "
+                "continues until the user revokes it. Asking to modify or refill is not itself revocation. "
+                "Use only the existing conversation; do not invent answers or new persistence consent.",
+            ]))
         result = await store_call(self.actions.reserve, scope, request_id=action.request_id,
                                   block_id=action.block_id, revision=action.revision, content=content,
                                   action_id=action.action_id, data_ref=action.data_ref, record_id=action.record_id,

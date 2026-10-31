@@ -101,6 +101,8 @@ class SearchSessionsTool(_SessionTool):
             "Search other persisted conversation sessions by title or visible message "
             "text. Use this only when the user asks about a past conversation or when prior "
             "discussion is needed to answer. Matching is case-insensitive literal substring search. "
+            "Determine browsing versus content finding from the latest user request; an earlier rejected "
+            "content subset never restricts a later request to browse keyword matches. "
             "A request to find conversations ABOUT a topic is content finding, including requests for a "
             "table of those conversations. Table/filterable describes presentation, not literal-match browsing. "
             "Searching quoted keywords or comparing search scopes is candidate browsing unless the user also "
@@ -140,10 +142,14 @@ class SearchSessionsTool(_SessionTool):
         needle = query.casefold()
         result = {
             "notice": _UNTRUSTED_NOTICE + (
-                " These are literal keyword candidates. If the user wants specific content, select each record only if its "
+                " These are literal keyword candidates. For quoted-keyword searches, keyword browsing, "
+                "comparing search scopes or choosing before reading, present the candidates as returned "
+                "without session_keys; unread or pending choices are not empty results. "
+                "Finding conversations about a topic, plan or decision is content finding even when "
+                "a table is requested; keyword browsing requires an explicit request for literal matches. "
+                "Only if the user asks for specific substantive content, select each record if its "
                 "excerpts or read_session supply the requested substance, not merely a topic mention or a "
-                "failed lookup. Repeat this query with only those session_keys ([] if none) before answering. "
-                "For keyword browsing, comparing search scopes or choosing before reading, present the candidates as returned."
+                "failed lookup; then repeat this query with only those session_keys ([] if none) before answering."
                 if session_keys is None else " Use only this returned subset in the final result list. "
                 "It is your selection, not a server assessment of relevance."
             ),

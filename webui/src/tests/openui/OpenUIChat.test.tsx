@@ -604,6 +604,39 @@ it("restores only opted-in form drafts and retains submitted receipts without se
   } finally { view.unmount(); fixture.client.close(); }
 });
 
+it("initializes a revised form once and gives the saved draft precedence, including cleared answers", async () => {
+  const revised = { ...recoverableForm, state: {}, source: 'root = Panel([details])\ndetails = Form("Revise project", [{label:"Project",persist:true,initial:"Original"},{label:"Scope",type:"checkbox",options:["API","UI","Other"],persist:true,initial:["UI"]},{label:"Other note",persist:true,initial:"Discarded",when:{field:1,value:"Other"}}])' };
+  const fixture = setup({ protocol: 1, library_hash: manifest.library_hash, form_recovery: true }, [message], {
+    ...revised, status: "streaming", source: 'root = Panel([details])\ndetails = Form("Revise project", [{label:"Project",persist:true}])',
+  });
+  let view = fixture.mount();
+  try {
+    const preview = await screen.findByRole("textbox", { name: "Project" });
+    expect(preview).toBeDisabled();
+    expect(preview).toHaveValue("");
+    act(() => fixture.receiveSnapshot({ ...revised, seq: revised.seq + 1 }));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Project" })).toHaveValue("Original"));
+    expect(screen.getByRole("checkbox", { name: "UI" })).toBeChecked();
+    expect(screen.queryByRole("textbox", { name: "Other note" })).toBeNull();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Other" }));
+    expect(screen.getByRole("textbox", { name: "Other note" })).toHaveValue("");
+    fireEvent.change(screen.getByRole("textbox", { name: "Other note" }), { target: { value: "Keyboard" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Project" }), { target: { value: "" } });
+    await screen.findByText("openui.saved");
+    expect(fixture.frames.filter((frame) => frame.type === "message")).toHaveLength(0);
+    view.unmount(); view = fixture.mount();
+    expect(await screen.findByRole("textbox", { name: "Project" })).toHaveValue("");
+    expect(screen.getByRole("textbox", { name: "Other note" })).toHaveValue("Keyboard");
+    fireEvent.change(screen.getByRole("textbox", { name: "Project" }), { target: { value: "Revised" } });
+    const submit = screen.getByRole("button", { name: "openui.submit" });
+    fireEvent.click(submit); fireEvent.click(submit);
+    await screen.findByText("openui.submitted");
+    const sent = fixture.frames.filter((frame) => frame.type === "message");
+    expect(sent).toHaveLength(1);
+    expect(sent[0].content).toBe("Revise project\nProject: Revised\nScope: UI, Other\nOther note: Keyboard");
+  } finally { view.unmount(); fixture.client.close(); }
+});
+
 it("retains failed drafts and retries delivery with the original server submission identity", async () => {
   const fixture = setup({ protocol: 1, library_hash: manifest.library_hash, form_recovery: true }, [message], recoverableForm);
   fixture.failures.save = true;
@@ -817,6 +850,19 @@ it("renders a whole questionnaire with conditional fields and sends one canonica
     expect(fixture.frames.find((frame) => frame.action === "openui.form")).toMatchObject({
       payload: { form: { values: ["Yes", ["Pay"], "", ""], submit: true } },
     });
+  } finally { view.unmount(); fixture.client.close(); }
+});
+
+it("rejects an invalid initial answer before allowing edits or draft saves", async () => {
+  const fixture = setup({ protocol: 1, library_hash: manifest.library_hash, form_recovery: true }, [message], {
+    ...initial, state: {}, source: 'root = Panel([survey], "replace")\nsurvey = Form("Revise", [{label:"Other details",initial:"Unconsented"}], "", "questionnaire")',
+  });
+  const view = fixture.mount();
+  try {
+    await screen.findByText("openui.unavailable");
+    expect(screen.getByTestId("native-answer")).toBeVisible();
+    expect(screen.queryByRole("form")).toBeNull();
+    expect(fixture.frames.filter((frame) => frame.action === "openui.form")).toHaveLength(0);
   } finally { view.unmount(); fixture.client.close(); }
 });
 

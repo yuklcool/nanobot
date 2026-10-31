@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import { Button } from "../components/ui/button";
 import type { DataQuery, DisplayTable, SessionDetail } from "./data-contract";
-import { emptyFormValue, formComplete, formContent, formDefinitionSchema, normalizeFormValues, visibleFields,
+import { emptyFormValue, formComplete, formContent, formDefinitionSchema, initialFormValues, normalizeFormValues, visibleFields,
   type FormInput, type FormState, type FormValue } from "./form-contract";
 import { SessionRenameForm } from "./SessionRenameForm";
 
@@ -47,15 +47,17 @@ const Choices = defineComponent({
   },
 });
 const Form = defineComponent({
-  name: "Form", description: "Collect details or render an entire questionnaire (1–12 fields). Keep a survey together in ONE Form, with description and presentation:questionnaire; use it as the only Panel child. Preserve the questions and options from the answer. Use type:radio for one choice, checkbox for multiple choices, select for a dropdown, otherwise text. Fields are required unless required:false. when:{field:0,value:\"Other\"} shows a field only when that earlier choice is selected (also matches checkbox selections). Add conditional text fields for Other details and conditional follow-up questions. Set persist:true ONLY for explicitly non-sensitive details; omit it for employee, income or other personal survey answers. Never ask for secrets. Submission sends all visible answers together to this conversation. Exception: for an explicit request to rename THIS conversation, use one required text field and action:{type:session.rename,title:requested title}; the user reviews and confirms before its sidebar title is saved. Never use this action for files or other conversations.",
+  name: "Form", description: "Collect details or render an entire questionnaire (1–12 fields). Keep a survey together in ONE Form, with description and presentation:questionnaire; use it as the only Panel child. Preserve the questions and options from the answer. Use type:radio for one choice, checkbox for multiple choices, select for a dropdown, otherwise text. Fields are required unless required:false. when:{field:0,value:\"Other\"} shows a field only when that earlier choice is selected (also matches checkbox selections). Add conditional text fields for Other details and conditional follow-up questions. Set persist:true ONLY for explicitly non-sensitive details; omit it for employee, income or other personal survey answers. When revising a submitted questionnaire, create a NEW Form; initial may contain an existing answer from the public question or answer ONLY with persist:true and explicit permission to retain it. Never invent initial answers or copy personal survey answers into initial. Never ask for secrets. Submission sends all visible answers together to this conversation. Exception: for an explicit request to rename THIS conversation, use one required text field and action:{type:session.rename,title:requested title}; the user reviews and confirms before its sidebar title is saved. Never use this action for files or other conversations.",
   props: formDefinitionSchema,
   component: ({ props }) => <FormInteraction props={props} />,
 });
 function FormInteraction({ props }: { props: z.infer<typeof formDefinitionSchema> }) {
   const formId = useContext(FormPosition);
   const enabled = useContext(ChatInteraction);
+  const streaming = useIsStreaming();
+  if (!streaming) formDefinitionSchema.parse(props);
   return props.action ? <SessionRenameForm formId={formId} title={props.title} label={props.fields[0].label}
-    initialTitle={props.action.title} enabled={enabled} /> : <DetailForm props={props} />;
+    initialTitle={props.action.title} enabled={enabled} /> : <DetailForm key={streaming ? "preview" : "complete"} props={props} />;
 }
 function DetailForm({ props }: { props: z.infer<typeof formDefinitionSchema> }) {
     const { t } = useTranslation();
@@ -63,7 +65,7 @@ function DetailForm({ props }: { props: z.infer<typeof formDefinitionSchema> }) 
     const recovery = useContext(FormRecovery);
     const formId = useContext(FormPosition);
     const restored = recovery?.forms[formId];
-    const [values, setValues] = useState<FormValue[]>(() => props.fields.map((field, index) => restored?.values[index] ?? emptyFormValue(field)));
+    const [values, setValues] = useState<FormValue[]>(() => restored?.values ?? initialFormValues(props.fields));
     const [notice, setNotice] = useState("");
     const [saveFailed, setSaveFailed] = useState(false);
     const [draftConflict, setDraftConflict] = useState(false);

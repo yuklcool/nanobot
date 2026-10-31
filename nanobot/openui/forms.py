@@ -18,6 +18,11 @@ class FormCondition(BaseModel):
     value: Annotated[str, Field(min_length=1, max_length=120)]
 
 
+FormValue = Annotated[str, Field(max_length=400)] | Annotated[
+    list[Annotated[str, Field(min_length=1, max_length=120)]], Field(max_length=6),
+]
+
+
 class FormField(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     label: Annotated[str, Field(min_length=1, max_length=80)]
@@ -27,11 +32,17 @@ class FormField(BaseModel):
     required: bool = True
     type: Literal["text", "select", "radio", "checkbox"] | None = None
     when: FormCondition | None = None
+    initial: FormValue | None = None
 
-
-FormValue = Annotated[str, Field(max_length=400)] | Annotated[
-    list[Annotated[str, Field(min_length=1, max_length=120)]], Field(max_length=6),
-]
+    @model_validator(mode="after")
+    def valid_initial(self) -> FormField:
+        if self.initial is not None:
+            selected = self.initial if isinstance(self.initial, list) else [self.initial] if self.initial else []
+            if (not self.persist or (self.type == "checkbox") != isinstance(self.initial, list)
+                    or (self.options and (len(set(selected)) != len(selected)
+                                         or any(item not in self.options for item in selected)))):
+                raise ValueError("INVALID_INITIAL_VALUE")
+        return self
 
 
 class ConversationForm(BaseModel):
