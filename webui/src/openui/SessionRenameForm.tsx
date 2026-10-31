@@ -25,7 +25,8 @@ export function SessionRenameForm({ formId, title, label, initialTitle, enabled 
   const id = useId();
   const actions = useContext(SessionRename);
   const receipt = actions?.receipts[formId];
-  const [value, setValue] = useState(receipt?.title ?? initialTitle);
+  const [editedTitle, setEditedTitle] = useState<string | null>(null);
+  const value = editedTitle ?? receipt?.title ?? initialTitle;
   const [busy, setBusy] = useState(false);
   const [uncertain, setUncertain] = useState(false);
   const [error, setError] = useState("");
@@ -55,7 +56,7 @@ export function SessionRenameForm({ formId, title, label, initialTitle, enabled 
     <label htmlFor={id} className="text-reading-small">{label}</label>
     <input id={id} value={locked && receipt ? receipt.title : value} required maxLength={160} disabled={disabled || locked}
       className="h-10 min-w-0 rounded-control border border-input bg-background px-3 text-reading-small"
-      onChange={(event) => { setValue(event.target.value); setError(""); }} />
+      onChange={(event) => { setEditedTitle(event.target.value); setError(""); }} />
     {prepared && !locked && <p className="whitespace-pre-wrap text-reading-small text-muted-foreground">{
       t("openui.renamePreview", { before: receipt.previous_title ?? t("openui.defaultTitle"), after: receipt.title })
     }</p>}
