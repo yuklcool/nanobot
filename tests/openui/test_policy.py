@@ -18,6 +18,8 @@ from nanobot.openui.policy import should_generate_view
      'Acceptance code: ORBIT-742. Next step: a read-only release review.\n\nChoose one: "Summarize notes" or "Review risks".', False, True),
     ("Help me plan", '**Pick one:** draft or review.', False, True),
     ("Help me plan", '- Select between draft and review.', False, True),
+    ("Help me plan", 'Choose **“Draft”** or **“Review.”**', False, True),
+    ("Help me plan", 'Pick draft or review.', False, True),
     ("Explain an option prompt", 'Example:\n```text\nChoose one: draft or review.\n```', False, False),
     ("Explain an option prompt", 'Example:\n> Choose one: draft or review.', False, False),
     ("Explain options", 'To choose one option, compare their costs.', False, False),
