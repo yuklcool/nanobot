@@ -45,33 +45,53 @@ def _message_text(message: Mapping[str, Any]) -> str:
     return "\n".join(parts).strip()
 
 
-def _matching_messages(raw_messages: object, *, needle: str, limit: int) -> list[SessionMessage]:
+def _visible_message(raw_message: object, index: int) -> SessionMessage | None:
+    if not isinstance(raw_message, dict):
+        return None
+    message = cast(dict[str, Any], raw_message)
+    role = message.get("role")
+    if role not in {"user", "assistant"} or message.get("_command") or is_hidden_history_message(message):
+        return None
+    public = public_history_message(message)
+    text = _message_text(public)
+    if not text:
+        return None
+    timestamp = public.get("timestamp")
+    return {
+        "message_index": index,
+        "role": cast(str, role),
+        "timestamp": timestamp if isinstance(timestamp, (str, int)) else None,
+        "content": text,
+    }
+
+
+def _matching_messages(
+    raw_messages: object, *, needle: str, limit: int, include_reply: bool = False,
+) -> list[SessionMessage]:
     if not isinstance(raw_messages, list):
         return []
     messages = cast(list[object], raw_messages)
     matches: list[SessionMessage] = []
     for index in range(len(messages) - 1, -1, -1):
-        raw_message = messages[index]
-        if not isinstance(raw_message, dict):
+        message = _visible_message(messages[index], index)
+        if message is None or (needle and needle not in message["content"].casefold()):
             continue
-        message = cast(dict[str, Any], raw_message)
-        role = message.get("role")
-        if role not in {"user", "assistant"} or message.get("_command") or is_hidden_history_message(message):
-            continue
-        public = public_history_message(message)
-        text = _message_text(public)
-        if not text or (needle and needle not in text.casefold()):
-            continue
-        timestamp = public.get("timestamp")
-        matches.append({
-            "message_index": index,
-            "role": cast(str, role),
-            "timestamp": timestamp if isinstance(timestamp, (str, int)) else None,
-            "content": text,
-        })
+        matches.append(message)
         if len(matches) == limit:
             break
     matches.reverse()
+    if include_reply:
+        indexed = {message["message_index"]: message for message in matches}
+        for message in matches:
+            if message["role"] != "user":
+                continue
+            for index in range(message["message_index"] + 1, len(messages)):
+                reply = _visible_message(messages[index], index)
+                if reply is not None:
+                    if reply["role"] == "assistant":
+                        indexed[index] = reply
+                    break
+        return [indexed[index] for index in sorted(indexed)]
     return matches
 
 
@@ -127,7 +147,7 @@ class SessionHistoryReader:
         for row in remaining:
             if len(ranked) >= limit:
                 break
-            match = self.read(cast(str, row["key"]), query=query, limit=2)
+            match = self.read(cast(str, row["key"]), query=query, limit=2, include_reply=True)
             if match is not None and match["messages"]:
                 match["title"] = _text(row.get("title")) or _text(match["messages"][0]["content"])
                 ranked.append((3, match))
@@ -136,7 +156,7 @@ class SessionHistoryReader:
         for match in results:
             if match["messages"]:
                 continue
-            detail = self.read(match["session_key"], query=query, limit=2)
+            detail = self.read(match["session_key"], query=query, limit=2, include_reply=True)
             if detail is not None and not detail["messages"]:
                 detail = self.read(match["session_key"], query="", limit=2)
             if detail is not None:
@@ -150,6 +170,7 @@ class SessionHistoryReader:
         query: str,
         limit: int,
         exclude_session_key: str | None = None,
+        include_reply: bool = False,
     ) -> SessionMatch | None:
         if session_key == exclude_session_key:
             return None
@@ -165,5 +186,6 @@ class SessionHistoryReader:
             "session_key": session_key,
             "title": _text(metadata.get("title")),
             "updated_at": updated if isinstance(updated, str) else None,
-            "messages": _matching_messages(payload.get("messages"), needle=query.casefold(), limit=limit),
+            "messages": _matching_messages(payload.get("messages"), needle=query.casefold(), limit=limit,
+                                            include_reply=include_reply),
         }
