@@ -82,7 +82,7 @@ class _SessionTool(Tool):
             description="Optional content subset of an earlier search using the same query. Include a key only "
             "when its excerpts or read_session contain the facts or discussion the user wants. A topic mention "
             "or a request to find those facts is not evidence that they are present. [] means the inspected "
-            "candidates supply none. Omit for explicit keyword browsing or choosing before reading; unread "
+            "candidates supply none. Omit on the initial search, for keyword browsing or choosing before reading; unread "
             "or pending choices are not an empty result.",
         ),
         required=["query"],
@@ -103,8 +103,8 @@ class SearchSessionsTool(_SessionTool):
             "discussion is needed to answer. Matching is case-insensitive literal substring search. "
             "A request to find conversations ABOUT a topic is content finding, including requests for a "
             "table of those conversations. Table/filterable describes presentation, not literal-match browsing. "
-            "Candidate browsing applies ONLY when explicitly asked to browse literal matches regardless of "
-            "their substance, or to let the user choose before reading. In that case, "
+            "Searching quoted keywords or comparing search scopes is candidate browsing unless the user also "
+            "asks for specific substantive content. For browsing or choosing before reading, "
             "present the returned candidates without session_keys. Pending user selection or unread content "
             "is not an empty result. Read the chosen conversation only after the user selects it. "
             "Content finding is the default. For EACH candidate, identify the requested facts or discussion "
@@ -140,11 +140,12 @@ class SearchSessionsTool(_SessionTool):
         needle = query.casefold()
         result = {
             "notice": _UNTRUSTED_NOTICE + (
-                " These are literal keyword candidates. For content finding, select each record only if its "
+                " These are literal keyword candidates. If the user wants specific content, select each record only if its "
                 "excerpts or read_session supply the requested substance, not merely a topic mention or a "
                 "failed lookup. Repeat this query with only those session_keys ([] if none) before answering. "
-                "For explicit keyword browsing or choosing before reading, present the candidates as returned."
-                if session_keys is None else " These are the records you selected, not a server assessment of their relevance."
+                "For keyword browsing, comparing search scopes or choosing before reading, present the candidates as returned."
+                if session_keys is None else " Use only this returned subset in the final result list. "
+                "It is your selection, not a server assessment of relevance."
             ),
             "query": query,
             "selection_applied": session_keys is not None,
