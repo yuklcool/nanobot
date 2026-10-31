@@ -140,10 +140,12 @@ class SearchSessionsTool(_SessionTool):
         needle = query.casefold()
         result = {
             "notice": _UNTRUSTED_NOTICE + (
-                " These are literal keyword candidates. If the user wants specific content, select each record only if its "
+                " These are literal keyword candidates. For quoted-keyword searches, keyword browsing, "
+                "comparing search scopes or choosing before reading, present the candidates as returned "
+                "without session_keys; unread or pending choices are not empty results. "
+                "Only if the user asks for specific substantive content, select each record if its "
                 "excerpts or read_session supply the requested substance, not merely a topic mention or a "
-                "failed lookup. Repeat this query with only those session_keys ([] if none) before answering. "
-                "For keyword browsing, comparing search scopes or choosing before reading, present the candidates as returned."
+                "failed lookup; then repeat this query with only those session_keys ([] if none) before answering."
                 if session_keys is None else " Use only this returned subset in the final result list. "
                 "It is your selection, not a server assessment of relevance."
             ),

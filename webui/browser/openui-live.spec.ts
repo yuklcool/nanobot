@@ -219,7 +219,7 @@ test("live model qualifies mixed content while preserving literal browsing", asy
         expect(evidence().tools.slice(previousTools).some((tool) => tool.selection_applied
           && tool.selected_count === 1)).toBe(true);
         expect(block.fallback_text).toContain("LANTERN-681");
-        await expect(latestReply.locator("p").filter({ hasText: "权限审查" })).toBeVisible();
+        await expect(latestReply.locator("p").filter({ hasText: "权限审查", visible: true })).toBeVisible();
         await expect(latestReply.getByRole("table")).toContainText("Meridian approved roadmap");
         await expect(latestReply.getByRole("table")).not.toContainText("Meridian lookup request");
       }
@@ -421,6 +421,9 @@ test("live model creates, revises and confirms a conditional questionnaire witho
     const originalBlock = [...snapshots.values()][0];
     const previousBlocks = new Set(snapshots.keys());
     await page.getByRole("button", { name: "修改需求", exact: true }).last().click();
+    await expect.poll(() => [...snapshots.values()].filter((item) => !previousBlocks.has(item.block_id)
+      && item.status === "complete").length, { timeout: 90_000 }).toBe(1);
+    await expect(latestReply.getByRole("form")).toHaveCount(1);
     const revised = page.locator("[data-assistant-message]").getByRole("form").last();
     const revisedCode = revised.getByRole("textbox", { name: "项目代号", exact: true });
     const revisedDelivery = revised.getByRole("group", { name: "交付形式", exact: true });
@@ -428,9 +431,6 @@ test("live model creates, revises and confirms a conditional questionnaire witho
     const revisedDetail = revised.getByRole("textbox", { name: "补充说明", exact: true });
     const revisedSubmit = revised.getByRole("button", { name: "Submit answers", exact: true });
     await expect(revisedCode).toHaveValue("LANTERN-2026", { timeout: 90_000 });
-    await expect.poll(() => [...snapshots.values()].filter((item) => !previousBlocks.has(item.block_id)
-      && item.status === "complete").length, { timeout: 60_000 }).toBe(1);
-    await expect(latestReply.getByRole("form")).toHaveCount(1);
     await expect(revisedSubmit).toBeEnabled();
     await expect(revisedDelivery.getByRole("radio", { name: "文档", exact: true })).toBeChecked();
     for (const option of ["易用性", "可靠性", "其他"]) await expect(revisedFocus.getByRole("checkbox", { name: option, exact: true })).toBeChecked();
