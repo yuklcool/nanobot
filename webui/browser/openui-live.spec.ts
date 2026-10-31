@@ -297,3 +297,146 @@ test("live model offers a title form and confirms its saved result without anoth
   expect(errors).toEqual([]);
 });
 
+test("live model creates a conditional questionnaire and continues from its submitted answers once", async ({ page }) => {
+  test.setTimeout(240_000);
+  const evidence = () => JSON.parse(readFileSync(process.env.NANOBOT_OPENUI_LIVE_EVIDENCE!, "utf8")) as Evidence;
+  const snapshots = new Map<string, UiSnapshot>();
+  const messages: Record<string, unknown>[] = [];
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.name));
+  page.on("websocket", (socket) => {
+    socket.on("framesent", ({ payload }) => {
+      const frame = JSON.parse(String(payload));
+      if (frame.type === "message") messages.push(frame);
+    });
+    socket.on("framereceived", ({ payload }) => {
+      const frame = JSON.parse(String(payload));
+      if (frame.event === "openui.snapshot") {
+        const snapshot = uiSnapshotSchema.parse(frame.snapshot);
+        snapshots.set(snapshot.block_id, snapshot);
+      }
+    });
+  });
+  try {
+    await page.goto("/browser/openui-gateway.html");
+    await Promise.all([page.waitForEvent("load"), page.getByRole("button", { name: "Delete conversation", exact: true }).click()]);
+    await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
+    snapshots.clear();
+    const before = evidence();
+    const ask = page.getByRole("button", { name: "Ask", exact: true });
+    const latestReply = page.locator("[data-assistant-message]").last();
+    await page.getByRole("textbox", { name: "Question", exact: true }).fill(
+      "请生成一份可直接填写的“项目需求调查表”，只包含以下字段，标签和选项保持原文："
+      + "项目代号（文本）；交付形式（单选：演示、文档、其他）；其他交付说明（仅选其他时显示）；"
+      + "重点关注（多选：易用性、可靠性、其他）；补充说明（仅重点关注选其他时显示）。"
+      + "所有可见字段必填。这些都是虚构的公开项目资料，允许保存所有字段的草稿以便刷新后继续填写，不要预填答案。"
+      + "提交后请复述我的答案，再让我选择“修改需求”或“确认需求”。确认后只总结此项目的代号和下一步，不执行任何业务操作。请全程用中文回答，不调用工具。",
+    );
+    await ask.click();
+    const survey = page.getByRole("form", { name: "项目需求调查表", exact: true });
+    const submit = survey.getByRole("button", { name: "Submit answers", exact: true });
+    const code = survey.getByRole("textbox", { name: "项目代号", exact: true });
+    const delivery = survey.getByRole("group", { name: "交付形式", exact: true });
+    const focus = survey.getByRole("group", { name: "重点关注", exact: true });
+    const detail = survey.getByRole("textbox", { name: "补充说明", exact: true });
+    await expect(survey).toBeVisible({ timeout: 90_000 });
+    await expect.poll(() => [...snapshots.values()].filter((item) => item.status === "complete").length,
+      { timeout: 60_000 }).toBe(1);
+    await expect(latestReply.getByRole("form")).toHaveCount(1);
+    await expect(code).toHaveValue("");
+    await expect(submit).toBeDisabled();
+    const original = latestReply.locator("details");
+    await expect(original).toHaveCount(1);
+    await expect(original).not.toHaveAttribute("open");
+    await expect(survey.getByRole("textbox", { name: "其他交付说明", exact: true })).toHaveCount(0);
+    await expect(detail).toHaveCount(0);
+    const generated = evidence();
+
+    await code.fill("LANTERN-2026");
+    await delivery.getByRole("radio", { name: "其他", exact: true }).check();
+    await survey.getByRole("textbox", { name: "其他交付说明", exact: true }).fill("WITHDRAWN-702");
+    await delivery.getByRole("radio", { name: "文档", exact: true }).check();
+    await expect(survey.getByRole("textbox", { name: "其他交付说明", exact: true })).toHaveCount(0);
+    await focus.getByRole("checkbox", { name: "易用性", exact: true }).check();
+    await focus.getByRole("checkbox", { name: "可靠性", exact: true }).check();
+    await focus.getByRole("checkbox", { name: "其他", exact: true }).check();
+    await detail.fill("WITHDRAWN-913");
+    await focus.getByRole("checkbox", { name: "其他", exact: true }).uncheck();
+    await expect(detail).toHaveCount(0);
+    await focus.getByRole("checkbox", { name: "其他", exact: true }).check();
+    await expect(detail).toHaveValue("");
+    await expect(submit).toBeDisabled();
+    await detail.fill("支持键盘操作");
+    await expect(submit).toBeEnabled();
+    await expect.poll(() => [...snapshots.values()][0]?.state.$forms).toMatchObject({ "form-0": {
+      status: "draft", values: expect.arrayContaining(["LANTERN-2026", "文档", ["易用性", "可靠性", "其他"], "支持键盘操作"]),
+    } });
+    expect(JSON.stringify([...snapshots.values()][0].state.$forms)).not.toContain("WITHDRAWN");
+    expect(evidence()).toEqual(generated);
+    expect(messages).toHaveLength(1);
+    await page.screenshot({ path: test.info().outputPath("live-questionnaire-desktop.png"), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: test.info().outputPath("live-questionnaire-mobile.png"), fullPage: true });
+    await page.reload();
+    await expect(code).toHaveValue("LANTERN-2026");
+    await expect(delivery.getByRole("radio", { name: "文档", exact: true })).toBeChecked();
+    for (const option of ["易用性", "可靠性", "其他"]) await expect(focus.getByRole("checkbox", { name: option, exact: true })).toBeChecked();
+    await expect(detail).toHaveValue("支持键盘操作");
+    await expect(survey.getByRole("textbox", { name: "其他交付说明", exact: true })).toHaveCount(0);
+    await expect(ask).toBeEnabled();
+    await page.waitForTimeout(1_000);
+    expect(evidence()).toEqual(generated);
+    expect(messages).toHaveLength(1);
+    await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
+
+    await submit.dblclick();
+    const confirm = page.getByRole("button", { name: "确认需求", exact: true });
+    await expect(confirm).toBeVisible({ timeout: 90_000 });
+    await expect(latestReply.getByRole("button", { name: "修改需求", exact: true })).toBeVisible();
+    await expect(latestReply).toContainText("LANTERN-2026");
+    await expect(latestReply).toContainText("文档");
+    await expect(latestReply).toContainText("支持键盘操作");
+    await expect(survey.getByRole("status")).toHaveText("Submitted");
+    expect(messages).toHaveLength(2);
+    expect(messages[1]).toMatchObject({ chat_id: "gateway-poc", ui_mode: "auto", ui_action: {
+      action_id: "conversation.followup", form_id: "form-0", request_id: messages[1].turn_id,
+    } });
+    const content = String(messages[1].content);
+    for (const value of ["项目代号: LANTERN-2026", "交付形式: 文档", "重点关注: 易用性, 可靠性, 其他", "补充说明: 支持键盘操作"]) expect(content).toContain(value);
+    expect(content).not.toContain("其他交付说明");
+    expect(content).not.toContain("WITHDRAWN");
+    const submitted = evidence();
+    await page.reload();
+    await expect(confirm).toBeVisible();
+    await expect(submit).toBeDisabled();
+    await expect(survey.getByRole("status")).toHaveText("Submitted");
+    await expect(ask).toBeEnabled();
+    await page.waitForTimeout(1_000);
+    expect(evidence()).toEqual(submitted);
+    expect(messages).toHaveLength(2);
+    await page.screenshot({ path: test.info().outputPath("live-questionnaire-submitted-mobile.png"), fullPage: true });
+    await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
+    await confirm.click();
+    await expect.poll(() => evidence().runs.length, { timeout: 90_000 }).toBe(before.runs.length + 3);
+    await expect(ask).toBeEnabled();
+    await expect(latestReply).toContainText("LANTERN-2026");
+    await expect.poll(() => [...snapshots.values()].every((item) => item.status === "complete"), { timeout: 60_000 }).toBe(true);
+    expect(messages).toHaveLength(3);
+    expect(messages.every((message) => message.chat_id === "gateway-poc" && message.ui_mode === "auto")).toBe(true);
+    expect(evidence().tools).toEqual(before.tools);
+    expect(evidence().runs.slice(before.runs.length).every((run) => !run.error)).toBe(true);
+    expect(evidence().calls.slice(before.calls.length).every((call) => call.finish_reason !== "error" && call.error_status_code === null)).toBe(true);
+    expect([...snapshots.values()].every((item) => item.status === "complete" && item.error_code === null)).toBe(true);
+    expect(errors).toEqual([]);
+  } finally {
+    const summaryPath = test.info().outputPath("live-questionnaire-summary.json");
+    writeFileSync(summaryPath, JSON.stringify({ page_errors: errors, sent_messages: messages,
+      snapshots: [...snapshots.values()].map((item) => ({ status: item.status, error_code: item.error_code,
+        source: item.source, answer: item.fallback_text, usage: item.usage, state: item.state })),
+    }, null, 2));
+    await test.info().attach("live-questionnaire-summary", { contentType: "application/json", path: summaryPath });
+    await test.info().attach("live-provider-calls", { path: process.env.NANOBOT_OPENUI_LIVE_EVIDENCE!, contentType: "application/json" });
+  }
+});
+
