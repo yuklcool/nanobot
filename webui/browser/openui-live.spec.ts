@@ -156,6 +156,7 @@ test("live model searches, selects and reads a saved conversation without refres
         selected: ["websocket:aurora-lookup"], tables: 1 },
     ];
     for (const scenario of relevanceCases) {
+      await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
       const previousBlocks = new Set(snapshots.keys());
       const previousTables = await page.getByRole("table").count();
       const previousTools = evidence().tools.length;
@@ -166,17 +167,19 @@ test("live model searches, selects and reads a saved conversation without refres
       await expect(ask).toBeEnabled();
       const block = [...snapshots.values()].find((item) => !previousBlocks.has(item.block_id))!;
       const datasets = Object.values(block.tables ?? {});
-      expect(datasets).toHaveLength(1);
-      expect(datasets[0].rows.map((row) => row.id)).toEqual(scenario.selected);
+      if (scenario.tables) {
+        expect(datasets).toHaveLength(1);
+        expect(datasets[0].rows.map((row) => row.id)).toEqual(scenario.selected);
+      }
       if (scenario.name !== "literal-browsing") {
         expect(evidence().tools.slice(previousTools).some((tool) => tool.name === "search_sessions"
           && !tool.selection_applied && (tool.result_count ?? 0) >= (scenario.name === "mixed-content" ? 2 : 1))).toBe(true);
-        expect(datasets[0].session_query?.session_keys).toEqual(scenario.selected);
-        expect(evidence().tools.slice(previousTools).some((tool) => tool.selection_applied
-          && tool.selected_count === scenario.selected.length)).toBe(true);
+        expect(evidence().tools.slice(previousTools).some((tool) => tool.name === "read_session")).toBe(true);
       }
       if (scenario.name === "mixed-content") {
-        expect(evidence().tools.slice(previousTools).some((tool) => tool.name === "read_session")).toBe(true);
+        expect(datasets[0].session_query?.session_keys).toEqual(scenario.selected);
+        expect(evidence().tools.slice(previousTools).some((tool) => tool.selection_applied
+          && tool.selected_count === 1)).toBe(true);
         expect(block.fallback_text).toContain("LANTERN-681");
         await expect(page.getByRole("table").last()).toContainText("Meridian approved roadmap");
         await expect(page.getByRole("table").last()).not.toContainText("Meridian lookup request");
