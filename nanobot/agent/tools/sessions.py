@@ -101,6 +101,8 @@ class SearchSessionsTool(_SessionTool):
             "Search other persisted conversation sessions by title or visible message "
             "text. Use this only when the user asks about a past conversation or when prior "
             "discussion is needed to answer. Matching is case-insensitive literal substring search. "
+            "Determine browsing versus content finding from the latest user request; an earlier rejected "
+            "content subset never restricts a later request to browse keyword matches. "
             "A request to find conversations ABOUT a topic is content finding, including requests for a "
             "table of those conversations. Table/filterable describes presentation, not literal-match browsing. "
             "Searching quoted keywords or comparing search scopes is candidate browsing unless the user also "
