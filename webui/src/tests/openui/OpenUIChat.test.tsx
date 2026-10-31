@@ -531,6 +531,47 @@ it("keeps a newer remote draft when an earlier save receipt arrives late", async
   } finally { view.unmount(); fixture.client.close(); }
 });
 
+it("rejects a queued draft changed by another tab while allowing an unrelated form's save receipt", async () => {
+  const snapshot: UiSnapshot = { ...savedProjectForm,
+    source: 'root = Panel([first, second])\nfirst = Form("First", [{label: "First name", persist: true}])\nsecond = Form("Second", [{label: "Second name", persist: true}])\n',
+    state: { $forms: {
+      "form-0": { schema: "test", status: "draft", values: ["Original first"] },
+      "form-1": { schema: "test", status: "draft", values: ["Original second"] },
+    } },
+  };
+  const fixture = setup({ protocol: 1, library_hash: manifest.library_hash, form_recovery: true }, [message], snapshot);
+  const view = fixture.mount();
+  try {
+    const first = await screen.findByRole("textbox", { name: "First name" });
+    const second = screen.getByRole("textbox", { name: "Second name" });
+    const receive = fixture.socket.onmessage!;
+    let release: (() => void) | undefined;
+    fixture.socket.onmessage = (event) => {
+      const frame = JSON.parse(event.data);
+      if (frame.event === "webui_response" && fixture.frames.some((request) =>
+        request.action === "openui.form" && request.request_id === frame.request_id)) release = () => receive(event);
+      else receive(event);
+    };
+    fireEvent.change(first, { target: { value: "Saved first" } });
+    await waitFor(() => expect(release).toBeTypeOf("function"));
+    fireEvent.change(second, { target: { value: "My queued second" } });
+    await screen.findByText("openui.savingDraft");
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 650)); });
+    act(() => fixture.receiveSnapshot({ ...snapshot, state_version: 4, state: { $forms: {
+      "form-0": { schema: "test", status: "draft", values: ["Saved first"] },
+      "form-1": { schema: "test", status: "draft", values: ["Shared second"] },
+    } } }));
+    await screen.findByText("openui.draftConflict");
+    act(() => release!());
+    await screen.findByText("openui.saved");
+    await screen.findByText("openui.draftFailed");
+    expect(second).toHaveValue("My queued second");
+    expect(fixture.frames.filter((frame) => frame.action === "openui.form")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "openui.reloadDraft" }));
+    expect(second).toHaveValue("Shared second");
+  } finally { view.unmount(); fixture.client.close(); }
+});
+
 it("restores only opted-in form drafts and retains submitted receipts without sending again", async () => {
   const fixture = setup({ protocol: 1, library_hash: manifest.library_hash, form_recovery: true }, [message], recoverableForm);
   let view = fixture.mount();

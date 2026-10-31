@@ -16,7 +16,7 @@ test("two tabs resolve a form draft conflict without automatic overwrite or an A
     await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
     await page.getByRole("textbox", { name: "Question", exact: true }).fill("Plan a small project");
     await page.getByRole("button", { name: "Ask", exact: true }).click();
-    await page.getByRole("button", { name: "New project", exact: true }).click();
+    await page.getByRole("button", { name: "Define the project", exact: true }).click();
     const form = page.getByRole("form", { name: "Project details", exact: true });
     await form.getByRole("textbox", { name: "Project name" }).fill("Original project");
     await form.getByRole("combobox", { name: "Priority" }).selectOption("Normal");
