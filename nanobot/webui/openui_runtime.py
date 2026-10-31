@@ -232,9 +232,11 @@ class OpenUIRuntime:
         scope, _ = await self.block(request)
 
         def change(_metadata: dict[str, Any]) -> UiSnapshot:
+            title = _metadata.get("title")
             return rename_operation(self.store, scope, request.block_id, revision=request.revision,
                                     form_id=request.form_id, operation=request.operation,
-                                    title=request.title, operation_id=request.operation_id)
+                                    title=request.title, operation_id=request.operation_id,
+                                    native_title=title if isinstance(title, str) else None)
 
         # Serialize confirmation with session deletion/reset through the existing
         # session owner; a card from a retired generation cannot rename a new chat.
@@ -249,7 +251,8 @@ class OpenUIRuntime:
                 raise UiConflictError("RENAME_RESULT_UNKNOWN") from exc
             return result
         try:
-            return await store_call(change, {})
+            session = await self.sessions.state.read_metadata(scope.session_key) if request.operation == "prepare" else None
+            return await store_call(change, session.get("metadata", {}) if session else {})
         except OSError as exc:
             raise UiConflictError("RENAME_UNAVAILABLE") from exc
 
