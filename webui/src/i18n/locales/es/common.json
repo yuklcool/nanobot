@@ -2547,6 +2547,17 @@
     "closeDetails": "Cerrar detalles",
     "historyUser": "Usuario",
     "historyAssistant": "Asistente",
-    "noMessages": "No hay mensajes visibles."
+    "noMessages": "No hay mensajes visibles.",
+    "renameReview": "Revisar cambio",
+    "renameConfirm": "Confirmar nombre",
+    "renameWorking": "Guardando…",
+    "renamePreview": "¿Cambiar «{{before}}» por «{{after}}»?",
+    "defaultTitle": "Título original de la conversación",
+    "renameApplied": "Nombre cambiado a «{{title}}».",
+    "renameConflict": "La barra lateral cambió. Revisa el cambio de nuevo antes de confirmar.",
+    "renameUncertain": "El resultado no está confirmado. Consulta su estado antes de actuar de nuevo.",
+    "renameFailed": "No se pudo leer o preparar el cambio. Inténtalo de nuevo.",
+    "renameStatus": "Consultar resultado",
+    "renameUnavailable": "Este servidor no permite cambiar el nombre desde una conversación."
   }
 }

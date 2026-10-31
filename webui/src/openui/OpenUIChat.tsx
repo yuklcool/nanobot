@@ -12,6 +12,7 @@ import type { OpenUIAction, OpenUIMode } from "../../../packages/client-events/o
 import { ChatInteraction, DisplayDataContext, ReadonlyQuery, FormRecovery, chatLibrary, followupSchema, replacesAnswer } from "./chat-library";
 import { sessionDetailSchema, type DataQuery, type SessionDetail } from "./data-contract";
 import { formContent, formStateSchema, type FormInput, type FormState } from "./form-contract";
+import { SessionRename, renameReceiptSchema, type RenameRequest } from "./SessionRenameForm";
 
 interface ChatViews {
   blocks: UiSnapshot[];
@@ -27,6 +28,8 @@ interface ChatViews {
   readonlyQuery: boolean;
   query: (snapshot: UiSnapshot, request: DataQuery) => Promise<SessionDetail | null>;
   updateForm: (snapshot: UiSnapshot, form: FormInput) => Promise<UiSnapshot>;
+  sessionRename: boolean;
+  rename: (snapshot: UiSnapshot, request: RenameRequest) => Promise<void>;
 }
 const Views = createContext<ChatViews | null>(null);
 const responseSchema = z.object({ capability: z.object({ protocol: z.literal(1), library_hash: z.string() }),
@@ -45,6 +48,7 @@ export function OpenUIChatProvider({ client, chatId, disabled = false, messages,
   const [autoAvailable, setAutoAvailable] = useState(false);
   const [formRecovery, setFormRecovery] = useState(false);
   const [readonlyQuery, setReadonlyQuery] = useState(false);
+  const [sessionRename, setSessionRename] = useState(false);
   const latestBlocks = useRef(new Map<string, UiSnapshot>());
   const stateQueue = useRef<Promise<unknown>>(Promise.resolve());
   const generation = useRef<string | null>(null);
@@ -75,6 +79,7 @@ export function OpenUIChatProvider({ client, chatId, disabled = false, messages,
     setAutoAvailable(false);
     setFormRecovery(false);
     setReadonlyQuery(false);
+    setSessionRename(false);
   }, [client, chatId, disabled]);
 
   useEffect(() => {
@@ -86,6 +91,7 @@ export function OpenUIChatProvider({ client, chatId, disabled = false, messages,
       setAutoAvailable(supportsAuto);
       setFormRecovery(client.getOpenUI()?.form_recovery === true);
       setReadonlyQuery(client.getOpenUI()?.readonly_query === true);
+      setSessionRename(client.getOpenUI()?.session_rename === true);
       if (mode.current === "auto" && !supportsAuto) {
         mode.current = "markdown";
         setSelectedMode("markdown");
@@ -127,6 +133,7 @@ export function OpenUIChatProvider({ client, chatId, disabled = false, messages,
         setAvailable(false);
         setFormRecovery(false);
         setReadonlyQuery(false);
+        setSessionRename(false);
       }
     });
     const unevent = client.onOpenUI((value) => {
@@ -203,9 +210,21 @@ export function OpenUIChatProvider({ client, chatId, disabled = false, messages,
     }
     return z.object({ detail: sessionDetailSchema }).strict().parse(response).detail;
   }, [client, merge]);
-  const value = useMemo(() => ({ blocks, available, mode: selectedMode, autoAvailable, formRecovery, readonlyQuery, query, updateForm, selectMode, save, control, prepareRecord,
+  const rename = useCallback(async (snapshot: UiSnapshot, request: RenameRequest) => {
+    if (client.getOpenUI()?.session_rename !== true) throw new Error("Rename unavailable");
+    const requestEpoch = epoch.current;
+    const result = z.object({ snapshot: uiSnapshotSchema }).strict().parse(await client.requestMutation("openui.rename", {
+      chat_id: snapshot.chat_id, session_generation: snapshot.session_generation,
+      block_id: snapshot.block_id, revision: snapshot.revision, ...request,
+    }));
+    const current = latestBlocks.current.get(snapshot.block_id);
+    if (requestEpoch !== epoch.current || current?.session_generation !== snapshot.session_generation
+      || current.revision !== snapshot.revision) throw new Error("View changed");
+    merge(result.snapshot);
+  }, [client, merge]);
+  const value = useMemo(() => ({ blocks, available, mode: selectedMode, autoAvailable, formRecovery, readonlyQuery, sessionRename, rename, query, updateForm, selectMode, save, control, prepareRecord,
     send: (question: string, options: SendOptions) => send(question, undefined, options),
-  }), [blocks, available, selectedMode, autoAvailable, formRecovery, readonlyQuery, query, updateForm, selectMode, save, control, prepareRecord, send]);
+  }), [blocks, available, selectedMode, autoAvailable, formRecovery, readonlyQuery, sessionRename, rename, query, updateForm, selectMode, save, control, prepareRecord, send]);
   return <Views.Provider value={value}>{children}</Views.Provider>;
 }
 
@@ -240,6 +259,7 @@ function Block({ snapshot, views, answer }: { snapshot: UiSnapshot; views: ChatV
   const requests = useRef(new Map<string, string>());
   const confirmed = useRef(new Set<string>());
   const storedForms = z.record(z.string().regex(/^form-[0-5]$/), formStateSchema).safeParse(snapshot.state.$forms ?? {});
+  const renames = z.record(z.string().regex(/^form-[0-5]$/), renameReceiptSchema).safeParse(snapshot.state.$renames ?? {});
   const onError = useCallback((errors: OpenUIError[]) => {
     setParseFailed(errors.some((error) => error.severity !== "warning"));
   }, []);
@@ -313,6 +333,8 @@ function Block({ snapshot, views, answer }: { snapshot: UiSnapshot; views: ChatV
     <DisplayDataContext.Provider value={snapshot.tables ?? {}}>
     <ReadonlyQuery.Provider value={views.readonlyQuery ? (request) => views.query(snapshot, request) : null}>
     <FormRecovery.Provider value={views.formRecovery && storedForms.success ? { forms: storedForms.data, update: updateForm } : null}>
+    <SessionRename.Provider value={views.sessionRename && renames.success
+      ? { receipts: renames.data, request: (request) => views.rename(snapshot, request) } : null}>
       {failed || !storedForms.success || (parseFailed && snapshot.status === "complete") ? fallback : <Renderer library={chatLibrary}
         response={snapshot.source} isStreaming={snapshot.status === "streaming"} initialState={snapshot.state}
         onAction={(event) => { void action(event); }} onError={onError} publishObservability={false} />}
@@ -323,6 +345,7 @@ function Block({ snapshot, views, answer }: { snapshot: UiSnapshot; views: ChatV
         <summary className="w-fit cursor-pointer rounded-control focus-visible:outline focus-visible:outline-ring">{t("openui.originalAnswer")}</summary>
         <div className="mt-3">{answer}</div>
       </details>}
+    </SessionRename.Provider>
     </FormRecovery.Provider>
     </ReadonlyQuery.Provider>
     </DisplayDataContext.Provider>

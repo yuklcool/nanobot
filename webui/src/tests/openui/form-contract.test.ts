@@ -1,6 +1,15 @@
 import { expect, it } from "vitest";
 import { formComplete, formDefinitionSchema, normalizeFormValues, type FormField } from "../../openui/form-contract";
 
+it("limits the registered rename action to one required title field", () => {
+  const form = { title: "Rename", fields: [{ label: "New title", type: "text" }],
+    action: { type: "session.rename", title: "Project plan" } };
+  expect(formDefinitionSchema.safeParse(form).success).toBe(true);
+  expect(formDefinitionSchema.safeParse({ ...form, action: { ...form.action, title: " " } }).success).toBe(false);
+  expect(formDefinitionSchema.safeParse({ ...form, fields: [{ label: "Pick", options: ["A", "B"] }] }).success).toBe(false);
+  expect(formDefinitionSchema.safeParse({ ...form, fields: [...form.fields, ...form.fields] }).success).toBe(false);
+});
+
 it("persists only authorized draft values whose conditions survive privacy filtering", () => {
   const fields: FormField[] = [
     { label: "Personal choice", type: "radio", options: ["Yes", "No"] },

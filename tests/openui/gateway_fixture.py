@@ -82,6 +82,8 @@ class FixtureProvider(LLMProvider):
         index = max(i for i, row in enumerate(messages) if row["role"] == "user")
         question = str(messages[index]["content"])
         has_result = any(row["role"] == "tool" for row in messages[index + 1:])
+        if "Rename this chat to Project plan" in question:
+            return LLMResponse(content="Review the proposed conversation title and confirm the change below.", tool_calls=[])
         if "Create an employee survey" in question:
             return LLMResponse(content=SURVEY_ANSWER, tool_calls=[])
         if question.startswith(SURVEY_TITLE + "\n"):
@@ -145,6 +147,10 @@ class FixtureProvider(LLMProvider):
                   'heading = Text("Captured lookup records")\n'
                   + f'data = DataTable({json.dumps(datasets[0]["data_ref"])})\n'
                   + 'followup = Followup($question)\n')
+        elif payload["public_answer"].startswith("Review the proposed conversation title"):
+            source = ('root = Panel([rename])\nrename = Form("Rename conversation", '
+                      '[{label:"New title",type:"text"}], "", "inline", '
+                      '{type:"session.rename",title:"Project plan"})\n')
         elif payload["public_answer"].startswith("Please choose whether to define"):
             source = ('root = Panel([next])\nnext = Choices("Where should we start?", ['
                       '{label: "Define the project", question: "I want to define a new project."}, '

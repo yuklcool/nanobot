@@ -13,7 +13,11 @@ export type FormField = z.infer<typeof formFieldSchema>;
 export const formDefinitionSchema = z.object({
   title: z.string().min(1).max(160), fields: z.array(formFieldSchema).min(1).max(12),
   description: z.string().max(600).optional(), presentation: z.enum(["inline", "questionnaire"]).optional(),
-}).superRefine(({ fields }, context) => {
+  action: z.object({ type: z.literal("session.rename"), title: z.string().trim().min(1).max(160) }).optional(),
+}).superRefine(({ fields, action }, context) => {
+  if (action && (fields.length !== 1 || fields[0].options || fields[0].when
+    || fields[0].required === false || (fields[0].type && fields[0].type !== "text")))
+    context.addIssue({ code: "custom", path: ["action"], message: "Rename needs one required text field" });
   fields.forEach((field, index) => {
     if (field.type === "text" && field.options)
       context.addIssue({ code: "custom", path: ["fields", index], message: "Text fields cannot have options" });

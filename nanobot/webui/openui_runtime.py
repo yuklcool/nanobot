@@ -36,8 +36,10 @@ from nanobot.runtime_admission import RuntimeMaintenanceError
 from nanobot.runtime_context import RuntimeContextBlock, wrap_runtime_context_lines
 from nanobot.session.display_history import HISTORY_GENERATION_METADATA_KEY, HistoryReader
 from nanobot.session.manager import SessionManager
+from nanobot.session.sqlite_store import SessionConflictError
 from nanobot.utils.llm_runtime import LLMRuntime
 from nanobot.webui.history import turn_records
+from nanobot.webui.openui_rename import rename_operation
 from nanobot.webui.session_identity import webui_session_key
 
 _MANIFEST = json.loads((Path(__file__).parents[1] / "openui/generated/chat-library.json").read_text())
@@ -107,6 +109,22 @@ class UiQueryRequest(UiBlockRequest):
         return self
 
 
+class UiRenameRequest(UiBlockRequest):
+    form_id: Annotated[str, Field(pattern=r"^form-[0-5]$")]
+    operation: Literal["prepare", "confirm", "status"]
+    title: Annotated[str, Field(min_length=1, max_length=160)] | None = None
+    operation_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")] | None = None
+
+    @model_validator(mode="after")
+    def rename_fields(self) -> UiRenameRequest:
+        if self.operation == "prepare":
+            if self.title is None or self.title != self.title.strip() or self.operation_id is not None:
+                raise ValueError("INVALID_PARAMS")
+        elif self.title is not None or self.operation_id is None:
+            raise ValueError("INVALID_PARAMS")
+        return self
+
+
 def record_intent(snapshot: UiSnapshot, data_ref: str, record_id: str) -> tuple[str, RuntimeContextBlock]:
     table = snapshot.tables.get(data_ref)
     row: DisplayRow | None = next((item for item in table.rows if item.id == record_id), None) if table else None
@@ -147,7 +165,7 @@ class OpenUIRuntime:
     @staticmethod
     def capability() -> dict[str, object]:
         return {"protocol": 1, "library_hash": LIBRARY_HASH, "modes": ["markdown", "openui", "auto"],
-                "form_recovery": True, "readonly_query": True}
+                "form_recovery": True, "readonly_query": True, "session_rename": True}
 
     def _prepare(self, event: UITurnPrepared) -> None:
         if self._closed:
@@ -209,6 +227,31 @@ class OpenUIRuntime:
         scope, _ = await self.block(request)
         return await store_call(save_form, self.store, scope, request.block_id, revision=request.revision,
                                 expected_state_version=request.expected_state_version, form=request.form)
+
+    async def rename(self, request: UiRenameRequest) -> UiSnapshot:
+        scope, _ = await self.block(request)
+
+        def change(_metadata: dict[str, Any]) -> UiSnapshot:
+            return rename_operation(self.store, scope, request.block_id, revision=request.revision,
+                                    form_id=request.form_id, operation=request.operation,
+                                    title=request.title, operation_id=request.operation_id)
+
+        # Serialize confirmation with session deletion/reset through the existing
+        # session owner; a card from a retired generation cannot rename a new chat.
+        if request.operation == "confirm":
+            try:
+                result, _ = await self.sessions.state.mutate_metadata(
+                    scope.session_key, change, expected_generation=scope.generation,
+                )
+            except SessionConflictError as exc:
+                raise UiConflictError("STALE_GENERATION") from exc
+            except OSError as exc:
+                raise UiConflictError("RENAME_RESULT_UNKNOWN") from exc
+            return result
+        try:
+            return await store_call(change, {})
+        except OSError as exc:
+            raise UiConflictError("RENAME_UNAVAILABLE") from exc
 
     async def prepare_record(self, request: UiRecordRequest) -> str:
         _, snapshot = await self.block(request)
@@ -360,7 +403,7 @@ class OpenUIRuntime:
         )
         holder.append(snapshot)
         try:
-            await store_call(self.store.create, scope, snapshot, state_keys=frozenset({"$question", "$forms"}))
+            await store_call(self.store.create, scope, snapshot, state_keys=frozenset({"$question", "$forms", "$renames"}))
         except UiConflictError:
             return
         runtime = prepared.runtime if prepared else None

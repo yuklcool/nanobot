@@ -7,6 +7,7 @@ import { Button } from "../components/ui/button";
 import type { DataQuery, DisplayTable, SessionDetail } from "./data-contract";
 import { emptyFormValue, formComplete, formContent, formDefinitionSchema, normalizeFormValues, visibleFields,
   type FormInput, type FormState, type FormValue } from "./form-contract";
+import { SessionRenameForm } from "./SessionRenameForm";
 
 export const ChatInteraction = createContext(false);
 export const DisplayDataContext = createContext<Record<string, DisplayTable>>({});
@@ -46,9 +47,17 @@ const Choices = defineComponent({
   },
 });
 const Form = defineComponent({
-  name: "Form", description: "Collect details or render an entire questionnaire (1–12 fields). Keep a survey together in ONE Form, with description and presentation:questionnaire; use it as the only Panel child. Preserve the questions and options from the answer. Use type:radio for one choice, checkbox for multiple choices, select for a dropdown, otherwise text. Fields are required unless required:false. when:{field:0,value:\"Other\"} shows a field only when that earlier choice is selected (also matches checkbox selections). Add conditional text fields for Other details and conditional follow-up questions. Set persist:true ONLY for explicitly non-sensitive details; omit it for employee, income or other personal survey answers. Never ask for secrets. Submission sends all visible answers together to this conversation, never directly to a business tool.",
+  name: "Form", description: "Collect details or render an entire questionnaire (1–12 fields). Keep a survey together in ONE Form, with description and presentation:questionnaire; use it as the only Panel child. Preserve the questions and options from the answer. Use type:radio for one choice, checkbox for multiple choices, select for a dropdown, otherwise text. Fields are required unless required:false. when:{field:0,value:\"Other\"} shows a field only when that earlier choice is selected (also matches checkbox selections). Add conditional text fields for Other details and conditional follow-up questions. Set persist:true ONLY for explicitly non-sensitive details; omit it for employee, income or other personal survey answers. Never ask for secrets. Submission sends all visible answers together to this conversation. Exception: for an explicit request to rename THIS conversation, use one required text field and action:{type:session.rename,title:requested title}; the user reviews and confirms before its sidebar title is saved. Never use this action for files or other conversations.",
   props: formDefinitionSchema,
-  component: function DetailForm({ props }) {
+  component: ({ props }) => <FormInteraction props={props} />,
+});
+function FormInteraction({ props }: { props: z.infer<typeof formDefinitionSchema> }) {
+  const formId = useContext(FormPosition);
+  const enabled = useContext(ChatInteraction);
+  return props.action ? <SessionRenameForm formId={formId} title={props.title} label={props.fields[0].label}
+    initialTitle={props.action.title} enabled={enabled} /> : <DetailForm props={props} />;
+}
+function DetailForm({ props }: { props: z.infer<typeof formDefinitionSchema> }) {
     const { t } = useTranslation();
     const id = useId();
     const recovery = useContext(FormRecovery);
@@ -172,8 +181,7 @@ const Form = defineComponent({
       {saveFailed && !locked && <Button type="button" variant="ghost" size="sm" className="self-start"
         disabled={disabled} onClick={() => { void saveDraft(); }}>{t("openui.saveDraft")}</Button>}
     </form>;
-  },
-});
+}
 const Followup = defineComponent({
   name: "Followup", description: "Optional free-text follow-up with an explicitly saved draft. Use only when an open-ended answer is needed; the conversation already has a composer. Prefer Choices or Form for specific questions.",
   props: z.object({ value: reactive(z.string()) }),

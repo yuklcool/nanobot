@@ -7,6 +7,7 @@ does not modify agent sessions.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -236,6 +237,30 @@ def read_webui_sidebar_state() -> dict[str, Any]:
 def write_webui_sidebar_state(raw: dict[str, Any]) -> dict[str, Any]:
     with _SIDEBAR_STATE_WRITE_LOCK:
         return _write_webui_sidebar_state(raw)
+
+
+def sidebar_title_snapshot(session_key: str) -> tuple[str | None, str]:
+    """Read a title and an opaque revision from the same file snapshot."""
+    path = webui_sidebar_state_path()
+    raw = path.read_bytes() if path.is_file() else b""
+    if len(raw) > _MAX_STATE_FILE_BYTES:
+        raise ValueError("sidebar state is too large")
+    state = normalize_webui_sidebar_state(json.loads(raw) if raw else {})
+    return state["title_overrides"].get(session_key), hashlib.sha256(raw).hexdigest()
+
+
+def rename_webui_sidebar_title(session_key: str, title: str, expected_revision: str) -> bool:
+    """Compare and write under the same lock used by the existing sidebar API."""
+    with _SIDEBAR_STATE_WRITE_LOCK:
+        _, revision = sidebar_title_snapshot(session_key)
+        if revision != expected_revision:
+            return False
+        state = read_webui_sidebar_state()
+        state["title_overrides"][session_key] = title
+        saved = _write_webui_sidebar_state(state)
+        if saved["title_overrides"].get(session_key) != title:
+            raise ValueError("sidebar title could not be saved")
+        return True
 
 
 def _write_webui_sidebar_state(raw: dict[str, Any]) -> dict[str, Any]:

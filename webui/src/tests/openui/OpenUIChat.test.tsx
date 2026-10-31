@@ -33,6 +33,18 @@ function setup(capability: unknown = { protocol: 1, library_hash: manifest.libra
       const frame = JSON.parse(raw); frames.push(frame);
       queueMicrotask(() => {
         if (frame.type === "webui_request") {
+          if (frame.action === "openui.rename") {
+            const entries = (saved.state.$renames ?? {}) as Record<string, Record<string, unknown>>;
+            const form = frame.payload.form_id;
+            if (frame.payload.operation !== "status") saved = { ...saved, state_version: saved.state_version + 1,
+              state: { ...saved.state, $renames: { ...entries, [form]: frame.payload.operation === "prepare"
+                ? { operation_id: "a".repeat(32), title: frame.payload.title, previous_title: "Before",
+                  expected_revision: "b".repeat(64), status: "prepared" }
+                : { ...entries[form], status: "applied" } } } } as UiSnapshot;
+            socket.onmessage?.({ data: JSON.stringify({ event: "webui_response", ok: true, request_id: frame.request_id,
+              result: { snapshot: saved } }) } as MessageEvent);
+            return;
+          }
           if (frame.action === "openui.query") {
             if (failures.query) {
               failures.query = false;
@@ -106,6 +118,41 @@ function setup(capability: unknown = { protocol: 1, library_hash: manifest.libra
   const mount = () => render(<ClientProvider client={client} token="test" allowUpdateFlow={false}><Thread /></ClientProvider>);
   return { client, frames, socket, mount, failures };
 }
+
+it("reviews and confirms a title edit, restores its receipt, and never sends an Agent message", async () => {
+  const snapshot = { ...initial, state: {}, source: 'root = Panel([rename])\nrename = Form("Rename conversation", [{label:"New title",type:"text"}], "", "inline", {type:"session.rename",title:"Project plan"})\n' };
+  const fixture = setup({ protocol: 1, library_hash: manifest.library_hash, session_rename: true }, [message], snapshot);
+  let view = fixture.mount();
+  const input = await screen.findByRole("textbox", { name: "New title" });
+  await waitFor(() => expect(screen.getByRole("button", { name: "openui.renameReview" })).toBeEnabled());
+  expect(input).toHaveValue("Project plan");
+  expect(fixture.frames.filter((frame) => frame.action === "openui.rename")).toHaveLength(0);
+  fireEvent.change(input, { target: { value: "Revised plan" } });
+  fireEvent.click(screen.getByRole("button", { name: "openui.renameReview" }));
+  const confirm = await screen.findByRole("button", { name: "openui.renameConfirm" });
+  expect(fixture.frames.find((frame) => frame.action === "openui.rename")).toMatchObject({
+    payload: { operation: "prepare", title: "Revised plan", form_id: "form-0", chat_id: "chat" },
+  });
+  fireEvent.click(confirm);
+  fireEvent.click(confirm);
+  await screen.findByText("openui.renameApplied");
+  expect(fixture.frames.filter((frame) => frame.action === "openui.rename" && (frame.payload as Record<string, unknown>).operation === "confirm")).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "openui.renameStatus" }));
+  await waitFor(() => expect(fixture.frames.filter((frame) => frame.action === "openui.rename")).toHaveLength(3));
+  view.unmount();
+  view = fixture.mount();
+  await screen.findByText("openui.renameApplied");
+  expect(screen.getByRole("textbox", { name: "New title" })).toHaveValue("Revised plan");
+  expect(fixture.frames.filter((frame) => frame.action === "openui.rename")).toHaveLength(3);
+  expect(fixture.frames.filter((frame) => frame.type === "message" || frame.action === "openui.form")).toHaveLength(0);
+  view.unmount();
+
+  const old = setup({ protocol: 1, library_hash: manifest.library_hash }, [message], snapshot);
+  old.mount();
+  await screen.findByText("openui.renameUnavailable");
+  expect(screen.getByRole("button", { name: "openui.renameReview" })).toBeDisabled();
+  expect(old.frames.filter((frame) => frame.action === "openui.rename")).toHaveLength(0);
+});
 
 it("shows modes on the blank new-chat page without creating a session and hides them for private chats", async () => {
   const capability = { protocol: 1, library_hash: manifest.library_hash, modes: ["markdown", "openui", "auto"] };
