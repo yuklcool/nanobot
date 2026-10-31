@@ -187,7 +187,7 @@ test("live model searches, selects and reads a saved conversation without refres
         await expect(latestReply.getByRole("table")).not.toContainText("Meridian lookup request");
       }
       await latestReply.scrollIntoViewIfNeeded();
-      await expect(latestReply.getByRole("table")).toHaveCount(scenario.tables);
+      await expect.soft(latestReply.getByRole("table")).toHaveCount(scenario.tables);
       await page.screenshot({ path: test.info().outputPath(`live-${scenario.name}-desktop.png`), fullPage: true });
       await page.setViewportSize({ width: 390, height: 844 });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -196,7 +196,7 @@ test("live model searches, selects and reads a saved conversation without refres
       const settled = evidence();
       await page.reload();
       await latestReply.scrollIntoViewIfNeeded();
-      await expect(latestReply.getByRole("table")).toHaveCount(scenario.tables);
+      await expect.soft(latestReply.getByRole("table")).toHaveCount(scenario.tables);
       await expect(ask).toBeEnabled();
       expect(evidence()).toEqual(settled);
     }

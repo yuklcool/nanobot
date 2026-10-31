@@ -101,6 +101,8 @@ class SearchSessionsTool(_SessionTool):
             "Search other persisted conversation sessions by title or visible message "
             "text. Use this only when the user asks about a past conversation or when prior "
             "discussion is needed to answer. Matching is case-insensitive literal substring search. "
+            "A request to find conversations ABOUT a topic is content finding, including requests for a "
+            "table of those conversations. Table/filterable describes presentation, not literal-match browsing. "
             "Candidate browsing applies ONLY when explicitly asked to browse literal matches regardless of "
             "their substance, or to let the user choose before reading. In that case, "
             "present the returned candidates without session_keys. Pending user selection or unread content "
@@ -137,7 +139,14 @@ class SearchSessionsTool(_SessionTool):
         )
         needle = query.casefold()
         result = {
-            "notice": _UNTRUSTED_NOTICE,
+            "notice": _UNTRUSTED_NOTICE + (
+                " These are literal keyword candidates, not content-qualified results. For a request to find "
+                "conversations about a topic, inspect the excerpts (read_session if needed), then publish "
+                "the matching content subset by repeating this query with session_keys before answering. "
+                "Use [] if they only contain prior lookup requests without the requested discussion. "
+                "Explicit literal-match browsing or choosing before reading can present these candidates."
+                if session_keys is None else " These results are the explicitly selected subset."
+            ),
             "query": query,
             "selection_applied": session_keys is not None,
             "results": [
