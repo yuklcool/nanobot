@@ -30,7 +30,7 @@ const Choices = defineComponent({
   }),
   component: function ReplyChoices({ props }) {
     const enabled = useContext(ChatInteraction);
-  const streaming = useIsStreaming();
+    const streaming = useIsStreaming();
     const trigger = useTriggerAction();
     return <div role="group" aria-label={props.title} className="flex min-w-0 flex-col items-start gap-2.5">
       <p className="text-reading-small text-muted-foreground">{props.title}</p>
@@ -54,7 +54,7 @@ const Form = defineComponent({
 function FormInteraction({ props }: { props: z.infer<typeof formDefinitionSchema> }) {
   const formId = useContext(FormPosition);
   const enabled = useContext(ChatInteraction);
-    const streaming = useIsStreaming();
+  const streaming = useIsStreaming();
   return props.action ? <SessionRenameForm formId={formId} title={props.title} label={props.fields[0].label}
     initialTitle={props.action.title} enabled={enabled} /> : <DetailForm key={streaming ? "preview" : "complete"} props={props} />;
 }
