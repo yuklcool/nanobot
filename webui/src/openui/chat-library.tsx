@@ -284,7 +284,7 @@ const DataTable = defineComponent({
   },
 });
 const Panel = defineComponent({
-  name: "Panel", description: "Inline interactions. Default presentation supplements the visible answer. Use presentation:replace with captured DataTable children when they replace a static table or result list in the answer; preserve essential explanation and caveats in Text. The complete original answer remains expandable. Use an empty children array when no interaction helps. Never add redundant controls or a generic form to every reply.",
+  name: "Panel", description: "Inline interactions. Default presentation supplements the visible answer. Use presentation:replace with captured DataTable children when they replace a static table or result list in the answer; preserve essential explanation and caveats in Text. When a static candidate list does not supply the requested content, replace it with ONE nonempty Text explaining that conclusion and search limits. The complete original answer remains expandable. An empty children array supplements the answer; use it when no interaction or replacement helps. Never add redundant controls or a generic form to every reply.",
   props: z.object({ children: z.array(z.union([Text.ref, Choices.ref, Form.ref, Followup.ref, DataTable.ref])).max(6),
     presentation: z.enum(["supplement", "replace"]).optional() }),
   component: ({ props, renderNode }) => props.children.length ? <div className="mt-4 flex min-w-0 flex-col gap-4">{
@@ -307,9 +307,11 @@ export function replacesAnswer(source: string, tables: Record<string, DisplayTab
     if (children.length === 1 && node?.typeName === "Form" && node.props?.presentation === "questionnaire"
       && formDefinitionSchema.safeParse(node.props).success) return true;
     const data = children.filter((child) => child?.typeName === "DataTable");
-    return result.root?.props.presentation === "replace" && data.length > 0 && data.every((child) => {
+    const explanation = children.length === 1 && node?.typeName === "Text"
+      && typeof node.props?.text === "string" && node.props.text.trim().length > 0 && node.props.text.length <= 16000;
+    return result.root?.props.presentation === "replace" && (explanation || (data.length > 0 && data.every((child) => {
       const parsed = dataTableProps.safeParse(child.props);
       return parsed.success && Object.hasOwn(tables, parsed.data.data_ref);
-    });
+    })));
   } catch { return false; }
 }

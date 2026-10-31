@@ -111,6 +111,8 @@ class SearchSessionsTool(_SessionTool):
             "use read_session if insufficient. A prior lookup request or failed lookup does not supply "
             "the requested content. Publish relevant results by repeating the same query with session_keys "
             "([] if inspected candidates contain none). Base your final result list on that returned subset. "
+            "Do not add a table of rejected lookup records to a content-finding answer; explain the bounded "
+            "conclusion instead. Those records are only results when the user explicitly wants to browse them. "
             "A substantive discussion remains eligible even if it also mentions an earlier failed search. "
             "Never claim a bounded search proves the content does not exist. "
             "When citing a result, link its title to the exact "

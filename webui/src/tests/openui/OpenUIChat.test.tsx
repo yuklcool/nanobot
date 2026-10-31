@@ -269,13 +269,29 @@ it.each([
   { ...replacingQuery, status: "streaming" as const },
   { ...replacingQuery, status: "failed" as const },
   { ...replacingQuery, source: replacingQuery.source.replace('DataTable("data-1")', 'DataTable("unknown-data")') },
-])("preserves the visible original when a data replacement is unfinished, failed or unauthorized: $status", async (snapshot) => {
+  { ...initial, status: "streaming" as const, source: 'root = Panel([Text("No relevant content.")], "replace")' },
+  { ...initial, status: "failed" as const, source: 'root = Panel([Text("No relevant content.")], "replace")' },
+  { ...initial, source: 'root = Panel([Text("   ")], "replace")' },
+])("preserves the visible original when a replacement is unfinished, failed, empty or unauthorized: $status", async (snapshot) => {
   const fixture = setup(undefined, [message], snapshot);
   const view = fixture.mount();
   try {
     await screen.findByRole("combobox", { name: "openui.enable" });
     expect(screen.getByTestId("native-answer").closest("details")).toBeNull();
     expect(screen.getByTestId("native-answer")).toBeVisible();
+  } finally { view.unmount(); fixture.client.close(); }
+});
+
+it("replaces an irrelevant candidate list with its explanation while retaining the complete original", async () => {
+  const snapshot = { ...initial, source: 'root = Panel([note], "replace")\nnote = Text("The matched conversation only contains a lookup request, with no substantive plan.")' };
+  const fixture = setup(undefined, [message], snapshot);
+  const view = fixture.mount();
+  try {
+    expect(await screen.findByText("The matched conversation only contains a lookup request, with no substantive plan.")).toBeVisible();
+    expect(screen.getByTestId("native-answer").closest("details")).not.toHaveAttribute("open");
+    fireEvent.click(screen.getByText("openui.originalAnswer"));
+    expect(screen.getByTestId("native-answer").closest("details")).toHaveAttribute("open");
+    expect(fixture.frames.filter((frame) => frame.type === "message")).toHaveLength(0);
   } finally { view.unmount(); fixture.client.close(); }
 });
 
