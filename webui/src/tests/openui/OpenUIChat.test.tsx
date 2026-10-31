@@ -247,6 +247,38 @@ const querySnapshot: UiSnapshot = { ...initial, source: 'root = Panel([data])\nd
       rows: [{ id: "websocket:planning", values: { title: "Planning notes" } }], captured_at: 1,
       source_tool: "search_sessions", source_call_id: "search-1", session_query: { query: "planning", exclude_session_key: "websocket:chat" } } } };
 
+const replacingQuery: UiSnapshot = { ...querySnapshot,
+  source: 'root = Panel([note, data], "replace")\nnote = Text("Only visible saved conversations are included.")\ndata = DataTable("data-1")\n',
+};
+it("replaces a result presentation only after completion and retains the original through an empty refresh", async () => {
+  const fixture = setup({ protocol: 1, library_hash: manifest.library_hash, readonly_query: true }, [message], replacingQuery);
+  const view = fixture.mount();
+  try {
+    await screen.findByRole("table");
+    expect(screen.getByTestId("native-answer").closest("details")).not.toHaveAttribute("open");
+    expect(screen.getByText("Only visible saved conversations are included.")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "openui.refreshData" }));
+    await screen.findByText("openui.emptyData");
+    expect(screen.getByTestId("native-answer").closest("details")).not.toHaveAttribute("open");
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(fixture.frames.filter((frame) => frame.type === "message")).toHaveLength(0);
+  } finally { view.unmount(); fixture.client.close(); }
+});
+
+it.each([
+  { ...replacingQuery, status: "streaming" as const },
+  { ...replacingQuery, status: "failed" as const },
+  { ...replacingQuery, source: replacingQuery.source.replace('DataTable("data-1")', 'DataTable("unknown-data")') },
+])("preserves the visible original when a data replacement is unfinished, failed or unauthorized: $status", async (snapshot) => {
+  const fixture = setup(undefined, [message], snapshot);
+  const view = fixture.mount();
+  try {
+    await screen.findByRole("combobox", { name: "openui.enable" });
+    expect(screen.getByTestId("native-answer").closest("details")).toBeNull();
+    expect(screen.getByTestId("native-answer")).toBeVisible();
+  } finally { view.unmount(); fixture.client.close(); }
+});
+
 it("renders an empty captured dataset as a compact status without unusable table controls", async () => {
   const fixture = setup(undefined, [message], { ...querySnapshot, tables: { "data-1": {
     ...querySnapshot.tables!["data-1"], rows: [], total_rows: 0, source_tool: "lookup", session_query: null,

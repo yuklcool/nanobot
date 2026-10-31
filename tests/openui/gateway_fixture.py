@@ -101,7 +101,8 @@ class FixtureProvider(LLMProvider):
                 return LLMResponse(content=None, tool_calls=[ToolCallRequest(
                     id=uuid4().hex, name="search_sessions", arguments={"query": "planning"},
                 )])
-            return LLMResponse(content="Saved planning conversations are ready to inspect.", tool_calls=[])
+            return LLMResponse(content="Saved planning conversations are ready to inspect.\n\n"
+                               "| Title |\n| --- |\n| Planning notes |\n\nOnly visible saved conversations are included.", tool_calls=[])
         if '"record_id":"websocket:saved-planning"' in question:
             if not has_result:
                 return LLMResponse(content=None, tool_calls=[ToolCallRequest(
@@ -136,7 +137,9 @@ class FixtureProvider(LLMProvider):
                       + ', '.join(json.dumps(value, ensure_ascii=False) for value in
                                   (SURVEY_TITLE, SURVEY_FIELDS, SURVEY_DESCRIPTION, "questionnaire")) + ')\n')
         elif datasets and datasets[0]["title"] == "Saved conversations":
-            source = 'root = Panel([data])\n' + f'data = DataTable({json.dumps(datasets[0]["data_ref"])})\n'
+            source = ('root = Panel([intro, data], "replace")\n'
+                      'intro = Text("Only visible saved conversations are included.")\n'
+                      + f'data = DataTable({json.dumps(datasets[0]["data_ref"])})\n')
         elif datasets:
             source = ('$question = ""\nroot = Panel([heading, data, followup])\n'
                   'heading = Text("Captured lookup records")\n'

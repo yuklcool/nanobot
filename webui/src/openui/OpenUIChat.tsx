@@ -9,7 +9,7 @@ import type { UIMessage } from "@/lib/types";
 import type { SendOptions, SubmittedTurn } from "@/hooks/useNanobotStream";
 import { acceptSnapshot, uiSnapshotSchema, type UiSnapshot } from "./snapshot";
 import type { OpenUIAction, OpenUIMode } from "../../../packages/client-events/openui";
-import { ChatInteraction, DisplayDataContext, ReadonlyQuery, FormRecovery, chatLibrary, followupSchema, isQuestionnaire } from "./chat-library";
+import { ChatInteraction, DisplayDataContext, ReadonlyQuery, FormRecovery, chatLibrary, followupSchema, replacesAnswer } from "./chat-library";
 import { sessionDetailSchema, type DataQuery, type SessionDetail } from "./data-contract";
 import { formContent, formStateSchema, type FormInput, type FormState } from "./form-contract";
 
@@ -333,7 +333,8 @@ export function OpenUIMessage({ message, children }: { message: UIMessage; child
   const views = useContext(Views);
   if (!views || message.role !== "assistant" || message.kind === "trace" || message.isStreaming) return <>{children}</>;
   const blocks = views.blocks.filter((block) => block.turn_id === message.turnId && block.anchor_seq === message.turnSeq);
-  const replacement = views.available && blocks.length === 1 && blocks[0].status === "complete" && isQuestionnaire(blocks[0].source);
+  const replacement = views.available && blocks.length === 1 && blocks[0].status === "complete"
+    && replacesAnswer(blocks[0].source, blocks[0].tables ?? {});
   return <>{!replacement && children}{blocks.map((block) => <Block key={`${block.session_generation}:${block.block_id}:${block.revision}`}
     snapshot={block} views={views} answer={replacement ? children : undefined} />)}</>;
 }

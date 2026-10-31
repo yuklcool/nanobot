@@ -222,6 +222,12 @@ test("auto mode uses real session search and read tools without replaying histor
   await page.getByRole("button", { name: "Ask", exact: true }).click();
   const table = page.getByRole("table", { name: "Saved conversations" });
   await expect(table).toContainText("Planning notes");
+  await expect(page.getByRole("table")).toHaveCount(1);
+  await expect(page.getByText("Only visible saved conversations are included.", { exact: true }).filter({ visible: true })).toHaveCount(1);
+  await page.getByText("View original text", { exact: true }).click();
+  await expect(page.getByRole("table")).toHaveCount(2);
+  await page.getByText("View original text", { exact: true }).click();
+  await expect(page.getByRole("table")).toHaveCount(1);
   await expect(table).not.toContainText("Planning detail");
   await page.getByRole("textbox", { name: "Filter records" }).fill("not a matching title");
   await expect(table).toHaveCount(0);

@@ -17,7 +17,7 @@ export const FormRecovery = createContext<{
 } | null>(null);
 const FormPosition = createContext("form-0");
 const Text = defineComponent({
-  name: "Text", description: "A short plain-text introduction to an interaction. The answer is already visible; never repeat it.",
+  name: "Text", description: "A short introduction to an interaction. In a replacement Panel, preserve essential explanation and caveats from the answer; otherwise the answer is already visible, so never repeat it. Tabular facts belong in DataTable.",
   props: z.object({ text: z.string().max(16000) }),
   component: ({ props }) => <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{props.text}</p>,
 });
@@ -201,9 +201,10 @@ const Followup = defineComponent({
     </form>;
   },
 });
+const dataTableProps = z.object({ data_ref: z.string().min(1).max(128) });
 const DataTable = defineComponent({
   name: "DataTable", description: "Show a relevant authoritative dataset, with local filtering and an explicit Agent analysis action. Captured datasets are candidates, not mandatory tables; choose them using the request and final answer. Empty data renders a compact status; include it only when revisiting that dataset helps. Supported session tables provide refresh and inline details without a model call. Never supply cell values or query instructions in the layout.",
-  props: z.object({ data_ref: z.string().min(1).max(128) }),
+  props: dataTableProps,
   component: function CapturedTable({ props }) {
     const { t } = useTranslation();
     const datasets = useContext(DisplayDataContext);
@@ -283,8 +284,9 @@ const DataTable = defineComponent({
   },
 });
 const Panel = defineComponent({
-  name: "Panel", description: "Inline interactions that supplement the already visible answer. Use an empty children array when no interaction helps. Never duplicate the answer or add a generic form to every reply.",
-  props: z.object({ children: z.array(z.union([Text.ref, Choices.ref, Form.ref, Followup.ref, DataTable.ref])).max(6) }),
+  name: "Panel", description: "Inline interactions. Default presentation supplements the visible answer. Use presentation:replace with captured DataTable children when they replace a static table or result list in the answer; preserve essential explanation and caveats in Text. The complete original answer remains expandable. Use an empty children array when no interaction helps. Never add redundant controls or a generic form to every reply.",
+  props: z.object({ children: z.array(z.union([Text.ref, Choices.ref, Form.ref, Followup.ref, DataTable.ref])).max(6),
+    presentation: z.enum(["supplement", "replace"]).optional() }),
   component: ({ props, renderNode }) => props.children.length ? <div className="mt-4 flex min-w-0 flex-col gap-4">{
     props.children.map((child, index) => <FormPosition.Provider key={index} value={`form-${index}`}>{renderNode(child)}</FormPosition.Provider>)
   }</div> : null,
@@ -295,14 +297,19 @@ export const followupSchema = z.object({ type: z.literal("continue_conversation"
 }).strict() });
 
 const parser = createParser(chatLibrary.toJSONSchema(), chatLibrary.root);
-export function isQuestionnaire(source: string): boolean {
+export function replacesAnswer(source: string, tables: Record<string, DisplayTable>): boolean {
   try {
     const result = parser.parse(source);
     if (result.meta.incomplete || result.meta.errors.length || result.meta.unresolved.length) return false;
     const children = result.root?.typeName === "Panel" ? result.root.props.children : null;
-    if (!Array.isArray(children) || children.length !== 1) return false;
+    if (!Array.isArray(children)) return false;
     const node = children[0];
-    return node?.typeName === "Form" && node.props?.presentation === "questionnaire"
-      && formDefinitionSchema.safeParse(node.props).success;
+    if (children.length === 1 && node?.typeName === "Form" && node.props?.presentation === "questionnaire"
+      && formDefinitionSchema.safeParse(node.props).success) return true;
+    const data = children.filter((child) => child?.typeName === "DataTable");
+    return result.root?.props.presentation === "replace" && data.length > 0 && data.every((child) => {
+      const parsed = dataTableProps.safeParse(child.props);
+      return parsed.success && Object.hasOwn(tables, parsed.data.data_ref);
+    });
   } catch { return false; }
 }
