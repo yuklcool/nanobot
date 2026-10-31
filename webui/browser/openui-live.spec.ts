@@ -135,7 +135,7 @@ test("live model searches, selects and reads a saved conversation without refres
       expect(datasets.some((item) => item.rows.length === 0)).toBe(scenario.empty);
       await latestReply.scrollIntoViewIfNeeded();
       await expect.soft(latestReply.getByRole("table")).toHaveCount(scenario.tables);
-      if (!scenario.tables) expect(block.source).toMatch(/root\s*=\s*Panel\(\s*\[\s*\](?:\s*,\s*"supplement")?\s*\)/);
+      if (!scenario.tables) expect.soft(block.source).toMatch(/root\s*=\s*Panel\(\s*\[\s*\](?:\s*,\s*"supplement")?\s*\)/);
       expect(messages).toHaveLength(previousMessages + 1);
       await page.screenshot({ path: test.info().outputPath(`live-${scenario.name}-desktop.png`), fullPage: true });
       await page.setViewportSize({ width: 390, height: 844 });
@@ -150,6 +150,43 @@ test("live model searches, selects and reads a saved conversation without refres
       expect(evidence()).toEqual(settled);
       expect(messages).toHaveLength(previousMessages + 1);
     }
+    expect(errors).toEqual([]);
+    expect([...snapshots.values()].every((item) => item.status === "complete" && item.error_code === null)).toBe(true);
+  } finally {
+    const summaryPath = test.info().outputPath("live-summary.json");
+    writeFileSync(summaryPath, JSON.stringify({
+      elapsed_ms: Date.now() - started, stages, sent_messages: messages.length, page_errors: errors,
+      snapshots: [...snapshots.values()].map((item) => ({ status: item.status,
+        generation_mode: item.generation_mode, error_code: item.error_code, usage: item.usage,
+        source_bytes: Buffer.byteLength(item.source), library_hash: item.library_hash,
+        candidate_rows: Object.values(item.tables ?? {}).map((table) => table.rows.length),
+        source: item.source, answer: item.fallback_text,
+        selected_records: Object.values(item.tables ?? {}).map((table) => table.rows.map((row) => row.id)) })),
+    }, null, 2));
+    await test.info().attach("live-summary", { contentType: "application/json", path: summaryPath });
+    await test.info().attach("live-provider-calls", { path: process.env.NANOBOT_OPENUI_LIVE_EVIDENCE!,
+      contentType: "application/json" });
+  }
+});
+
+test("live model qualifies mixed content while preserving literal browsing", async ({ page }) => {
+  test.setTimeout(240_000);
+  const evidence = () => JSON.parse(readFileSync(process.env.NANOBOT_OPENUI_LIVE_EVIDENCE!, "utf8")) as Evidence;
+  const snapshots = new Map<string, UiSnapshot>();
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.name));
+  page.on("websocket", (socket) => socket.on("framereceived", ({ payload }) => {
+    const frame = JSON.parse(String(payload));
+    if (frame.event === "openui.snapshot") {
+      const snapshot = uiSnapshotSchema.parse(frame.snapshot);
+      snapshots.set(snapshot.block_id, snapshot);
+    }
+  }));
+  try {
+    await page.goto("/browser/openui-gateway.html");
+    const question = page.getByRole("textbox", { name: "Question", exact: true });
+    const ask = page.getByRole("button", { name: "Ask", exact: true });
+    const latestReply = page.locator("[data-assistant-message]").last();
     const relevanceCases = [
       { name: "lookup-only", question: "查找之前关于 aurora 项目规划的会话，用可筛选表格展示。",
         selected: [], tables: 0 },
@@ -204,13 +241,9 @@ test("live model searches, selects and reads a saved conversation without refres
     expect([...snapshots.values()].every((item) => item.status === "complete" && item.error_code === null)).toBe(true);
   } finally {
     const summaryPath = test.info().outputPath("live-summary.json");
-    writeFileSync(summaryPath, JSON.stringify({
-      elapsed_ms: Date.now() - started, stages, sent_messages: messages.length, page_errors: errors,
-      snapshots: [...snapshots.values()].map((item) => ({ status: item.status,
-        generation_mode: item.generation_mode, error_code: item.error_code, usage: item.usage,
-        source_bytes: Buffer.byteLength(item.source), library_hash: item.library_hash,
-        candidate_rows: Object.values(item.tables ?? {}).map((table) => table.rows.length),
-        source: item.source, answer: item.fallback_text,
+    writeFileSync(summaryPath, JSON.stringify({ page_errors: errors,
+      snapshots: [...snapshots.values()].map((item) => ({ status: item.status, error_code: item.error_code,
+        source: item.source, answer: item.fallback_text, usage: item.usage,
         selected_records: Object.values(item.tables ?? {}).map((table) => table.rows.map((row) => row.id)) })),
     }, null, 2));
     await test.info().attach("live-summary", { contentType: "application/json", path: summaryPath });
