@@ -606,10 +606,16 @@ it("restores only opted-in form drafts and retains submitted receipts without se
 
 it("initializes a revised form once and gives the saved draft precedence, including cleared answers", async () => {
   const revised = { ...recoverableForm, state: {}, source: 'root = Panel([details])\ndetails = Form("Revise project", [{label:"Project",persist:true,initial:"Original"},{label:"Scope",type:"checkbox",options:["API","UI","Other"],persist:true,initial:["UI"]},{label:"Other note",persist:true,initial:"Discarded",when:{field:1,value:"Other"}}])' };
-  const fixture = setup({ protocol: 1, library_hash: manifest.library_hash, form_recovery: true }, [message], revised);
+  const fixture = setup({ protocol: 1, library_hash: manifest.library_hash, form_recovery: true }, [message], {
+    ...revised, status: "streaming", source: 'root = Panel([details])\ndetails = Form("Revise project", [{label:"Project",persist:true}])',
+  });
   let view = fixture.mount();
   try {
-    expect(await screen.findByRole("textbox", { name: "Project" })).toHaveValue("Original");
+    const preview = await screen.findByRole("textbox", { name: "Project" });
+    expect(preview).toBeDisabled();
+    expect(preview).toHaveValue("");
+    act(() => fixture.receiveSnapshot({ ...revised, seq: revised.seq + 1 }));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Project" })).toHaveValue("Original"));
     expect(screen.getByRole("checkbox", { name: "UI" })).toBeChecked();
     expect(screen.queryByRole("textbox", { name: "Other note" })).toBeNull();
     fireEvent.click(screen.getByRole("checkbox", { name: "Other" }));

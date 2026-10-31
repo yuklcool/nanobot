@@ -54,8 +54,9 @@ const Form = defineComponent({
 function FormInteraction({ props }: { props: z.infer<typeof formDefinitionSchema> }) {
   const formId = useContext(FormPosition);
   const enabled = useContext(ChatInteraction);
+    const streaming = useIsStreaming();
   return props.action ? <SessionRenameForm formId={formId} title={props.title} label={props.fields[0].label}
-    initialTitle={props.action.title} enabled={enabled} /> : <DetailForm props={props} />;
+    initialTitle={props.action.title} enabled={enabled} /> : <DetailForm key={streaming ? "preview" : "complete"} props={props} />;
 }
 function DetailForm({ props }: { props: z.infer<typeof formDefinitionSchema> }) {
     const { t } = useTranslation();
