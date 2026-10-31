@@ -148,7 +148,7 @@ test("live model searches, selects and reads a saved conversation without refres
       expect(messages).toHaveLength(previousMessages + 1);
     }
     const relevanceCases = [
-      { name: "lookup-only", question: "查找之前关于 aurora 的项目规划，用可筛选表格展示。",
+      { name: "lookup-only", question: "查找之前关于 aurora 项目规划的会话，用可筛选表格展示。",
         selected: [], tables: 0 },
       { name: "mixed-content", question: "查找之前关于 meridian 项目已经确定的规划与下一步，用可筛选表格展示。",
         selected: ["websocket:meridian-decisions"], tables: 1 },
