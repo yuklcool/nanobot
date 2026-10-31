@@ -284,7 +284,7 @@ const DataTable = defineComponent({
   },
 });
 const Panel = defineComponent({
-  name: "Panel", description: "Inline interactions. Default presentation supplements the visible answer. Use presentation:replace with captured DataTable children when they replace a static table or result list in the answer; preserve essential explanation and caveats in Text. When a static candidate list does not supply the requested content, replace it with ONE nonempty Text explaining that conclusion and search limits. The complete original answer remains expandable. An empty children array supplements the answer; use it when no interaction or replacement helps. Never add redundant controls or a generic form to every reply.",
+  name: "Panel", description: "Inline interactions. Choose presentation explicitly: replace when DataTable children present a list/table already in the answer, including multiple comparison tables; supplement for added interactions that need the original answer visible. In replace mode preserve essential explanation, caveats and scope labels in Text children. Every visible component must be included in children. When a static candidate list does not supply the requested content, replace it with ONE nonempty Text explaining that conclusion and search limits. The complete original answer remains expandable. Use empty children when no interaction or replacement helps. Never add redundant controls or a generic form to every reply.",
   props: z.object({ children: z.array(z.union([Text.ref, Choices.ref, Form.ref, Followup.ref, DataTable.ref])).max(6),
     presentation: z.enum(["supplement", "replace"]).optional() }),
   component: ({ props, renderNode }) => props.children.length ? <div className="mt-4 flex min-w-0 flex-col gap-4">{
