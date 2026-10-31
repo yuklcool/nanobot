@@ -7,6 +7,8 @@ on:
       - 'entrypoint.sh'
       - 'docs/openui-deployment-test.md'
       - 'nanobot/openui/**'
+      - 'nanobot/agent/tools/sessions.py'
+      - 'nanobot/session/history.py'
       - 'nanobot/cli/gateway_runtime.py'
       - 'nanobot/webui/**'
       - 'nanobot/channels/websocket/**'
@@ -59,7 +61,8 @@ jobs:
           path: nanobot/openui/generated/chat-library.json
       - run: bun run openui:check
         working-directory: webui
-      - run: python -m pytest tests/openui -q
+      - run: python -m pytest tests/openui tests/agent/tools/test_sessions.py tests/agent/tools/test_session_history.py -q
+      - run: python -m ruff check nanobot/agent/tools/sessions.py nanobot/session/history.py tests/agent/tools/test_sessions.py
       - run: python -m scripts.check_import_boundaries
       - run: bun run typecheck
         working-directory: webui

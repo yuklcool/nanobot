@@ -7,7 +7,8 @@ test.skip(!process.env.NANOBOT_OPENUI_LIVE_CONFIG, "Opt-in live model acceptance
 type Evidence = {
   calls: { duration_ms: number; finish_reason: string; error_status_code: number | null;
     usage: { total_tokens: number } | null }[];
-  tools: { name: string; selected_planning: boolean; error: boolean }[];
+  tools: { name: string; selected_planning: boolean; error: boolean;
+    selection_applied: boolean; selected_count: number | null; result_count: number | null }[];
   runs: { error: boolean }[];
 };
 
@@ -38,6 +39,8 @@ test("live model searches, selects and reads a saved conversation without refres
     await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
     const question = page.getByRole("textbox", { name: "Question", exact: true });
     const ask = page.getByRole("button", { name: "Ask", exact: true });
+    // Older turns virtualize offscreen; assertions must target the current reply.
+    const latestReply = page.locator("[data-assistant-message]").last();
     await question.fill("Explain what a variable is in one sentence. Use plain text only; do not ask any follow-up question.");
     await ask.click();
     await expect.poll(() => evidence().runs.length, { timeout: 60_000 }).toBe(1);
@@ -55,7 +58,8 @@ test("live model searches, selects and reads a saved conversation without refres
     await expect(table).toContainText("Planning archive");
     await expect.poll(() => [...snapshots.values()].filter((item) => item.status === "complete").length,
       { timeout: 60_000 }).toBe(1);
-    expect(evidence().tools.map((item) => item.name)).toEqual(["search_sessions"]);
+    expect(evidence().tools.length).toBeGreaterThan(0);
+    expect(evidence().tools.every((item) => item.name === "search_sessions")).toBe(true);
     await expect(table).not.toContainText("ORBIT-742");
     await expect(table).not.toContainText("COMET-319");
     const searched = evidence();
@@ -74,8 +78,9 @@ test("live model searches, selects and reads a saved conversation without refres
     await expect(page.getByRole("list", { name: "Conversation" })).toContainText("ORBIT-742");
     await expect.poll(() => [...snapshots.values()].filter((item) => item.status === "complete").length,
       { timeout: 60_000 }).toBe(2);
-    expect(evidence().tools.map((item) => item.name)).toEqual(["search_sessions", "read_session"]);
-    expect(evidence().tools[1].selected_planning).toBe(true);
+    const reads = evidence().tools.filter((item) => item.name === "read_session");
+    expect(reads).toHaveLength(1);
+    expect(reads[0].selected_planning).toBe(true);
     expect(messages).toHaveLength(3);
     expect(messages[2]).toMatchObject({ chat_id: "gateway-poc", ui_mode: "auto", ui_action: {
       action_id: "record.analyze", record_id: "websocket:saved-planning",
@@ -119,7 +124,6 @@ test("live model searches, selects and reads a saved conversation without refres
     for (const scenario of presentationCases) {
       await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
       const previousBlocks = new Set(snapshots.keys());
-      const previousTables = await page.getByRole("table").count();
       const previousMessages = messages.length;
       await question.fill(scenario.question);
       await ask.click();
@@ -129,8 +133,9 @@ test("live model searches, selects and reads a saved conversation without refres
       const datasets = Object.values(block.tables ?? {});
       expect(datasets.length).toBeGreaterThanOrEqual(2);
       expect(datasets.some((item) => item.rows.length === 0)).toBe(scenario.empty);
-      await expect(page.getByRole("table")).toHaveCount(previousTables + scenario.tables);
-      if (!scenario.tables) expect(block.source).toMatch(/root\s*=\s*Panel\(\s*\[\s*\]\s*\)/);
+      await latestReply.scrollIntoViewIfNeeded();
+      await expect.soft(latestReply.getByRole("table")).toHaveCount(scenario.tables);
+      if (!scenario.tables) expect(block.source).toMatch(/root\s*=\s*Panel\(\s*\[\s*\](?:\s*,\s*"supplement")?\s*\)/);
       expect(messages).toHaveLength(previousMessages + 1);
       await page.screenshot({ path: test.info().outputPath(`live-${scenario.name}-desktop.png`), fullPage: true });
       await page.setViewportSize({ width: 390, height: 844 });
@@ -139,10 +144,61 @@ test("live model searches, selects and reads a saved conversation without refres
       await page.setViewportSize({ width: 1280, height: 720 });
       const settled = evidence();
       await page.reload();
-      await expect(page.getByRole("table")).toHaveCount(previousTables + scenario.tables);
+      await latestReply.scrollIntoViewIfNeeded();
+      await expect.soft(latestReply.getByRole("table")).toHaveCount(scenario.tables);
       await expect(ask).toBeEnabled();
       expect(evidence()).toEqual(settled);
       expect(messages).toHaveLength(previousMessages + 1);
+    }
+    const relevanceCases = [
+      { name: "lookup-only", question: "查找之前关于 aurora 项目规划的会话，用可筛选表格展示。",
+        selected: [], tables: 0 },
+      { name: "mixed-content", question: "查找之前关于 meridian 项目已经确定的规划与下一步，用可筛选表格展示。",
+        selected: ["websocket:meridian-decisions"], tables: 1 },
+      { name: "literal-browsing", question: "浏览所有标题或消息中匹配 aurora 的会话记录，包括之前没有找到方案的查询记录。用可筛选表格展示这些关键词匹配记录，不需要核实是否包含实际规划。",
+        selected: ["websocket:aurora-lookup"], tables: 1 },
+    ];
+    for (const scenario of relevanceCases) {
+      await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
+      const previousBlocks = new Set(snapshots.keys());
+      const previousTools = evidence().tools.length;
+      await question.fill(scenario.question);
+      await ask.click();
+      await expect.poll(() => [...snapshots.values()].filter((item) => !previousBlocks.has(item.block_id)
+        && item.status === "complete").length, { timeout: 120_000 }).toBe(1);
+      await expect(ask).toBeEnabled();
+      const block = [...snapshots.values()].find((item) => !previousBlocks.has(item.block_id))!;
+      const datasets = Object.values(block.tables ?? {});
+      if (scenario.tables) {
+        expect(datasets).toHaveLength(1);
+        expect(datasets[0].rows.map((row) => row.id)).toEqual(scenario.selected);
+      }
+      if (scenario.name !== "literal-browsing") {
+        expect(evidence().tools.slice(previousTools).some((tool) => tool.name === "search_sessions"
+          && !tool.selection_applied && (tool.result_count ?? 0) >= (scenario.name === "mixed-content" ? 2 : 1))).toBe(true);
+      }
+      if (scenario.name === "mixed-content") {
+        expect(datasets[0].session_query?.session_keys).toEqual(scenario.selected);
+        expect(evidence().tools.slice(previousTools).some((tool) => tool.selection_applied
+          && tool.selected_count === 1)).toBe(true);
+        expect(block.fallback_text).toContain("LANTERN-681");
+        await expect(latestReply.locator("p").filter({ hasText: "权限审查" })).toBeVisible();
+        await expect(latestReply.getByRole("table")).toContainText("Meridian approved roadmap");
+        await expect(latestReply.getByRole("table")).not.toContainText("Meridian lookup request");
+      }
+      await latestReply.scrollIntoViewIfNeeded();
+      await expect.soft(latestReply.getByRole("table")).toHaveCount(scenario.tables);
+      await page.screenshot({ path: test.info().outputPath(`live-${scenario.name}-desktop.png`), fullPage: true });
+      await page.setViewportSize({ width: 390, height: 844 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await page.screenshot({ path: test.info().outputPath(`live-${scenario.name}-mobile.png`), fullPage: true });
+      await page.setViewportSize({ width: 1280, height: 720 });
+      const settled = evidence();
+      await page.reload();
+      await latestReply.scrollIntoViewIfNeeded();
+      await expect.soft(latestReply.getByRole("table")).toHaveCount(scenario.tables);
+      await expect(ask).toBeEnabled();
+      expect(evidence()).toEqual(settled);
     }
     expect(errors).toEqual([]);
     expect([...snapshots.values()].every((item) => item.status === "complete" && item.error_code === null)).toBe(true);
@@ -153,7 +209,9 @@ test("live model searches, selects and reads a saved conversation without refres
       snapshots: [...snapshots.values()].map((item) => ({ status: item.status,
         generation_mode: item.generation_mode, error_code: item.error_code, usage: item.usage,
         source_bytes: Buffer.byteLength(item.source), library_hash: item.library_hash,
-        candidate_rows: Object.values(item.tables ?? {}).map((table) => table.rows.length) })),
+        candidate_rows: Object.values(item.tables ?? {}).map((table) => table.rows.length),
+        source: item.source, answer: item.fallback_text,
+        selected_records: Object.values(item.tables ?? {}).map((table) => table.rows.map((row) => row.id)) })),
     }, null, 2));
     await test.info().attach("live-summary", { contentType: "application/json", path: summaryPath });
     await test.info().attach("live-provider-calls", { path: process.env.NANOBOT_OPENUI_LIVE_EVIDENCE!,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from typing import Any, TypedDict, cast
 
 from nanobot.runtime_context import public_history_message
@@ -45,33 +45,53 @@ def _message_text(message: Mapping[str, Any]) -> str:
     return "\n".join(parts).strip()
 
 
-def _matching_messages(raw_messages: object, *, needle: str, limit: int) -> list[SessionMessage]:
+def _visible_message(raw_message: object, index: int) -> SessionMessage | None:
+    if not isinstance(raw_message, dict):
+        return None
+    message = cast(dict[str, Any], raw_message)
+    role = message.get("role")
+    if role not in {"user", "assistant"} or message.get("_command") or is_hidden_history_message(message):
+        return None
+    public = public_history_message(message)
+    text = _message_text(public)
+    if not text:
+        return None
+    timestamp = public.get("timestamp")
+    return {
+        "message_index": index,
+        "role": cast(str, role),
+        "timestamp": timestamp if isinstance(timestamp, (str, int)) else None,
+        "content": text,
+    }
+
+
+def _matching_messages(
+    raw_messages: object, *, needle: str, limit: int, include_reply: bool = False,
+) -> list[SessionMessage]:
     if not isinstance(raw_messages, list):
         return []
     messages = cast(list[object], raw_messages)
     matches: list[SessionMessage] = []
     for index in range(len(messages) - 1, -1, -1):
-        raw_message = messages[index]
-        if not isinstance(raw_message, dict):
+        message = _visible_message(messages[index], index)
+        if message is None or (needle and needle not in message["content"].casefold()):
             continue
-        message = cast(dict[str, Any], raw_message)
-        role = message.get("role")
-        if role not in {"user", "assistant"} or message.get("_command") or is_hidden_history_message(message):
-            continue
-        public = public_history_message(message)
-        text = _message_text(public)
-        if not text or (needle and needle not in text.casefold()):
-            continue
-        timestamp = public.get("timestamp")
-        matches.append({
-            "message_index": index,
-            "role": cast(str, role),
-            "timestamp": timestamp if isinstance(timestamp, (str, int)) else None,
-            "content": text,
-        })
+        matches.append(message)
         if len(matches) == limit:
             break
     matches.reverse()
+    if include_reply:
+        indexed = {message["message_index"]: message for message in matches}
+        for message in matches:
+            if message["role"] != "user":
+                continue
+            for index in range(message["message_index"] + 1, len(messages)):
+                reply = _visible_message(messages[index], index)
+                if reply is not None:
+                    if reply["role"] == "assistant":
+                        indexed[index] = reply
+                    break
+        return [indexed[index] for index in sorted(indexed)]
     return matches
 
 
@@ -87,13 +107,15 @@ class SessionHistoryReader:
         limit: int,
         *,
         exclude_session_key: str | None = None,
+        session_keys: Collection[str] | None = None,
     ) -> list[SessionMatch]:
         needle = query.casefold()
         ranked: list[tuple[int, SessionMatch]] = []
         remaining: list[dict[str, Any]] = []
         for row in self._sessions.list_sessions():
             key = row.get("key")
-            if not isinstance(key, str) or key == exclude_session_key:
+            if (not isinstance(key, str) or key == exclude_session_key
+                    or (session_keys is not None and key not in session_keys)):
                 continue
             payload = self._sessions.read_session_metadata(key)
             if payload is None:
@@ -125,11 +147,21 @@ class SessionHistoryReader:
         for row in remaining:
             if len(ranked) >= limit:
                 break
-            match = self.read(cast(str, row["key"]), query=query, limit=2)
+            match = self.read(cast(str, row["key"]), query=query, limit=2, include_reply=True)
             if match is not None and match["messages"]:
                 match["title"] = _text(row.get("title")) or _text(match["messages"][0]["content"])
                 ranked.append((3, match))
-        return [item[1] for item in ranked[:limit]]
+        results = [item[1] for item in ranked[:limit]]
+        # Title matches also need evidence; a title alone says nothing about the discussion.
+        for match in results:
+            if match["messages"]:
+                continue
+            detail = self.read(match["session_key"], query=query, limit=2, include_reply=True)
+            if detail is not None and not detail["messages"]:
+                detail = self.read(match["session_key"], query="", limit=2)
+            if detail is not None:
+                match["messages"] = detail["messages"]
+        return results
 
     def read(
         self,
@@ -138,6 +170,7 @@ class SessionHistoryReader:
         query: str,
         limit: int,
         exclude_session_key: str | None = None,
+        include_reply: bool = False,
     ) -> SessionMatch | None:
         if session_key == exclude_session_key:
             return None
@@ -153,5 +186,6 @@ class SessionHistoryReader:
             "session_key": session_key,
             "title": _text(metadata.get("title")),
             "updated_at": updated if isinstance(updated, str) else None,
-            "messages": _matching_messages(payload.get("messages"), needle=query.casefold(), limit=limit),
+            "messages": _matching_messages(payload.get("messages"), needle=query.casefold(), limit=limit,
+                                            include_reply=include_reply),
         }

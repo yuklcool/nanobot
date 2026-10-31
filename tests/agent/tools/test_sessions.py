@@ -138,7 +138,74 @@ async def test_search_sessions_ranks_titles_before_message_matches(tmp_path):
     assert isinstance(rows, list)
     assert [row["session_key"] for row in rows] == ["websocket:title", "websocket:body"]
     assert rows[0]["session_ref"] == "#session/websocket%3Atitle"
+    assert rows[0]["excerpts"][0]["content"] == "Discuss plans"
     assert rows[1]["excerpts"][0]["content"] == "The pricing model is BYOK."
+
+
+@pytest.mark.asyncio
+async def test_search_selection_narrows_literal_matches_without_guessing_relevance(tmp_path):
+    manager = SessionManager(tmp_path)
+    _save_session(manager, "websocket:lookup", title="Aurora lookup", messages=[
+        {"role": "user", "content": "Find Aurora project decisions"},
+        {"role": "assistant", "content": "No previous discussion was found."},
+    ])
+    _save_session(manager, "websocket:decisions", title="Aurora decisions", messages=[
+        {"role": "user", "content": "Aurora scope"},
+        {"role": "assistant", "content": "Earlier lookup failed. Approved scope: read-only release."},
+    ])
+    _save_session(manager, "websocket:private", title="Aurora private", messages=[])
+    private = manager.get_or_create("websocket:private")
+    private.metadata["session_type"] = "private-search-test"
+    manager.save(private)
+    search = SearchSessionsTool(manager)
+    with _webui_request():
+        candidates = _decode(await search.execute(query="Aurora"))
+        selected = _decode(await search.execute(query="Aurora", session_keys=["websocket:decisions"]))
+        empty = _decode(await search.execute(query="Aurora", session_keys=[]))
+        rejected = _decode(await search.execute(query="Aurora", session_keys=[
+            "websocket:private", "websocket:current", "websocket:missing",
+        ]))
+        unrelated = _decode(await search.execute(query="unmatched", session_keys=["websocket:decisions"]))
+    assert {row["session_key"] for row in candidates["results"]} == {"websocket:lookup", "websocket:decisions"}
+    assert not candidates["selection_applied"]
+    lookup = next(row for row in candidates["results"] if row["session_key"] == "websocket:lookup")
+    assert [item["content"] for item in lookup["excerpts"]] == [
+        "Find Aurora project decisions", "No previous discussion was found.",
+    ]
+    assert selected["selection_applied"] and [row["session_key"] for row in selected["results"]] == ["websocket:decisions"]
+    assert empty["selection_applied"] and empty["results"] == []
+    assert rejected["results"] == unrelated["results"] == []
+
+
+@pytest.mark.asyncio
+async def test_search_includes_only_the_adjacent_public_reply_and_preserves_literal_reads(tmp_path):
+    manager = SessionManager(tmp_path)
+    answer, marker = append_runtime_context("There was no earlier plan.", [
+        RuntimeContextBlock(source="private", content="PRIVATE-RUNTIME"),
+    ])
+    _save_session(manager, "websocket:exchange", title="History", messages=[
+        {"role": "user", "content": "needle lookup request"},
+        {"role": "assistant", "content": "PRIVATE-HIDDEN", "_hidden_history": True},
+        {"role": "tool", "content": "PRIVATE-TOOL"},
+        {"role": "assistant", "content": answer, "_runtime_context": marker},
+        {"role": "user", "content": "Another topic"},
+        {"role": "assistant", "content": "Unrelated answer"},
+    ])
+    _save_session(manager, "websocket:unanswered", title="Unanswered", messages=[
+        {"role": "user", "content": "needle unanswered request"},
+        {"role": "user", "content": "Next question"},
+        {"role": "assistant", "content": "This belongs to the next question."},
+    ])
+    with _webui_request():
+        found = _decode(await SearchSessionsTool(manager).execute(query="needle"))
+        read = _decode(await ReadSessionTool(manager).execute(session_key="websocket:exchange", query="needle"))
+    excerpts = {row["session_key"]: [item["content"] for item in row["excerpts"]] for row in found["results"]}
+    assert excerpts == {
+        "websocket:exchange": ["needle lookup request", "There was no earlier plan."],
+        "websocket:unanswered": ["needle unanswered request"],
+    }
+    assert [item["content"] for item in read["messages"]] == ["needle lookup request"]
+    assert "PRIVATE-" not in json.dumps(found)
 
 
 @pytest.mark.asyncio

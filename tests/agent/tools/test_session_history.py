@@ -38,6 +38,10 @@ async def test_session_tools_find_old_matches_in_full_session(
             output = json.loads(await SearchSessionsTool(manager).execute(query="launch decision"))
             assert [item["session_key"] for item in output["results"]] == [key]
             matches = output["results"][0]["excerpts"]
+            assert [item["content"] for item in matches if item["role"] == "assistant"] == [
+                "acknowledged 8", "acknowledged 9",
+            ]
+            matches = [item for item in matches if item["role"] == "user"]
             expected = range(8, 10)
         else:
             output = json.loads(await ReadSessionTool(manager).execute(

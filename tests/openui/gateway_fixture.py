@@ -200,10 +200,15 @@ class LiveEvidence(AgentHook):
         self.save()
 
     async def after_execute_tool(self, context, tool_call, tool, params, result):
+        selection = params.get("session_keys")
+        failed = bool(getattr(result, "is_error", False))
         self.data["tools"].append({
             "name": tool_call.name,
             "selected_planning": params.get("session_key") == "websocket:saved-planning",
-            "error": bool(getattr(result, "is_error", False)),
+            "selection_applied": selection is not None,
+            "selected_count": len(selection) if selection is not None else None,
+            "result_count": len(json.loads(result)["results"]) if tool_call.name == "search_sessions" and not failed else None,
+            "error": failed,
         })
         self.save()
 
@@ -261,6 +266,17 @@ async def run(port, live_config=None, evidence_path=None):
             other.metadata["title"] = "Planning archive"
             other.add_message("user", "Planning archive: this unrelated record has acceptance code COMET-319.")
             sessions.save(other)
+            for key, title, question, answer in [
+                ("aurora-lookup", "Aurora lookup request", "查找 aurora 项目的规划。", "只有这次查询，尚无实际方案。"),
+                ("meridian-lookup", "Meridian lookup request", "查找 meridian 项目的规划。", "尚未检索到以前的方案。"),
+                ("meridian-decisions", "Meridian approved roadmap", "请确定 meridian 项目的范围和下一步。",
+                 "此前没找到旧资料。现已确认：只读查询先上线；验收代码 LANTERN-681；下一步是完成权限审查。"),
+            ]:
+                record = sessions.get_or_create(f"websocket:{key}")
+                record.metadata["title"] = title
+                record.add_message("user", question)
+                record.add_message("assistant", answer)
+                sessions.save(record)
         ws_config = WebSocketConfig(port=port, openui_enabled=True, openui=OpenUIOptions.model_validate({
             "generation": "model", "tables": {"lookup": {"title": "Tasks",
                 "columns": {"name": "Name", "energy": "Energy", "status": "Status"}},
