@@ -417,11 +417,32 @@ async def test_preview_only_adds_captured_data_to_the_native_answer(gateway, wit
         assert blocks == []
 
 
+async def test_preview_keeps_an_empty_query_as_a_native_answer(gateway, monkeypatch):
+    provider = enable_model_tables(gateway)
+    gateway.services.openui.options.generation = "preview"
+
+    async def empty_lookup(**kwargs):
+        return json.dumps({"summary": "No matching tasks.", "records": []})
+
+    monkeypatch.setattr(gateway.tool, "execute", empty_lookup)
+    await rpc(gateway, "openui.subscribe", {"chat_id": "chat"})
+    await dispatch(gateway, {"type": "message", "chat_id": "chat", "turn_id": "empty-preview", "webui": True,
+                             "content": "Lookup", "ui_mode": "openui"})
+    await execute(gateway)
+    assert provider.ui_calls == 0
+    assert any(row.get("text") == "No matching tasks." for row in gateway.connection.sent)
+    result = await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": ["empty-preview"]})
+    assert result["result"]["blocks"] == []
+
+
 @pytest.mark.parametrize("mode", ["openui", "auto"])
 async def test_model_table_values_and_record_action_use_authorized_snapshot(gateway, mode):
     provider = enable_model_tables(gateway)
     block = await first_card(gateway, mode=mode)
     assert block["generation_mode"] == "model" and provider.ui_calls == 1
+    payload = json.loads(provider.ui_requests[0][0][-1]["content"])
+    assert payload["question"] == block["question"] == "Look up the result"
+    assert payload["public_answer"] == block["fallback_text"] == "Lookup result 1"
     assert "PRIVATE-FIELD" not in json.dumps(block)
     assert "PRIVATE-FIELD" not in provider.ui_requests[0][0][-1]["content"]
     # The UI model sees descriptors, not critical cell values.
@@ -599,6 +620,7 @@ async def test_ui_failure_retry_is_display_only_and_idempotent(gateway):
     restored = await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": ["failed-ui"]})
     assert restored["result"]["blocks"][0]["status"] == "complete"
     assert provider.ui_calls == 2 and gateway.tool.calls == 1 and gateway.bus.inbound_size == 0
+    assert [json.loads(messages[-1]["content"])["question"] for messages, _ in provider.ui_requests] == ["Lookup", "Lookup"]
 
 
 async def test_ui_timeout_keeps_native_answer(gateway):

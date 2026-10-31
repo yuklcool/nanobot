@@ -2538,6 +2538,8 @@
     "refreshData": "Actualizar",
     "viewDetails": "Ver detalles",
     "noRecords": "No hay registros coincidentes.",
+    "emptyData": "Aún no hay registros.",
+    "clearFilter": "Borrar filtro",
     "loadingData": "Cargando datos…",
     "queryFailed": "No se pudieron cargar los datos. Inténtalo de nuevo.",
     "retryData": "Reintentar",

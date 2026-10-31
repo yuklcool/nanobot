@@ -2537,6 +2537,8 @@
     "refreshData": "데이터 새로고침",
     "viewDetails": "상세 보기",
     "noRecords": "일치하는 기록이 없습니다.",
+    "emptyData": "아직 기록이 없습니다.",
+    "clearFilter": "필터 지우기",
     "loadingData": "불러오는 중…",
     "queryFailed": "데이터를 불러오지 못했습니다. 다시 시도하세요.",
     "retryData": "다시 시도",

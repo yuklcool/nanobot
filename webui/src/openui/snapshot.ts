@@ -19,6 +19,7 @@ export const uiSnapshotSchema = z.object({
   status: z.enum(["streaming", "complete", "failed", "cancelled", "superseded"]),
   source: z.string().refine((value) => bytes(value) <= 128 * 1024),
   fallback_text: z.string().max(32000).optional(),
+  question: z.string().max(8000).optional(),
   tables: displayTablesSchema.optional(),
   generation_mode: z.enum(["preview", "model"]).optional(),
   error_code: z.string().nullable().optional(),
@@ -44,7 +45,8 @@ export function acceptSnapshot(
     const refreshed = next.revision === current.revision && next.seq > current.seq
       && current.status === "complete" && next.status === "complete";
     if ((!refreshed && JSON.stringify(next.tables ?? {}) !== JSON.stringify(current.tables ?? {}))
-      || (next.fallback_text ?? "") !== (current.fallback_text ?? "")) return current;
+      || (next.fallback_text ?? "") !== (current.fallback_text ?? "")
+      || (next.question ?? "") !== (current.question ?? "")) return current;
     if (next.revision === current.revision) {
       if (next.seq < current.seq || next.state_version < current.state_version) return current;
       // State saves may follow completion, but the completed source is immutable.

@@ -2537,6 +2537,8 @@
     "refreshData": "Actualiser",
     "viewDetails": "Voir les détails",
     "noRecords": "Aucun résultat correspondant.",
+    "emptyData": "Aucun enregistrement pour le moment.",
+    "clearFilter": "Effacer le filtre",
     "loadingData": "Chargement des données…",
     "queryFailed": "Impossible de charger les données. Réessayez.",
     "retryData": "Réessayer",

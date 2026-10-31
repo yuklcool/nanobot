@@ -2537,6 +2537,8 @@
     "refreshData": "Muat ulang",
     "viewDetails": "Lihat detail",
     "noRecords": "Tidak ada catatan yang cocok.",
+    "emptyData": "Belum ada catatan.",
+    "clearFilter": "Hapus filter",
     "loadingData": "Memuat data…",
     "queryFailed": "Data tidak dapat dimuat. Silakan coba lagi.",
     "retryData": "Coba lagi",

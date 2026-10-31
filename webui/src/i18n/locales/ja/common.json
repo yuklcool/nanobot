@@ -2537,6 +2537,8 @@
     "refreshData": "データを更新",
     "viewDetails": "詳細を見る",
     "noRecords": "一致する記録はありません。",
+    "emptyData": "記録はまだありません。",
+    "clearFilter": "絞り込みを解除",
     "loadingData": "読み込み中…",
     "queryFailed": "データを取得できませんでした。再試行してください。",
     "retryData": "再試行",

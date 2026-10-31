@@ -339,10 +339,13 @@ class OpenUIRuntime:
             return
         if answer.get("resuming") or answer.get("merge_next") or type(answer.get("turn_seq")) is not int:
             return
-        if auto and not should_generate_view(prepared.question if prepared else "", answer["text"],
-                                             has_tables=bool(prepared and prepared.tables)):
+        tables = {table.data_ref: table for table in prepared.tables} if prepared else {}
+        if self.options.generation == "preview":
+            # Preview has no model to choose interactions; it only previews actual rows.
+            tables = {key: table for key, table in tables.items() if table.rows}
+        if auto and not should_generate_view(prepared.question if prepared else "", answer["text"], has_tables=bool(tables)):
             return
-        if self.options.generation == "preview" and (prepared is None or not prepared.tables):
+        if self.options.generation == "preview" and not tables:
             return
         seq = answer["turn_seq"]
         snapshot = UiSnapshot(
@@ -350,7 +353,8 @@ class OpenUIRuntime:
             anchor_seq=seq, block_id=hashlib.sha256(f"{turn_id}:{seq}".encode()).hexdigest()[:32],
             library_hash=LIBRARY_HASH, generation_mode=self.options.generation,
             fallback_text=answer["text"].encode("utf-16-le")[:32000].decode("utf-16-le", errors="ignore"),
-            tables={table.data_ref: table for table in prepared.tables} if prepared else {},
+            question=prepared.question if prepared else "",
+            tables=tables,
         )
         holder.append(snapshot)
         try:
@@ -395,6 +399,7 @@ class OpenUIRuntime:
             if runtime is None:
                 raise UiConflictError("UI_MODEL_UNAVAILABLE")
             result = await generate_view(runtime=runtime, answer=snapshot.fallback_text, tables=snapshot.tables,
+                                         question=snapshot.question,
                                          library_prompt=_MANIFEST["prompt"], max_tokens=self.options.max_output_tokens,
                                          emit=delta)
             usage = result.to_turn_dict() if result is not None else {}
