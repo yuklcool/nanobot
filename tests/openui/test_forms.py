@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from nanobot.openui.actions import UiActionLedger
-from nanobot.openui.forms import ConversationForm, save_form
+from nanobot.openui.forms import ConversationForm, FormField, save_form
 from nanobot.openui.snapshots import UiConflictError, UiScope, UiSnapshot, UiSnapshotStore
 
 
@@ -138,3 +138,19 @@ def test_multiselect_draft_restore_and_personal_submission_receipt(form_store):
 def test_questionnaire_rejects_submission_above_message_limit():
     with pytest.raises(ValidationError, match="FORM_TOO_LONG"):
         questionnaire(fields=[{"label": f"Question {index}"} for index in range(12)], values=["x" * 400] * 12)
+
+
+def test_initial_answers_accept_retained_text_and_multiselect():
+    assert FormField(label="Project", persist=True, initial="Existing").initial == "Existing"
+    assert FormField(label="Scope", persist=True, type="checkbox", options=["API", "UI"], initial=["UI"]).initial == ["UI"]
+
+
+@pytest.mark.parametrize("field", [
+    {"label": "Private detail", "initial": "Do not retain"},
+    {"label": "Project", "persist": True, "initial": ["Wrong type"]},
+    {"label": "Scope", "persist": True, "type": "checkbox", "options": ["API", "UI"], "initial": ["Other"]},
+    {"label": "Scope", "persist": True, "type": "checkbox", "options": ["API", "UI"], "initial": ["UI", "UI"]},
+])
+def test_initial_answers_reject_unconsented_or_invalid_values(field):
+    with pytest.raises(ValidationError, match="INVALID_INITIAL_VALUE"):
+        FormField.model_validate(field)

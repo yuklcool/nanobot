@@ -604,6 +604,33 @@ it("restores only opted-in form drafts and retains submitted receipts without se
   } finally { view.unmount(); fixture.client.close(); }
 });
 
+it("initializes a revised form once and gives the saved draft precedence, including cleared answers", async () => {
+  const revised = { ...recoverableForm, state: {}, source: 'root = Panel([details])\ndetails = Form("Revise project", [{label:"Project",persist:true,initial:"Original"},{label:"Scope",type:"checkbox",options:["API","UI","Other"],persist:true,initial:["UI"]},{label:"Other note",persist:true,initial:"Discarded",when:{field:1,value:"Other"}}])' };
+  const fixture = setup({ protocol: 1, library_hash: manifest.library_hash, form_recovery: true }, [message], revised);
+  let view = fixture.mount();
+  try {
+    expect(await screen.findByRole("textbox", { name: "Project" })).toHaveValue("Original");
+    expect(screen.getByRole("checkbox", { name: "UI", exact: true })).toBeChecked();
+    expect(screen.queryByRole("textbox", { name: "Other note" })).toBeNull();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Other", exact: true }));
+    expect(screen.getByRole("textbox", { name: "Other note" })).toHaveValue("");
+    fireEvent.change(screen.getByRole("textbox", { name: "Other note" }), { target: { value: "Keyboard" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Project" }), { target: { value: "" } });
+    await screen.findByText("openui.saved");
+    expect(fixture.frames.filter((frame) => frame.type === "message")).toHaveLength(0);
+    view.unmount(); view = fixture.mount();
+    expect(await screen.findByRole("textbox", { name: "Project" })).toHaveValue("");
+    expect(screen.getByRole("textbox", { name: "Other note" })).toHaveValue("Keyboard");
+    fireEvent.change(screen.getByRole("textbox", { name: "Project" }), { target: { value: "Revised" } });
+    const submit = screen.getByRole("button", { name: "openui.submit" });
+    fireEvent.click(submit); fireEvent.click(submit);
+    await screen.findByText("openui.submitted");
+    const sent = fixture.frames.filter((frame) => frame.type === "message");
+    expect(sent).toHaveLength(1);
+    expect(sent[0].content).toBe("Revise project\nProject: Revised\nScope: UI, Other\nOther note: Keyboard");
+  } finally { view.unmount(); fixture.client.close(); }
+});
+
 it("retains failed drafts and retries delivery with the original server submission identity", async () => {
   const fixture = setup({ protocol: 1, library_hash: manifest.library_hash, form_recovery: true }, [message], recoverableForm);
   fixture.failures.save = true;

@@ -31,3 +31,13 @@ it("validates choice definitions and dependencies before replacing the original 
   expect(formDefinitionSchema.safeParse({ title: "Survey", fields: [fields[0], { ...fields[1], when: { field: 1, value: "Yes" } }] }).success).toBe(false);
   expect(formDefinitionSchema.safeParse({ title: "Survey", fields: [{ ...fields[0], options: ["Yes", "Yes"] }] }).success).toBe(false);
 });
+
+it("accepts retained initial answers and rejects unconsented or invalid choice values", () => {
+  const definition = (field: object) => formDefinitionSchema.safeParse({ title: "Revise", fields: [field] }).success;
+  expect(definition({ label: "Project", persist: true, initial: "Existing" })).toBe(true);
+  expect(definition({ label: "Scope", persist: true, type: "checkbox", options: ["API", "UI"], initial: ["UI"] })).toBe(true);
+  expect(definition({ label: "Private detail", initial: "Do not retain" })).toBe(false);
+  expect(definition({ label: "Project", persist: true, initial: ["Wrong type"] })).toBe(false);
+  expect(definition({ label: "Scope", persist: true, type: "checkbox", options: ["API", "UI"], initial: ["Other"] })).toBe(false);
+  expect(definition({ label: "Scope", persist: true, type: "checkbox", options: ["API", "UI"], initial: ["UI", "UI"] })).toBe(false);
+});

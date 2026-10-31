@@ -7,6 +7,7 @@ export const formFieldSchema = z.object({
   options: z.array(z.string().min(1).max(120)).min(2).max(6).optional(),
   persist: z.boolean().optional(), required: z.boolean().optional(),
   type: z.enum(["text", "select", "radio", "checkbox"]).optional(),
+  initial: formValueSchema.optional(),
   when: z.object({ field: z.number().int().min(0).max(11), value: z.string().min(1).max(120) }).optional(),
 });
 export type FormField = z.infer<typeof formFieldSchema>;
@@ -27,6 +28,9 @@ export const formDefinitionSchema = z.object({
       context.addIssue({ code: "custom", path: ["fields", index], message: "Conditions must refer to an earlier choice" });
     if (field.options && new Set(field.options).size !== field.options.length)
       context.addIssue({ code: "custom", path: ["fields", index], message: "Options must be distinct" });
+    if (field.initial !== undefined && (!field.persist
+      || !formComplete([{ ...field, required: false, when: undefined }], [field.initial])))
+      context.addIssue({ code: "custom", path: ["fields", index, "initial"], message: "Initial answers need persistence consent and valid values" });
   });
 });
 export const formInputSchema = formDefinitionSchema.safeExtend({
@@ -40,6 +44,9 @@ export const formStateSchema = z.object({
 });
 export type FormState = z.infer<typeof formStateSchema>;
 export const emptyFormValue = (field: FormField): FormValue => field.type === "checkbox" ? [] : "";
+export function initialFormValues(fields: FormField[]): FormValue[] {
+  return normalizeFormValues(fields, fields.map((field) => field.initial ?? emptyFormValue(field)));
+}
 export function visibleFields(fields: FormField[], values: FormValue[]): boolean[] {
   const visible: boolean[] = [];
   fields.forEach((field) => {
