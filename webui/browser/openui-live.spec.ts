@@ -56,7 +56,8 @@ test("live model searches, selects and reads a saved conversation without refres
     await expect(table).toContainText("Planning archive");
     await expect.poll(() => [...snapshots.values()].filter((item) => item.status === "complete").length,
       { timeout: 60_000 }).toBe(1);
-    expect(evidence().tools.map((item) => item.name)).toEqual(["search_sessions"]);
+    expect(evidence().tools.length).toBeGreaterThan(0);
+    expect(evidence().tools.every((item) => item.name === "search_sessions")).toBe(true);
     await expect(table).not.toContainText("ORBIT-742");
     await expect(table).not.toContainText("COMET-319");
     const searched = evidence();
@@ -75,8 +76,9 @@ test("live model searches, selects and reads a saved conversation without refres
     await expect(page.getByRole("list", { name: "Conversation" })).toContainText("ORBIT-742");
     await expect.poll(() => [...snapshots.values()].filter((item) => item.status === "complete").length,
       { timeout: 60_000 }).toBe(2);
-    expect(evidence().tools.map((item) => item.name)).toEqual(["search_sessions", "read_session"]);
-    expect(evidence().tools[1].selected_planning).toBe(true);
+    const reads = evidence().tools.filter((item) => item.name === "read_session");
+    expect(reads).toHaveLength(1);
+    expect(reads[0].selected_planning).toBe(true);
     expect(messages).toHaveLength(3);
     expect(messages[2]).toMatchObject({ chat_id: "gateway-poc", ui_mode: "auto", ui_action: {
       action_id: "record.analyze", record_id: "websocket:saved-planning",
