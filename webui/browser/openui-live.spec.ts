@@ -277,6 +277,7 @@ test("live model offers a title form and confirms its saved result without anoth
   page.on("pageerror", (error) => errors.push(error.name));
   page.on("websocket", (socket) => socket.on("framesent", ({ payload }) => frames.push(JSON.parse(String(payload)))));
   await page.goto("/browser/openui-gateway.html");
+  await Promise.all([page.waitForEvent("load"), page.getByRole("button", { name: "Delete conversation", exact: true }).click()]);
   await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
   const before = evidence();
   await page.getByRole("textbox", { name: "Question", exact: true }).fill(
@@ -290,6 +291,7 @@ test("live model offers a title form and confirms its saved result without anoth
   const generated = evidence();
   expect(generated.calls.length).toBeGreaterThan(before.calls.length);
   expect(generated.tools).toEqual(before.tools);
+  const checkRenameIdle = idleCheckpoint(evidence);
   await input.fill("交互开发验收计划");
   await form.getByRole("button", { name: "Review change", exact: true }).click();
   await expect(form.getByRole("button", { name: "Confirm rename", exact: true })).toBeEnabled();
@@ -300,13 +302,13 @@ test("live model offers a title form and confirms its saved result without anoth
   await expect(page.getByLabel("Conversation title", { exact: true })).toHaveText("交互开发验收计划");
   await form.getByRole("button", { name: "Check result", exact: true }).click();
   await expect.poll(() => frames.filter((frame) => frame.action === "openui.rename").length).toBe(3);
-  expect(evidence()).toEqual(generated);
+  checkRenameIdle();
   expect(frames.filter((frame) => frame.type === "message")).toHaveLength(1);
   await page.reload();
   await expect(input).toHaveValue("交互开发验收计划");
   await expect(input).toBeDisabled();
   await expect(page.getByLabel("Conversation title", { exact: true })).toHaveText("交互开发验收计划");
-  expect(evidence()).toEqual(generated);
+  checkRenameIdle();
   expect(frames.filter((frame) => frame.action === "openui.rename")).toHaveLength(3);
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
