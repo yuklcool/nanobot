@@ -79,11 +79,11 @@ class _SessionTool(Tool):
         ),
         session_keys=ArraySchema(
             items=StringSchema(min_length=1, max_length=512), max_items=_SEARCH_LIMIT,
-            description="Optional Agent-qualified content subset of an earlier search. These are NOT the user's "
-            "pending choices. Omit when listing keyword candidates or asking the user to choose before reading. "
-            "For substantive content-finding only, repeat the same query with the relevant session_key values "
-            "after checking their content. [] means inspected candidates do not supply that content; "
-            "never use [] to mean not yet read or not yet chosen by the user.",
+            description="Optional content subset of an earlier search using the same query. Include a key only "
+            "when its excerpts or read_session contain the facts or discussion the user wants. A topic mention "
+            "or a request to find those facts is not evidence that they are present. [] means the inspected "
+            "candidates supply none. Omit for explicit keyword browsing or choosing before reading; unread "
+            "or pending choices are not an empty result.",
         ),
         required=["query"],
     )
@@ -107,15 +107,15 @@ class SearchSessionsTool(_SessionTool):
             "their substance, or to let the user choose before reading. In that case, "
             "present the returned candidates without session_keys. Pending user selection or unread content "
             "is not an empty result. Read the chosen conversation only after the user selects it. "
-            "Content finding: when asked for substantive information or conversations discussing a topic, "
-            "this is the default: check excerpts against the user's goal. Titles and lookup requests alone "
-            "do not establish a discussion of that topic; consider the surrounding replies. "
-            "use read_session if insufficient. A prior lookup request or failed lookup does not supply "
-            "the requested content. Publish relevant results by repeating the same query with session_keys "
-            "([] if inspected candidates contain none). Base your final result list on that returned subset. "
-            "Do not add a table of rejected lookup records to a content-finding answer; explain the bounded "
-            "conclusion instead. Those records are only results when the user explicitly wants to browse them. "
-            "A substantive discussion remains eligible even if it also mentions an earlier failed search. "
+            "Content finding is the default. For EACH candidate, identify the requested facts or discussion "
+            "in its excerpts; use read_session if the evidence is insufficient. Evaluate candidates separately: "
+            "one useful record does not make the other keyword matches relevant. For a request for a plan "
+            "and next steps, an actual scope, decision or next action is evidence; a lookup request followed "
+            "only by a failed search is not. A record with real decisions remains eligible even if it also "
+            "mentions an earlier failed search. Repeat the same query with session_keys containing only "
+            "the supported records ([] if none), then base the final list on that subset. Do not fill a "
+            "result row with 'not found' or 'not specified' when it has none of the requested substance. "
+            "Explain excluded lookup records briefly only if useful, outside the result table. "
             "Never claim a bounded search proves the content does not exist. "
             "When citing a result, link its title to the exact "
             "session_ref using Markdown. The current session is excluded."
@@ -140,12 +140,11 @@ class SearchSessionsTool(_SessionTool):
         needle = query.casefold()
         result = {
             "notice": _UNTRUSTED_NOTICE + (
-                " These are literal keyword candidates, not content-qualified results. For a request to find "
-                "conversations about a topic, inspect the excerpts (read_session if needed), then publish "
-                "the matching content subset by repeating this query with session_keys before answering. "
-                "Use [] if they only contain prior lookup requests without the requested discussion. "
-                "Explicit literal-match browsing or choosing before reading can present these candidates."
-                if session_keys is None else " These results are the explicitly selected subset."
+                " These are literal keyword candidates. For content finding, select each record only if its "
+                "excerpts or read_session supply the requested substance, not merely a topic mention or a "
+                "failed lookup. Repeat this query with only those session_keys ([] if none) before answering. "
+                "For explicit keyword browsing or choosing before reading, present the candidates as returned."
+                if session_keys is None else " These are the records you selected, not a server assessment of their relevance."
             ),
             "query": query,
             "selection_applied": session_keys is not None,

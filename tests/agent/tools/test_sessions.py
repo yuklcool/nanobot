@@ -173,6 +173,9 @@ async def test_search_selection_narrows_literal_matches_without_guessing_relevan
         "Find Aurora project decisions", "No previous discussion was found.",
     ]
     assert selected["selection_applied"] and [row["session_key"] for row in selected["results"]] == ["websocket:decisions"]
+    assert [item["content"] for item in selected["results"][0]["excerpts"]] == [
+        "Aurora scope", "Earlier lookup failed. Approved scope: read-only release.",
+    ]
     assert empty["selection_applied"] and empty["results"] == []
     assert rejected["results"] == unrelated["results"] == []
 
