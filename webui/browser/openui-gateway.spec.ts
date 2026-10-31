@@ -2,8 +2,9 @@ import { expect, test } from "@playwright/test";
 
 test.skip(!process.env.NANOBOT_OPENUI_GATEWAY_PYTHON, "Requires the disposable native Gateway; run test:openui:gateway.");
 
-test("two tabs resolve a form draft conflict without automatic overwrite or an Agent turn", async ({ page }) => {
-  const other = await page.context().newPage();
+test("two tabs resolve a form draft conflict without automatic overwrite or an Agent turn", async ({ page, browser, baseURL }) => {
+  const otherContext = await browser.newContext({ baseURL });
+  const other = await otherContext.newPage();
   const frames: Record<string, unknown>[] = [];
   const otherFrames: Record<string, unknown>[] = [];
   const errors: string[] = [];
@@ -51,7 +52,7 @@ test("two tabs resolve a form draft conflict without automatic overwrite or an A
     await expect(form.getByRole("textbox", { name: "Project name" })).toHaveValue("Keep this project");
     expect(frames.filter((frame) => frame.type === "message")).toHaveLength(2);
     expect(errors).toEqual([]);
-  } finally { await other.close(); }
+  } finally { await otherContext.close(); }
 });
 
 test("confirmed title edit updates the native sidebar and restores without replay", async ({ page }) => {
