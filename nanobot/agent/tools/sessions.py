@@ -96,7 +96,7 @@ class SearchSessionsTool(_SessionTool):
     @property
     def description(self) -> str:
         return (
-            "Search other persisted conversation sessions by title or recent visible message "
+            "Search other persisted conversation sessions by title or visible message "
             "text. Use this only when the user asks about a past conversation or when prior "
             "discussion is needed to answer. Results are literal keyword candidates, not verified answers. "
             "When looking for substantive content, check excerpts against the user's goal and use "

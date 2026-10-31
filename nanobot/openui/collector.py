@@ -86,7 +86,7 @@ class _Capture(AgentHook):
                 if session_query.session_keys is not None:
                     # An explicit Agent selection supersedes this query's candidate batch.
                     self.tables = {key: item for key, item in self.tables.items()
-                                   if item.session_query is None or item.session_query.query != session_query.query}
+                                   if item.session_query is None or item.session_query.query.casefold() != session_query.query.casefold()}
             if len(self.tables) >= 4:
                 return
             if sum(len(item.model_dump_json().encode()) for item in self.tables.values()) + len(table.model_dump_json().encode()) <= 64 * 1024:
