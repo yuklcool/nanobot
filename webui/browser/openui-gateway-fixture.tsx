@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { ClientProvider } from "../src/providers/ClientProvider";
 import { NanobotClient } from "../src/lib/nanobot-client";
 import { useNanobotStream } from "../src/hooks/useNanobotStream";
+import { useSidebarState } from "../src/hooks/useSidebarState";
 import { ThreadMessages } from "../src/components/thread/ThreadMessages";
 import { ThreadShell } from "../src/components/thread/ThreadShell";
 import type { ChatSummary } from "../src/lib/types";
@@ -16,6 +17,7 @@ import "../src/globals.css";
 const chatId = "gateway-poc";
 function Thread({ client }: { client: NanobotClient }) {
   useReadingTypography();
+  const sidebar = useSidebarState([], false);
   const [question, setQuestion] = useState("Lookup");
   const { messages, send, isStreaming } = useNanobotStream(chatId, undefined, false, undefined, undefined, undefined,
     { key: `websocket:${chatId}` });
@@ -29,6 +31,7 @@ function Thread({ client }: { client: NanobotClient }) {
         await client.requestMutation("session.delete", { key: `websocket:${chatId}` });
         location.reload();
       }}>Delete conversation</button></header>
+      <output aria-label="Conversation title">{sidebar.state.title_overrides[`websocket:${chatId}`] ?? "Original conversation title"}</output>
       <div className="flex-1" role="list" aria-label="Conversation">
         <ThreadMessages messages={displayed} isStreaming={isStreaming} />
       </div>

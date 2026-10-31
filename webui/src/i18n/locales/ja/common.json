@@ -2546,6 +2546,17 @@
     "closeDetails": "詳細を閉じる",
     "historyUser": "ユーザー",
     "historyAssistant": "アシスタント",
-    "noMessages": "表示できるメッセージはありません。"
+    "noMessages": "表示できるメッセージはありません。",
+    "renameReview": "変更を確認",
+    "renameConfirm": "名前の変更を確定",
+    "renameWorking": "保存中…",
+    "renamePreview": "「{{before}}」を「{{after}}」に変更しますか？",
+    "defaultTitle": "元の会話タイトル",
+    "renameApplied": "「{{title}}」に変更しました。",
+    "renameConflict": "サイドバーが変更されました。もう一度変更内容を確認してください。",
+    "renameUncertain": "実行結果が未確認です。再送信する前に結果を確認してください。",
+    "renameFailed": "変更の読み込みまたは準備に失敗しました。再試行してください。",
+    "renameStatus": "結果を確認",
+    "renameUnavailable": "このサーバーは会話内での名前変更に対応していません。"
   }
 }

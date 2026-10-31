@@ -193,6 +193,56 @@ async def first_card(gateway, *, mode="openui", question="Look up the result"):
     return events[-1]
 
 
+async def test_confirmed_title_change_replays_receipt_without_agent_turn(gateway, tmp_path, monkeypatch):
+    from nanobot.webui.sidebar_state import read_webui_sidebar_state
+
+    monkeypatch.setattr("nanobot.webui.sidebar_state.webui_sidebar_state_path", lambda: tmp_path / "sidebar.json")
+    block = await first_card(gateway)
+    payload = {key: block[key] for key in ("chat_id", "session_generation", "block_id", "revision")}
+    payload["form_id"] = "form-0"
+    prepared = await rpc(gateway, "openui.rename", {**payload, "operation": "prepare", "title": "Project plan"})
+    assert prepared["ok"]
+    entry = prepared["result"]["snapshot"]["state"]["$renames"]["form-0"]
+    assert entry["status"] == "prepared"
+    assert "websocket:chat" not in read_webui_sidebar_state()["title_overrides"]
+    confirm = {**payload, "operation": "confirm", "operation_id": entry["operation_id"]}
+    result = await rpc(gateway, "openui.rename", confirm)
+    assert result["ok"]
+    assert result["result"]["snapshot"]["state"]["$renames"]["form-0"]["status"] == "applied"
+    saved = read_webui_sidebar_state()
+    assert saved["title_overrides"]["websocket:chat"] == "Project plan"
+    assert any(event["event"] == "sidebar_state_updated" and event["state"] == saved for event in gateway.connection.sent)
+    replay = await rpc(gateway, "openui.rename", confirm)
+    status = await rpc(gateway, "openui.rename", {**confirm, "operation": "status"})
+    assert replay["result"] == result["result"] == status["result"]
+    assert read_webui_sidebar_state() == saved
+    assert gateway.bus.inbound_size == 0 and gateway.tool.calls == 1
+    context = await gateway.services.openui.title_context("chat")
+    assert '"current_title": "Project plan"' in context and '"status": "applied"' in context
+    assert entry["operation_id"] not in context
+
+
+async def test_title_operation_rejects_foreign_connection_params_and_retired_generation(gateway, tmp_path, monkeypatch):
+    monkeypatch.setattr("nanobot.webui.sidebar_state.webui_sidebar_state_path", lambda: tmp_path / "sidebar.json")
+    block = await first_card(gateway)
+    payload = {key: block[key] for key in ("chat_id", "session_generation", "block_id", "revision")}
+    payload.update(form_id="form-0", operation="prepare", title="Plan")
+    foreign = Connection()
+    gateway.channel._webui_connections.add(foreign)
+    for changed in [{"session_key": "websocket:other"}, {"title": " "}, {"title": "x" * 161}, {"revision": 2}]:
+        rejected = await rpc(gateway, "openui.rename", {**payload, **changed})
+        assert not rejected["ok"]
+    assert not (await rpc(gateway, "openui.rename", payload, foreign))["ok"]
+    prepared = await rpc(gateway, "openui.rename", payload)
+    entry = prepared["result"]["snapshot"]["state"]["$renames"]["form-0"]
+    await gateway.sessions.state.delete("websocket:chat")
+    rejected = await rpc(gateway, "openui.rename", {
+        **{key: value for key, value in payload.items() if key != "title"},
+        "operation": "confirm", "operation_id": entry["operation_id"],
+    })
+    assert not rejected["ok"]
+
+
 async def test_native_two_turn_card_action_and_refresh(gateway):
     block = await first_card(gateway)
     assert gateway.tool.calls == 1

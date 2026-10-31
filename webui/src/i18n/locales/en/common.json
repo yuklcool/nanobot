@@ -2752,6 +2752,17 @@
     "closeDetails": "Close details",
     "historyUser": "User",
     "historyAssistant": "Assistant",
-    "noMessages": "No visible messages."
+    "noMessages": "No visible messages.",
+    "renameReview": "Review change",
+    "renameConfirm": "Confirm rename",
+    "renameWorking": "Saving…",
+    "renamePreview": "Change “{{before}}” to “{{after}}”?",
+    "defaultTitle": "Original conversation title",
+    "renameApplied": "Renamed to “{{title}}”.",
+    "renameConflict": "The sidebar changed. Review the change again before confirming.",
+    "renameUncertain": "The result is unconfirmed. Check the operation status before taking further action.",
+    "renameFailed": "Could not read or prepare this change. Please try again.",
+    "renameStatus": "Check result",
+    "renameUnavailable": "This host does not support renaming from a conversation."
   }
 }

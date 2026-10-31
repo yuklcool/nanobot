@@ -2,6 +2,42 @@ import { expect, test } from "@playwright/test";
 
 test.skip(!process.env.NANOBOT_OPENUI_GATEWAY_PYTHON, "Requires the disposable native Gateway; run test:openui:gateway.");
 
+test("confirmed title edit updates the native sidebar and restores without replay", async ({ page }) => {
+  const frames: Record<string, unknown>[] = [];
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("websocket", (socket) => socket.on("framesent", ({ payload }) => frames.push(JSON.parse(String(payload)))));
+  await page.goto("/browser/openui-gateway.html");
+  await Promise.all([page.waitForEvent("load"), page.getByRole("button", { name: "Delete conversation", exact: true }).click()]);
+  await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
+  await page.getByRole("textbox", { name: "Question", exact: true }).fill("Rename this chat to Project plan");
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  const title = page.getByRole("textbox", { name: "New title", exact: true });
+  await expect(title).toHaveValue("Project plan");
+  await title.fill("Interactive development plan");
+  await page.getByRole("button", { name: "Review change", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Confirm rename", exact: true })).toBeEnabled();
+  await expect(page.getByLabel("Conversation title", { exact: true })).not.toHaveText("Interactive development plan");
+  await page.screenshot({ path: test.info().outputPath("rename-review-desktop.png"), fullPage: true });
+  await page.getByRole("button", { name: "Confirm rename", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: 'Renamed to “Interactive development plan”.' })).toBeVisible();
+  await expect(page.getByLabel("Conversation title", { exact: true })).toHaveText("Interactive development plan");
+  expect(frames.filter((frame) => frame.type === "message")).toHaveLength(1);
+  expect(frames.filter((frame) => frame.action === "openui.rename")).toHaveLength(2);
+  await page.reload();
+  await expect(title).toHaveValue("Interactive development plan");
+  await expect(title).toBeDisabled();
+  await expect(page.getByLabel("Conversation title", { exact: true })).toHaveText("Interactive development plan");
+  expect(frames.filter((frame) => frame.action === "openui.rename")).toHaveLength(2);
+  await page.getByRole("button", { name: "Check result", exact: true }).click();
+  await expect.poll(() => frames.filter((frame) => frame.action === "openui.rename").length).toBe(3);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: test.info().outputPath("rename-applied-mobile.png"), fullPage: true });
+  expect(errors).toEqual([]);
+  await Promise.all([page.waitForEvent("load"), page.getByRole("button", { name: "Delete conversation", exact: true }).click()]);
+});
+
 test("empty search attempts keep the final answer and can still ask for a useful clarification", async ({ page }) => {
   const completed = new Map<string, { tables: Record<string, { rows: unknown[] }> }>();
   const messages: unknown[] = [];

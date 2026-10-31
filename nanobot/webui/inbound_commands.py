@@ -65,6 +65,7 @@ from nanobot.webui.openui_runtime import (
     UiFormRequest,
     UiQueryRequest,
     UiRecordRequest,
+    UiRenameRequest,
     UiRequest,
     UiStateRequest,
 )
@@ -74,7 +75,7 @@ from nanobot.webui.session_access import (
     session_mentions_runtime_context,
 )
 from nanobot.webui.session_identity import is_valid_webui_chat_id, webui_session_key
-from nanobot.webui.sidebar_state import write_webui_sidebar_state
+from nanobot.webui.sidebar_state import read_webui_sidebar_state, write_webui_sidebar_state
 from nanobot.webui.temporary_chats import TemporaryChatError
 from nanobot.webui.transcription_ws import webui_transcription_event
 
@@ -849,6 +850,20 @@ class WebUICommandRouter:
                 context_blocks: list[RuntimeContextBlock] = []
                 if ui_admission is not None and ui_admission[3] is not None:
                     context_blocks.append(ui_admission[3])
+                if (metadata.get("_openui_mode") in {"openui", "auto"} and temporary_policy is None and not is_user_shell
+                        and self.gateway.openui is not None and self.gateway.openui.options.generation == "model"):
+                    context_blocks.append(RuntimeContextBlock(
+                        source="openui_actions",
+                        content=("Interactive replies support a form for renaming this current conversation's sidebar title. "
+                                 "When the user explicitly requests that change, propose the title and ask them to review "
+                                 "and confirm the form. The backend writes only after that confirmation. Do not claim "
+                                 "the title is already changed or edit sidebar files with shell/filesystem tools. "
+                                 "This capability does not rename other conversations or files. "
+                                 "Other forms still send their answers back to this conversation."),
+                    ))
+                    title_context = await self.gateway.openui.title_context(chat_id)
+                    if title_context:
+                        context_blocks.append(RuntimeContextBlock(source="openui_title_receipts", content=title_context))
                 if not is_user_shell and envelope.get("intent") == "create_automation":
                     context_blocks.append(RuntimeContextBlock(
                         source="webui_automation_creation",
@@ -981,6 +996,16 @@ class WebUICommandRouter:
                         raise ValueError("ACTION_NOT_ALLOWED")
                     self._openui_connections.add(connection)
                     result = await runtime.list_blocks(request)
+                elif action == "openui.rename":
+                    rename_request = UiRenameRequest.model_validate(envelope.get("payload"))
+                    if (connection not in self._openui_connections
+                            or rename_request.chat_id not in self._transport.webui_connection_chats(connection)):
+                        raise ValueError("ACTION_NOT_ALLOWED")
+                    snapshot = await runtime.rename(rename_request)
+                    await self.emit_openui(snapshot)
+                    if rename_request.operation == "confirm":
+                        await self.broadcast_webui_event("sidebar_state_updated", state=read_webui_sidebar_state())
+                    result = {"snapshot": snapshot.model_dump()}
                 elif action == "openui.query":
                     query_request = UiQueryRequest.model_validate(envelope.get("payload"))
                     if (connection not in self._openui_connections

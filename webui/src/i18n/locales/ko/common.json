@@ -2546,6 +2546,17 @@
     "closeDetails": "상세 닫기",
     "historyUser": "사용자",
     "historyAssistant": "어시스턴트",
-    "noMessages": "표시할 메시지가 없습니다."
+    "noMessages": "표시할 메시지가 없습니다.",
+    "renameReview": "변경 검토",
+    "renameConfirm": "이름 변경 확인",
+    "renameWorking": "저장 중…",
+    "renamePreview": "“{{before}}”을(를) “{{after}}”(으)로 변경할까요?",
+    "defaultTitle": "기존 대화 제목",
+    "renameApplied": "“{{title}}”(으)로 변경했습니다.",
+    "renameConflict": "사이드바가 변경되었습니다. 다시 검토한 후 확인하세요.",
+    "renameUncertain": "실행 결과가 확인되지 않았습니다. 다시 제출하기 전에 결과를 확인하세요.",
+    "renameFailed": "변경을 읽거나 준비하지 못했습니다. 다시 시도하세요.",
+    "renameStatus": "결과 확인",
+    "renameUnavailable": "이 서버는 대화 내 이름 변경을 지원하지 않습니다."
   }
 }

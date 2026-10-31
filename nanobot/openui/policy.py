@@ -17,10 +17,15 @@ _ASK = re.compile(
     r"请(?:先)?(?:选择|确认|填写|补充|提供|告诉)|你(?:想|希望|更喜欢)|需要你(?:提供|确认)"
     r"|\b(?:(?:would|could|can) you|please (?:choose|pick|select|confirm|provide|enter|fill)"
     r"|which (?:option|one|style|type)|what (?:is your|would you))\b"
-    r"|^[ \t]*(?:[-*][ \t]+)?(?:\*\*)?(?:choose|pick|select)[ \t]+"
+    r"|(?:^|[.!?。！？][ \t]+)[ \t]*(?:[-*][ \t]+)?(?:\*\*)?(?:choose|pick|select)[ \t]+"
     r"(?:(?:one|between)\b|[^\n]{1,160}\bor\b[^\n]{1,160})", re.I | re.M,
 )
 _SURVEY = re.compile(r"调查表|调查问卷|问卷|\b(?:questionnaire|survey)\b", re.I)
+_RENAME = re.compile(
+    r"(?:重命名|改名|改.{0,4}标题)[^。！？\n]{0,20}(?:当前|这个|本|这条)?(?:会话|对话)"
+    r"|(?:当前|这个|本|这条)(?:会话|对话)[^。！？\n]{0,20}(?:重命名|改名|标题改|标题设)"
+    r"|\brename\s+(?:this|the current)\s+(?:chat|conversation)\b", re.I,
+)
 
 
 def should_generate_view(question: str, answer: str, *, has_tables: bool) -> bool:
@@ -32,7 +37,9 @@ def should_generate_view(question: str, answer: str, *, has_tables: bool) -> boo
     question = question[:4000]
     if _TEXT_ONLY.search(question):
         return False
-    if has_tables or _REQUEST.search(question):
+    intent = re.sub(r"```.*?(?:```|$)", "", question, flags=re.S)
+    intent = "\n".join(line for line in intent.splitlines() if not line.lstrip().startswith(">"))
+    if has_tables or _REQUEST.search(question) or _RENAME.search(intent):
         return True
     # Examples and quoted instructions in an explanation are not questions to
     # the current user. Do not let code samples alone trigger a UI request.

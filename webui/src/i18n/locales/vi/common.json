@@ -2546,6 +2546,17 @@
     "closeDetails": "Đóng chi tiết",
     "historyUser": "Người dùng",
     "historyAssistant": "Trợ lý",
-    "noMessages": "Không có tin nhắn hiển thị."
+    "noMessages": "Không có tin nhắn hiển thị.",
+    "renameReview": "Xem thay đổi",
+    "renameConfirm": "Xác nhận đổi tên",
+    "renameWorking": "Đang lưu…",
+    "renamePreview": "Đổi “{{before}}” thành “{{after}}”?",
+    "defaultTitle": "Tiêu đề gốc của cuộc trò chuyện",
+    "renameApplied": "Đã đổi tên thành “{{title}}”.",
+    "renameConflict": "Thanh bên đã thay đổi. Hãy xem lại trước khi xác nhận.",
+    "renameUncertain": "Chưa xác nhận được kết quả. Hãy kiểm tra trước khi gửi lại.",
+    "renameFailed": "Không thể đọc hoặc chuẩn bị thay đổi. Vui lòng thử lại.",
+    "renameStatus": "Kiểm tra kết quả",
+    "renameUnavailable": "Máy chủ này chưa hỗ trợ đổi tên trong cuộc trò chuyện."
   }
 }

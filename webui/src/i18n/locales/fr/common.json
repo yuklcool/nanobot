@@ -2546,6 +2546,17 @@
     "closeDetails": "Fermer les détails",
     "historyUser": "Utilisateur",
     "historyAssistant": "Assistant",
-    "noMessages": "Aucun message visible."
+    "noMessages": "Aucun message visible.",
+    "renameReview": "Vérifier la modification",
+    "renameConfirm": "Confirmer le nom",
+    "renameWorking": "Enregistrement…",
+    "renamePreview": "Remplacer « {{before}} » par « {{after}} » ?",
+    "defaultTitle": "Titre original de la conversation",
+    "renameApplied": "Renommée « {{title}} ».",
+    "renameConflict": "La barre latérale a changé. Vérifiez à nouveau avant de confirmer.",
+    "renameUncertain": "Le résultat est incertain. Vérifiez son état avant toute autre action.",
+    "renameFailed": "Impossible de lire ou préparer la modification. Réessayez.",
+    "renameStatus": "Vérifier le résultat",
+    "renameUnavailable": "Ce serveur ne permet pas de renommer depuis une conversation."
   }
 }

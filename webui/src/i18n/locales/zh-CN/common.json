@@ -2752,6 +2752,17 @@
     "closeDetails": "关闭详情",
     "historyUser": "用户",
     "historyAssistant": "助手",
-    "noMessages": "暂无可见消息。"
+    "noMessages": "暂无可见消息。",
+    "renameReview": "预览修改",
+    "renameConfirm": "确认改名",
+    "renameWorking": "保存中…",
+    "renamePreview": "将“{{before}}”改为“{{after}}”？",
+    "defaultTitle": "原始会话标题",
+    "renameApplied": "已改名为“{{title}}”。",
+    "renameConflict": "侧栏已变化，请重新预览后再确认。",
+    "renameUncertain": "执行结果尚未确认，请先查询结果，勿重复提交。",
+    "renameFailed": "读取或准备修改失败，请重试。",
+    "renameStatus": "查询结果",
+    "renameUnavailable": "此服务器暂不支持在对话中改名。"
   }
 }

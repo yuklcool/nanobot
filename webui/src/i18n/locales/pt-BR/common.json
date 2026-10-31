@@ -2560,6 +2560,17 @@
     "closeDetails": "Fechar detalhes",
     "historyUser": "Usuário",
     "historyAssistant": "Assistente",
-    "noMessages": "Nenhuma mensagem visível."
+    "noMessages": "Nenhuma mensagem visível.",
+    "renameReview": "Revisar alteração",
+    "renameConfirm": "Confirmar nome",
+    "renameWorking": "Salvando…",
+    "renamePreview": "Alterar “{{before}}” para “{{after}}”?",
+    "defaultTitle": "Título original da conversa",
+    "renameApplied": "Nome alterado para “{{title}}”.",
+    "renameConflict": "A barra lateral mudou. Revise a alteração antes de confirmar.",
+    "renameUncertain": "O resultado não foi confirmado. Consulte o estado antes de agir novamente.",
+    "renameFailed": "Não foi possível ler ou preparar a alteração. Tente novamente.",
+    "renameStatus": "Consultar resultado",
+    "renameUnavailable": "Este servidor não permite renomear dentro de uma conversa."
   }
 }

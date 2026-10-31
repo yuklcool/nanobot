@@ -2546,6 +2546,17 @@
     "closeDetails": "關閉詳情",
     "historyUser": "使用者",
     "historyAssistant": "助理",
-    "noMessages": "暫無可見訊息。"
+    "noMessages": "暫無可見訊息。",
+    "renameReview": "預覽修改",
+    "renameConfirm": "確認改名",
+    "renameWorking": "儲存中…",
+    "renamePreview": "將「{{before}}」改為「{{after}}」？",
+    "defaultTitle": "原始對話標題",
+    "renameApplied": "已改名為「{{title}}」。",
+    "renameConflict": "側欄已變更，請重新預覽後再確認。",
+    "renameUncertain": "執行結果尚未確認，請先查詢結果，勿重複提交。",
+    "renameFailed": "讀取或準備修改失敗，請重試。",
+    "renameStatus": "查詢結果",
+    "renameUnavailable": "此伺服器暫不支援在對話中改名。"
   }
 }

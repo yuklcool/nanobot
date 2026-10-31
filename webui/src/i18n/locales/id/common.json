@@ -2546,6 +2546,17 @@
     "closeDetails": "Tutup detail",
     "historyUser": "Pengguna",
     "historyAssistant": "Asisten",
-    "noMessages": "Tidak ada pesan yang dapat ditampilkan."
+    "noMessages": "Tidak ada pesan yang dapat ditampilkan.",
+    "renameReview": "Tinjau perubahan",
+    "renameConfirm": "Konfirmasi nama",
+    "renameWorking": "Menyimpan…",
+    "renamePreview": "Ubah “{{before}}” menjadi “{{after}}”?",
+    "defaultTitle": "Judul percakapan asli",
+    "renameApplied": "Nama diubah menjadi “{{title}}”.",
+    "renameConflict": "Bilah samping berubah. Tinjau kembali sebelum mengonfirmasi.",
+    "renameUncertain": "Hasil belum dikonfirmasi. Periksa status sebelum bertindak lagi.",
+    "renameFailed": "Gagal membaca atau menyiapkan perubahan. Coba lagi.",
+    "renameStatus": "Periksa hasil",
+    "renameUnavailable": "Server ini belum mendukung penggantian nama dalam percakapan."
   }
 }
