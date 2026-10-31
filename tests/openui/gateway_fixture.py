@@ -200,12 +200,15 @@ class LiveEvidence(AgentHook):
         self.save()
 
     async def after_execute_tool(self, context, tool_call, tool, params, result):
+        selection = params.get("session_keys")
+        failed = bool(getattr(result, "is_error", False))
         self.data["tools"].append({
             "name": tool_call.name,
             "selected_planning": params.get("session_key") == "websocket:saved-planning",
-            "selection_applied": "session_keys" in params,
-            "selected_count": len(params["session_keys"]) if "session_keys" in params else None,
-            "error": bool(getattr(result, "is_error", False)),
+            "selection_applied": selection is not None,
+            "selected_count": len(selection) if selection is not None else None,
+            "result_count": len(json.loads(result)["results"]) if tool_call.name == "search_sessions" and not failed else None,
+            "error": failed,
         })
         self.save()
 

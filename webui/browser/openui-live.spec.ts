@@ -8,7 +8,7 @@ type Evidence = {
   calls: { duration_ms: number; finish_reason: string; error_status_code: number | null;
     usage: { total_tokens: number } | null }[];
   tools: { name: string; selected_planning: boolean; error: boolean;
-    selection_applied: boolean; selected_count: number | null }[];
+    selection_applied: boolean; selected_count: number | null; result_count: number | null }[];
   runs: { error: boolean }[];
 };
 
@@ -167,6 +167,8 @@ test("live model searches, selects and reads a saved conversation without refres
       expect(datasets).toHaveLength(1);
       expect(datasets[0].rows.map((row) => row.id)).toEqual(scenario.selected);
       if (scenario.name !== "literal-browsing") {
+        expect(evidence().tools.slice(previousTools).some((tool) => tool.name === "search_sessions"
+          && !tool.selection_applied && (tool.result_count ?? 0) >= (scenario.name === "mixed-content" ? 2 : 1))).toBe(true);
         expect(datasets[0].session_query?.session_keys).toEqual(scenario.selected);
         expect(evidence().tools.slice(previousTools).some((tool) => tool.selection_applied
           && tool.selected_count === scenario.selected.length)).toBe(true);
