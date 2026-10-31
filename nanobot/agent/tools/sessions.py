@@ -73,15 +73,17 @@ class _SessionTool(Tool):
 @tool_parameters(
     tool_parameters_schema(
         query=StringSchema(
-            "Text to find in persisted session titles or visible user and assistant messages.",
+            "Case-insensitive literal substring to find in persisted session titles or visible user and assistant messages.",
             min_length=1,
             max_length=500,
         ),
         session_keys=ArraySchema(
             items=StringSchema(min_length=1, max_length=512), max_items=_SEARCH_LIMIT,
-            description="Optional subset of session_key values selected from search results after checking "
-            "their content against the user's goal. Repeat the same query with these keys to publish only "
-            "the relevant results; use [] when none qualify. Omit for an initial search or literal match browsing.",
+            description="Optional Agent-qualified content subset of an earlier search. These are NOT the user's "
+            "pending choices. Omit when listing keyword candidates or asking the user to choose before reading. "
+            "For substantive content-finding only, repeat the same query with the relevant session_key values "
+            "after checking their content. [] means inspected candidates do not supply that content; "
+            "never use [] to mean not yet read or not yet chosen by the user.",
         ),
         required=["query"],
     )
@@ -98,14 +100,16 @@ class SearchSessionsTool(_SessionTool):
         return (
             "Search other persisted conversation sessions by title or visible message "
             "text. Use this only when the user asks about a past conversation or when prior "
-            "discussion is needed to answer. Results are literal keyword candidates, not verified answers. "
-            "When looking for substantive content, check excerpts against the user's goal and use "
-            "read_session if they are insufficient. A prior request to find something, or a failed lookup, "
-            "does not supply that content. Publish a relevant subset by repeating the same query with "
-            "session_keys (including [] when none qualify), so result tables match your conclusion. "
-            "Do not exclude a substantive discussion merely because it also mentions a failed search. "
-            "If the user asks to browse literal matches or select before reading, keep the candidates "
-            "and describe them as such. Never claim that a bounded search proves the content does not exist. "
+            "discussion is needed to answer. Matching is case-insensitive literal substring search. "
+            "Candidate browsing: when asked to list keyword matches or let the user choose before reading, "
+            "present the returned candidates without session_keys. Pending user selection or unread content "
+            "is not an empty result. Read the chosen conversation only after the user selects it. "
+            "Content finding: when asked for substantive information, check excerpts against the user's goal; "
+            "use read_session if insufficient. A prior lookup request or failed lookup does not supply "
+            "the requested content. Publish relevant results by repeating the same query with session_keys "
+            "([] if inspected candidates contain none). Base your final result list on that returned subset. "
+            "A substantive discussion remains eligible even if it also mentions an earlier failed search. "
+            "Never claim a bounded search proves the content does not exist. "
             "When citing a result, link its title to the exact "
             "session_ref using Markdown. The current session is excluded."
         )
