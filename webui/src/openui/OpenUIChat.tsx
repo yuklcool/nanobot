@@ -146,18 +146,29 @@ export function OpenUIChatProvider({ client, chatId, disabled = false, messages,
   }, [client, chatId, disabled, merge, turnIds]);
 
   useEffect(() => () => { client.setOpenUIMode(chatId, "markdown"); }, [client, chatId, disabled]);
-  const updateState = useCallback((snapshot: UiSnapshot, action: string, payload: object) => {
+  const updateState = useCallback((snapshot: UiSnapshot, action: string, payload: object, draftFormId?: string) => {
     const requestEpoch = epoch.current;
     const operation = stateQueue.current.catch(() => {}).then(async () => {
       const current = latestBlocks.current.get(snapshot.block_id);
       if (requestEpoch !== epoch.current || !current || current.chat_id !== snapshot.chat_id
         || current.session_generation !== snapshot.session_generation || current.revision !== snapshot.revision) throw new Error("View changed");
+      if (draftFormId) {
+        const forms = z.record(z.string(), formStateSchema);
+        if (JSON.stringify(forms.parse(current.state.$forms ?? {})[draftFormId])
+          !== JSON.stringify(forms.parse(snapshot.state.$forms ?? {})[draftFormId])) throw new Error("Draft changed");
+      }
       const result = z.object({ snapshot: uiSnapshotSchema }).parse(await client.requestMutation(action, {
         chat_id: snapshot.chat_id, session_generation: snapshot.session_generation, block_id: snapshot.block_id,
         revision: snapshot.revision, expected_state_version: current.state_version, ...payload,
       }));
       if (requestEpoch !== epoch.current) throw new Error("Connection changed");
       merge(result.snapshot);
+      if (draftFormId) {
+        const forms = z.record(z.string(), formStateSchema);
+        const latest = latestBlocks.current.get(snapshot.block_id);
+        if (JSON.stringify(forms.parse(latest?.state.$forms ?? {})[draftFormId])
+          !== JSON.stringify(forms.parse(result.snapshot.state.$forms ?? {})[draftFormId])) throw new Error("Draft changed");
+      }
       return result.snapshot;
     });
     stateQueue.current = operation;
@@ -168,7 +179,7 @@ export function OpenUIChatProvider({ client, chatId, disabled = false, messages,
   }, [updateState]);
   const updateForm = useCallback((snapshot: UiSnapshot, form: FormInput) => {
     if (client.getOpenUI()?.form_recovery !== true) return Promise.reject(new Error("Form recovery unavailable"));
-    return updateState(snapshot, "openui.form", { form });
+    return updateState(snapshot, "openui.form", { form }, form.submit ? undefined : form.form_id);
   }, [client, updateState]);
   const control = useCallback(async (snapshot: UiSnapshot, action: "cancel" | "retry") => {
     const requestEpoch = epoch.current;

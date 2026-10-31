@@ -2,6 +2,58 @@ import { expect, test } from "@playwright/test";
 
 test.skip(!process.env.NANOBOT_OPENUI_GATEWAY_PYTHON, "Requires the disposable native Gateway; run test:openui:gateway.");
 
+test("two tabs resolve a form draft conflict without automatic overwrite or an Agent turn", async ({ page }) => {
+  const other = await page.context().newPage();
+  const frames: Record<string, unknown>[] = [];
+  const otherFrames: Record<string, unknown>[] = [];
+  const errors: string[] = [];
+  for (const tab of [page, other]) tab.on("pageerror", (error) => errors.push(error.message));
+  page.on("websocket", (socket) => socket.on("framesent", ({ payload }) => frames.push(JSON.parse(String(payload)))));
+  other.on("websocket", (socket) => socket.on("framesent", ({ payload }) => otherFrames.push(JSON.parse(String(payload)))));
+  try {
+    await page.goto("/browser/openui-gateway.html");
+    await Promise.all([page.waitForEvent("load"), page.getByRole("button", { name: "Delete conversation", exact: true }).click()]);
+    await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
+    await page.getByRole("textbox", { name: "Question", exact: true }).fill("Plan a small project");
+    await page.getByRole("button", { name: "Ask", exact: true }).click();
+    await page.getByRole("button", { name: "New project", exact: true }).click();
+    const form = page.getByRole("form", { name: "Project details", exact: true });
+    await form.getByRole("textbox", { name: "Project name" }).fill("Original project");
+    await form.getByRole("combobox", { name: "Priority" }).selectOption("Normal");
+    await expect(form.getByRole("status")).toHaveText("Draft saved");
+    await other.goto("/browser/openui-gateway.html");
+    const otherForm = other.getByRole("form", { name: "Project details", exact: true });
+    const otherName = otherForm.getByRole("textbox", { name: "Project name" });
+    await expect(otherName).toHaveValue("Original project");
+    await other.clock.install({ time: new Date("2026-10-31T10:00:00Z") });
+    await other.clock.pauseAt(new Date("2026-10-31T10:00:01Z"));
+    await otherName.fill("My unsaved project");
+    await form.getByRole("textbox", { name: "Project name" }).fill("Shared project");
+    await expect(otherForm.getByRole("alert")).toContainText("The draft changed in another tab.");
+    await expect(otherName).toHaveValue("My unsaved project");
+    await expect(otherForm.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
+    await other.clock.runFor(1000);
+    expect(otherFrames.filter((frame) => frame.action === "openui.form")).toHaveLength(0);
+    await other.setViewportSize({ width: 390, height: 844 });
+    expect(await other.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await other.screenshot({ path: test.info().outputPath("draft-conflict-mobile.png"), fullPage: true });
+    await otherForm.getByRole("button", { name: "Load latest draft", exact: true }).click();
+    await expect(otherName).toHaveValue("Shared project");
+    await otherName.fill("Keep this project");
+    await form.getByRole("textbox", { name: "Project name" }).fill("Newer shared project");
+    await expect(otherForm.getByRole("alert")).toContainText("The draft changed in another tab.");
+    await otherForm.getByRole("button", { name: "Save this tab’s draft", exact: true }).click();
+    await expect(otherForm.getByRole("alert")).toHaveCount(0);
+    await expect(form.getByRole("textbox", { name: "Project name" })).toHaveValue("Keep this project");
+    expect(otherFrames.filter((frame) => frame.action === "openui.form")).toHaveLength(1);
+    expect(otherFrames.filter((frame) => frame.type === "message")).toHaveLength(0);
+    await page.reload();
+    await expect(form.getByRole("textbox", { name: "Project name" })).toHaveValue("Keep this project");
+    expect(frames.filter((frame) => frame.type === "message")).toHaveLength(2);
+    expect(errors).toEqual([]);
+  } finally { await other.close(); }
+});
+
 test("confirmed title edit updates the native sidebar and restores without replay", async ({ page }) => {
   const frames: Record<string, unknown>[] = [];
   const errors: string[] = [];
