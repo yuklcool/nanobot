@@ -135,7 +135,7 @@ test("live model searches, selects and reads a saved conversation without refres
       expect(datasets.some((item) => item.rows.length === 0)).toBe(scenario.empty);
       await latestReply.scrollIntoViewIfNeeded();
       await expect.soft(latestReply.getByRole("table")).toHaveCount(scenario.tables);
-      if (!scenario.tables) expect(block.source).toMatch(/root\s*=\s*Panel\(\s*\[\s*\](?:\s*,\s*"supplement")?\s*\)/);
+      if (!scenario.tables) expect.soft(block.source).toMatch(/root\s*=\s*Panel\(\s*\[\s*\](?:\s*,\s*"supplement")?\s*\)/);
       expect(messages).toHaveLength(previousMessages + 1);
       await page.screenshot({ path: test.info().outputPath(`live-${scenario.name}-desktop.png`), fullPage: true });
       await page.setViewportSize({ width: 390, height: 844 });
