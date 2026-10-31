@@ -14,7 +14,7 @@ _REQUEST = re.compile(
     r"\b(?:interactive|clickable|buttons?|forms?|drop.?down)\b", re.I,
 )
 _ASK = re.compile(
-    r"请(?:先)?(?:选择|确认|填写|补充|提供|告诉)|你(?:想|希望|更喜欢)|需要你(?:提供|确认)"
+    r"请(?:先)?(?:选择|确认|填写|补充|提供|告诉|回复)|你(?:想|希望|更喜欢)|需要你(?:提供|确认)"
     r"|\b(?:(?:would|could|can) you|please (?:choose|pick|select|confirm|provide|enter|fill)"
     r"|which (?:option|one|style|type)|what (?:is your|would you))\b"
     r"|(?:^|[.!?。！？][ \t]+)[ \t]*(?:[-*][ \t]+)?(?:\*\*)?(?:choose|pick|select)[ \t]+"

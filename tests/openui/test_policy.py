@@ -13,6 +13,7 @@ from nanobot.openui.policy import should_generate_view
     ("给我三个可点击选项", "可以选择散步、逛展或探店。", False, True),
     ("Use a short form to collect the details", "A name and priority are needed.", False, True),
     ("制定学习计划", "请先提供每天可投入的时间。", False, True),
+    ("项目代号: LANTERN-2026", "请回复“修改需求”或“确认需求”。", False, True),
     ("Help me plan", "Which option would you prefer?", False, True),
     ("Analyze Saved conversations: Planning notes",
      'Acceptance code: ORBIT-742. Next step: a read-only release review.\n\nChoose one: "Summarize notes" or "Review risks".', False, True),
