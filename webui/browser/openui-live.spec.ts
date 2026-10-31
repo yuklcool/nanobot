@@ -39,6 +39,8 @@ test("live model searches, selects and reads a saved conversation without refres
     await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
     const question = page.getByRole("textbox", { name: "Question", exact: true });
     const ask = page.getByRole("button", { name: "Ask", exact: true });
+    // Older turns virtualize offscreen; assertions must target the current reply.
+    const latestReply = page.locator("[data-assistant-message]").last();
     await question.fill("Explain what a variable is in one sentence. Use plain text only; do not ask any follow-up question.");
     await ask.click();
     await expect.poll(() => evidence().runs.length, { timeout: 60_000 }).toBe(1);
@@ -122,7 +124,6 @@ test("live model searches, selects and reads a saved conversation without refres
     for (const scenario of presentationCases) {
       await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
       const previousBlocks = new Set(snapshots.keys());
-      const previousTables = await page.getByRole("table").count();
       const previousMessages = messages.length;
       await question.fill(scenario.question);
       await ask.click();
@@ -132,7 +133,8 @@ test("live model searches, selects and reads a saved conversation without refres
       const datasets = Object.values(block.tables ?? {});
       expect(datasets.length).toBeGreaterThanOrEqual(2);
       expect(datasets.some((item) => item.rows.length === 0)).toBe(scenario.empty);
-      await expect(page.getByRole("table")).toHaveCount(previousTables + scenario.tables);
+      await latestReply.scrollIntoViewIfNeeded();
+      await expect(latestReply.getByRole("table")).toHaveCount(scenario.tables);
       if (!scenario.tables) expect(block.source).toMatch(/root\s*=\s*Panel\(\s*\[\s*\]\s*\)/);
       expect(messages).toHaveLength(previousMessages + 1);
       await page.screenshot({ path: test.info().outputPath(`live-${scenario.name}-desktop.png`), fullPage: true });
@@ -142,7 +144,8 @@ test("live model searches, selects and reads a saved conversation without refres
       await page.setViewportSize({ width: 1280, height: 720 });
       const settled = evidence();
       await page.reload();
-      await expect(page.getByRole("table")).toHaveCount(previousTables + scenario.tables);
+      await latestReply.scrollIntoViewIfNeeded();
+      await expect(latestReply.getByRole("table")).toHaveCount(scenario.tables);
       await expect(ask).toBeEnabled();
       expect(evidence()).toEqual(settled);
       expect(messages).toHaveLength(previousMessages + 1);
@@ -158,7 +161,6 @@ test("live model searches, selects and reads a saved conversation without refres
     for (const scenario of relevanceCases) {
       await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
       const previousBlocks = new Set(snapshots.keys());
-      const previousTables = await page.getByRole("table").count();
       const previousTools = evidence().tools.length;
       await question.fill(scenario.question);
       await ask.click();
@@ -180,10 +182,11 @@ test("live model searches, selects and reads a saved conversation without refres
         expect(evidence().tools.slice(previousTools).some((tool) => tool.selection_applied
           && tool.selected_count === 1)).toBe(true);
         expect(block.fallback_text).toContain("LANTERN-681");
-        await expect(page.getByRole("table").last()).toContainText("Meridian approved roadmap");
-        await expect(page.getByRole("table").last()).not.toContainText("Meridian lookup request");
+        await expect(latestReply.getByRole("table")).toContainText("Meridian approved roadmap");
+        await expect(latestReply.getByRole("table")).not.toContainText("Meridian lookup request");
       }
-      await expect(page.getByRole("table")).toHaveCount(previousTables + scenario.tables);
+      await latestReply.scrollIntoViewIfNeeded();
+      await expect(latestReply.getByRole("table")).toHaveCount(scenario.tables);
       await page.screenshot({ path: test.info().outputPath(`live-${scenario.name}-desktop.png`), fullPage: true });
       await page.setViewportSize({ width: 390, height: 844 });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -191,7 +194,8 @@ test("live model searches, selects and reads a saved conversation without refres
       await page.setViewportSize({ width: 1280, height: 720 });
       const settled = evidence();
       await page.reload();
-      await expect(page.getByRole("table")).toHaveCount(previousTables + scenario.tables);
+      await latestReply.scrollIntoViewIfNeeded();
+      await expect(latestReply.getByRole("table")).toHaveCount(scenario.tables);
       await expect(ask).toBeEnabled();
       expect(evidence()).toEqual(settled);
     }
