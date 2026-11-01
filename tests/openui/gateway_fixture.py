@@ -94,8 +94,8 @@ class FixtureProvider(LLMProvider):
         index = max(i for i, row in enumerate(messages) if row["role"] == "user")
         question = str(messages[index]["content"])
         has_result = any(row["role"] == "tool" for row in messages[index + 1:])
-        if question in {"Recovery reconnect", "Recovery switch"} and has_result:
-            return LLMResponse(content=f"{question} answer", tool_calls=[])
+        if question.startswith(("Recovery reconnect", "Recovery switch")) and has_result:
+            return LLMResponse(content=f"{question.splitlines()[0]} answer", tool_calls=[])
         if "Rename this chat to Project plan" in question:
             return LLMResponse(content="Review the proposed conversation title and confirm the change below.", tool_calls=[])
         if "Create an employee survey" in question:

@@ -49,7 +49,10 @@ function RecoveryConversations({ client }: { client: NanobotClient }) {
   const [status, setStatus] = useState(client.status);
   useEffect(() => client.onStatus(setStatus), [client]);
   return <><nav aria-label="Recovery fixture">
-    <select aria-label="Conversation" value={selected} onChange={(event) => setSelected(event.target.value)}>
+    <select aria-label="Conversation" value={selected} onChange={(event) => {
+      client.attach(event.target.value);
+      setSelected(event.target.value);
+    }}>
       {["recovery-reconnect", "recovery-switch-a", "recovery-switch-b", "recovery-history"].map((id) => <option key={id}>{id}</option>)}
     </select><output aria-label="Connection status">{status}</output>
   </nav><Thread key={selected} client={client} chatId={selected} recovery /></>;

@@ -321,11 +321,12 @@ test("native model adapter, captured data, record actions and refresh recovery",
   }));
   await page.goto("/browser/openui-gateway.html");
   await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("openui");
+  const before = (await recoveryCounters(page)).tool_calls;
   await page.getByRole("button", { name: "Ask", exact: true }).click();
   const followup = page.getByRole("textbox", { name: "Follow-up question" });
   await expect(followup).toBeVisible();
   await expect(followup).toHaveCount(1);
-  await expect(page.getByRole("list", { name: "Conversation" })).toContainText("Lookup result 1");
+  await expect(page.getByRole("list", { name: "Conversation" })).toContainText(`Lookup result ${before + 1}`);
   const table = page.getByRole("table");
   await expect(table).toContainText("5412.5");
   await expect(table).toContainText("Zero energy");
@@ -343,17 +344,17 @@ test("native model adapter, captured data, record actions and refresh recovery",
   expect(messages).toHaveLength(1);
   await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("openui");
   await page.getByRole("button", { name: "Send", exact: true }).click();
-  await expect(page.getByRole("list", { name: "Conversation" })).toContainText("Lookup result 2");
+  await expect(page.getByRole("list", { name: "Conversation" })).toContainText(`Lookup result ${before + 2}`);
   expect(messages).toHaveLength(2);
   expect(messages[1]).toMatchObject({ chat_id: "gateway-poc", content: "Look up again", ui_action: {
     action_id: "conversation.followup", request_id: messages[1].turn_id,
   } });
   await page.reload();
   await expect(page.getByRole("textbox", { name: "Follow-up question" })).toHaveCount(2);
-  await expect(page.getByRole("list", { name: "Conversation" })).toContainText("Lookup result 2");
+  await expect(page.getByRole("list", { name: "Conversation" })).toContainText(`Lookup result ${before + 2}`);
   expect(messages).toHaveLength(2);
   await page.getByRole("button", { name: "Analyze snapshot", exact: true }).first().click();
-  await expect(page.getByRole("list", { name: "Conversation" })).toContainText("Lookup result 3");
+  await expect(page.getByRole("list", { name: "Conversation" })).toContainText(`Lookup result ${before + 3}`);
   expect(messages).toHaveLength(3);
   expect(messages[2]).toMatchObject({ chat_id: "gateway-poc", ui_action: {
     action_id: "record.analyze", record_id: "task_08", request_id: messages[2].turn_id,
@@ -362,10 +363,10 @@ test("native model adapter, captured data, record actions and refresh recovery",
   await Promise.all([page.waitForEvent("load"), page.getByRole("button", { name: "Delete conversation", exact: true }).click()]);
   await expect(page.getByRole("combobox", { name: "Interactive replies" })).toBeAttached();
   await expect(page.getByRole("textbox", { name: "Follow-up question" })).toHaveCount(0);
-  await expect(page.getByRole("list", { name: "Conversation" })).not.toContainText("Lookup result 1");
+  await expect(page.getByRole("list", { name: "Conversation" })).not.toContainText(`Lookup result ${before + 1}`);
   await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("openui");
   await page.getByRole("button", { name: "Ask", exact: true }).click();
-  await expect(page.getByRole("list", { name: "Conversation" })).toContainText("Lookup result 4");
+  await expect(page.getByRole("list", { name: "Conversation" })).toContainText(`Lookup result ${before + 4}`);
   await expect(page.getByRole("textbox", { name: "Follow-up question" })).toHaveCount(1);
   expect(messages).toHaveLength(4);
   expect(errors).toEqual([]);
