@@ -241,7 +241,9 @@ async def seed_recovery_history(sessions, runtime):
             facts.append(fact_from_record({"event": event, "turn_id": turn_id,
                 "turn_seq": sequence, "turn_phase": phase, "text": text, "created_at_ms": 1793443200000 + index * 1000}))
     await sessions.state.append_history(key, facts, expected_generation=None)
+    await sessions.state.read(key)
     scope = await runtime.scope(chat_id)
+    assert scope is not None
     for index in range(245):
         block_id = f"history-{index}"
         snapshot = UiSnapshot(chat_id=chat_id, session_generation=scope.generation,
