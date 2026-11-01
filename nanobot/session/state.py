@@ -98,7 +98,7 @@ class SessionState:
     def subscribe_retirement(
         self, observer: Callable[[str, str], Awaitable[None]],
     ) -> Callable[[], None]:
-        """Observe committed reset/deletion with the exact retired generation."""
+        """Observe durable reset/deletion with the exact retired generation."""
         self._retirement_observers.append(observer)
 
         def unsubscribe() -> None:
@@ -1051,7 +1051,7 @@ class SessionState:
                     removed.add(current)
                     pending.extend(children.get(current, ()))
                     old = self._load(current, history=False)
-                    if old is not None:
+                    if old is not None and old.policy.persist:
                         retired.append((current, old.generation))
                     deleted = self._store.delete(current) or deleted
                 return deleted, removed, retired
@@ -1159,7 +1159,7 @@ class SessionState:
                 if session.policy.persist:
                     self._store.delete(key)
                 self._commit(session)
-                return session, old.generation if old is not None else None
+                return session, old.generation if old is not None and old.policy.persist else None
 
             session, generation = self._store.run_write(write)
             self._publish(session)

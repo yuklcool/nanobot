@@ -448,6 +448,16 @@ async def test_reset_cancels_inflight_view_without_reviving_it_or_replaying_tool
     assert (provider.agent_calls, provider.ui_calls, gateway.tool.calls) == before
 
 
+@pytest.mark.parametrize("operation", ["reset", "delete"])
+async def test_temporary_session_retirement_does_not_persist_ui_data(gateway, operation):
+    session = await gateway.sessions.state.register_transient("websocket:private")
+    await getattr(gateway.sessions.state, operation)(session.key)
+    with gateway.services.openui.store.transaction() as db:
+        for table in ("ui_snapshots", "ui_actions", "ui_tombstones"):
+            assert db.execute(f"SELECT count(*) FROM {table} WHERE session_key=?",
+                              (session.key,)).fetchone()[0] == 0
+
+
 async def test_untrusted_client_and_disabled_mode_preserve_native_chat(gateway):
     connection = Connection()
     gateway.channel._attach(connection, "chat")
