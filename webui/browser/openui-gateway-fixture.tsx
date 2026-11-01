@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ClientProvider } from "../src/providers/ClientProvider";
 import { NanobotClient } from "../src/lib/nanobot-client";
+import { deriveWsUrl, fetchBootstrap } from "../src/lib/bootstrap";
 import { useNanobotStream } from "../src/hooks/useNanobotStream";
 import { useSidebarState } from "../src/hooks/useSidebarState";
 import { ThreadMessages } from "../src/components/thread/ThreadMessages";
@@ -70,15 +71,20 @@ function NewConversation({ client }: { client: NanobotClient }) {
 }
 async function start() {
   await initializeI18n();
-  const bootstrap = await (await fetch("/webui/bootstrap")).json();
-  const url = new URL(bootstrap.ws_url);
-  url.searchParams.set("token", bootstrap.token);
-  url.searchParams.set("client_id", `openui-browser-acceptance-${crypto.randomUUID()}`);
-  const client = new NanobotClient({ url: url.toString(), reconnect: true });
+  const bootstrap = await fetchBootstrap();
+  const url = new URL(deriveWsUrl(bootstrap.ws_path, bootstrap.token, bootstrap.ws_url));
+  const clientId = `openui-browser-acceptance-${crypto.randomUUID()}`;
+  url.searchParams.set("client_id", clientId);
+  const client = new NanobotClient({ url: url.toString(), reconnect: true, onReauth: async () => {
+    const refreshed = await fetchBootstrap();
+    const next = new URL(deriveWsUrl(refreshed.ws_path, refreshed.token, refreshed.ws_url));
+    next.searchParams.set("client_id", clientId);
+    return next.toString();
+  } });
   client.attach(chatId);
   client.connect();
   createRoot(document.getElementById("root")!).render(
-    <ClientProvider client={client} token={bootstrap.api_token} allowUpdateFlow={false}>
+    <ClientProvider client={client} token={bootstrap.api_token ?? ""} allowUpdateFlow={false}>
       <TooltipProvider>{new URLSearchParams(location.search).has("recovery") ? <RecoveryConversations client={client} />
         : new URLSearchParams(location.search).has("new") ? <NewConversation client={client} /> : <Thread client={client} />}</TooltipProvider>
     </ClientProvider>);
