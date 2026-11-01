@@ -6,6 +6,7 @@ test.skip(!process.env.NANOBOT_OPENUI_GATEWAY_PYTHON, "Requires the disposable n
 function observeRecovery(page: Page) {
   const sent: Record<string, unknown>[] = [];
   const snapshots: UiSnapshot[] = [];
+  const restored: UiSnapshot[] = [];
   const errors: string[] = [];
   let ready = 0;
   page.on("pageerror", (error) => errors.push(error.message));
@@ -15,9 +16,12 @@ function observeRecovery(page: Page) {
       const frame = JSON.parse(String(payload));
       if (frame.event === "ready") ready += 1;
       if (frame.event === "openui.snapshot") snapshots.push(uiSnapshotSchema.parse(frame.snapshot));
+      if (frame.event === "webui_response" && Array.isArray(frame.result?.blocks)) {
+        restored.push(...frame.result.blocks.map((block: unknown) => uiSnapshotSchema.parse(block)));
+      }
     });
   });
-  return { sent, snapshots, errors, ready: () => ready };
+  return { sent, snapshots, restored, errors, ready: () => ready };
 }
 
 async function recoveryCounters(page: Page) {
@@ -59,6 +63,8 @@ test("a disconnected generating view resumes its snapshot and saved form without
   expect(await recoveryCounters(page)).toEqual(generated);
   expect(observed.sent.filter((frame) => frame.type === "message")).toHaveLength(1);
   expect(observed.snapshots.every((snapshot) => snapshot.block_id === original.block_id && snapshot.turn_id === original.turn_id)).toBe(true);
+  expect(observed.restored.some((snapshot) => snapshot.block_id === original.block_id && snapshot.status === "streaming")).toBe(true);
+  expect(observed.restored.some((snapshot) => snapshot.block_id === original.block_id && snapshot.status === "complete")).toBe(true);
   expect(observed.errors).toEqual([]);
   await page.screenshot({ path: test.info().outputPath("reconnected-view-draft.png"), fullPage: true });
 });
@@ -91,6 +97,8 @@ test("switching conversations during generation keeps each view and action in it
   await form.getByRole("textbox", { name: "Project name", exact: true }).fill("Session A only");
   await form.getByRole("button", { name: "Send", exact: true }).click();
   await expect(form.getByRole("status")).toHaveText("Submitted");
+  await expect(page.getByText(/^Lookup result \d+$/, { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Ask", exact: true })).toBeEnabled();
   expect(observed.sent.filter((frame) => frame.type === "message").map((frame) => frame.chat_id))
     .toEqual(["recovery-switch-a", "recovery-switch-b", "recovery-switch-a"]);
   const afterSubmit = await recoveryCounters(page);
@@ -134,6 +142,7 @@ test("native history pages restore more than one subscription batch at the origi
   const subscriptions = observed.sent.filter((frame) => frame.action === "openui.subscribe" && (frame.payload as { chat_id: string }).chat_id === "recovery-history");
   expect(subscriptions.length).toBeGreaterThanOrEqual(3);
   expect(subscriptions.every((frame) => (frame.payload as { turn_ids: string[] }).turn_ids.length <= 100)).toBe(true);
+  expect(new Set(observed.restored.filter((snapshot) => snapshot.chat_id === "recovery-history").map((snapshot) => snapshot.block_id)).size).toBe(245);
   expect(await recoveryCounters(page)).toEqual(before);
   expect(observed.sent.filter((frame) => frame.type === "message" || frame.action === "openui.form" || frame.action === "openui.query")).toHaveLength(0);
   expect(observed.errors).toEqual([]);

@@ -9,3 +9,5 @@ Refs #1，对应 AT12、AT13、AT14 的现有 WebUI 恢复路径，基线为 dev
 历史场景预置 245 个虚构完整回合及其真实附属数据库快照，经原生 HTTP 历史分页与 OpenUI 每批最多 100 个 turn 的订阅恢复。检查最早、中间、最新回答与卡片的对应位置、已有草稿及无自动 Agent/Query/提交。分页按钮只存在于测试夹具，调用生产 Hook 的 loadOlder；本场景验证分页合并与锚点，不替代生产 ThreadViewport 的滚动位置验收。预置数据不构成模型生成质量证据。
 
 测试、类型检查、lint 与构建仅在 GitHub Actions 执行，实际结果以本批 PR 的确切提交与运行产物为准。进程崩溃对账、重置/截断的物理清理、跨版本迁移及 Issue #1 整体验收不在本批范围内。
+
+本批已提交 [PR #18](https://github.com/yuklcool/nanobot/pull/18)。2026-11-01 尝试启动验收时，GitHub 返回 HTTP 422：Actions has been disabled for this repository。读取到的仓库 Actions 配置为 enabled:true，工作流为 active，幂等启用与再次调度仍被拒绝。因此本批尚无测试执行结果，PR 保持待验收，不据此合并或部署，也不将失败启动记作测试失败或通过。本地没有执行测试、静态检查或构建。
