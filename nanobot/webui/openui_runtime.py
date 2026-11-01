@@ -40,7 +40,7 @@ from nanobot.session.sqlite_store import SessionConflictError
 from nanobot.utils.llm_runtime import LLMRuntime
 from nanobot.webui.history import turn_records
 from nanobot.webui.openui_rename import recent_title_operations, rename_operation
-from nanobot.webui.session_identity import webui_session_key
+from nanobot.webui.session_identity import is_valid_webui_chat_id, webui_chat_id, webui_session_key
 from nanobot.webui.sidebar_state import sidebar_title_snapshot
 
 _MANIFEST = json.loads((Path(__file__).parents[1] / "openui/generated/chat-library.json").read_text())
@@ -160,6 +160,7 @@ class OpenUIRuntime:
         self._prepared: OrderedDict[tuple[str, str, str], tuple[float, UITurnPrepared]] = OrderedDict()
         self._runtimes: OrderedDict[tuple[str, str, str, str], LLMRuntime] = OrderedDict()
         self._unsubscribe = bus.subscribe(self._prepare, UITurnPrepared)
+        self._unsubscribe_retirement = sessions.state.subscribe_retirement(self.retire_generation)
         self._closed = False
         self._queries = asyncio.Semaphore(2)
 
@@ -197,6 +198,17 @@ class OpenUIRuntime:
         self._prepared = OrderedDict((key, value) for key, value in self._prepared.items()
                                      if webui_session_key(key[0]) != session_key)
         self._runtimes = OrderedDict((key, value) for key, value in self._runtimes.items() if key[1] != session_key)
+
+    async def retire_generation(self, session_key: str, generation: str) -> None:
+        if not is_valid_webui_chat_id(webui_chat_id(session_key)):
+            return
+        scope = UiScope(owner="webui", session_key=session_key, generation=generation)
+        await store_call(self.store.delete_generation, scope)
+        await self.jobs.cancel_session(session_key, generation=generation)
+        self._prepared = OrderedDict((key, value) for key, value in self._prepared.items()
+                                     if (webui_session_key(key[0]), key[1]) != (session_key, generation))
+        self._runtimes = OrderedDict((key, value) for key, value in self._runtimes.items()
+                                     if key[:3] != self.store.key(scope))
 
     async def list_blocks(self, request: UiRequest) -> dict[str, object]:
         scope = await self.scope(request.chat_id)
@@ -536,6 +548,7 @@ class OpenUIRuntime:
     async def close(self) -> None:
         self._closed = True
         self._unsubscribe()
+        self._unsubscribe_retirement()
         await self.jobs.close()
         self._prepared.clear()
         self._runtimes.clear()

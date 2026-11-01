@@ -29,6 +29,7 @@ from nanobot.openui.config import OpenUIOptions
 from nanobot.openui.snapshots import UiSnapshot
 from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from nanobot.providers.factory import make_provider
+from nanobot.sdk.clients import SessionClient
 from nanobot.session.manager import SessionManager
 from nanobot.session.webui_turns import WebuiTurnCoordinator
 from nanobot.utils.file_io import write_text_atomic
@@ -214,6 +215,10 @@ class RecoveryChannel(WebSocketChannel):
             return await super()._dispatch_http(connection, request)
         params = parse_qs(url.query)
         provider = self.fixture_provider
+        if "clear" in params:
+            if params["clear"] != ["recovery-reset"]:
+                return http_json_response({"error": "Unknown reset fixture"}, status=409)
+            await SessionClient(self.fixture_agent).clear("websocket:recovery-reset")
         if "release" in params:
             gate = provider.gates.get(params["release"][0])
             if gate is None:
@@ -394,6 +399,7 @@ async def run(port, live_config=None, evidence_path=None):
             agent.tools.register(tool)
             channel.fixture_provider = provider
             channel.fixture_tool = tool
+            channel.fixture_agent = agent
             await seed_recovery_history(sessions, services.openui)
         agent.tools.register(SearchSessionsTool(sessions))
         agent.tools.register(ReadSessionTool(sessions))

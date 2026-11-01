@@ -37,6 +37,52 @@ async function recoveryCounters(page: Page) {
   return await response.json() as { agent_calls: number; ui_calls: number; tool_calls: number };
 }
 
+test("SDK clear removes an open form from both pages and a fresh session starts without its draft", async ({ page, browser, baseURL }) => {
+  const observed = observeRecovery(page);
+  const otherContext = await browser.newContext({ baseURL });
+  const other = await otherContext.newPage();
+  try {
+    await page.goto("/browser/openui-gateway.html?recovery");
+    await page.getByRole("combobox", { name: "Conversation", exact: true }).selectOption("recovery-reset");
+    await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("openui");
+    await page.getByRole("textbox", { name: "Question", exact: true }).fill("I want to define a new project.");
+    await page.getByRole("button", { name: "Ask", exact: true }).click();
+    const form = page.getByRole("form", { name: "Project details", exact: true });
+    await expect(form.getByRole("textbox", { name: "Project name", exact: true })).toBeEnabled();
+    await form.getByRole("textbox", { name: "Project name", exact: true }).fill("Retired project");
+    await expect(form.getByRole("status")).toHaveText("Draft saved");
+    const retired = observed.snapshots.at(-1)!;
+    await other.goto("/browser/openui-gateway.html?recovery");
+    await other.getByRole("combobox", { name: "Conversation", exact: true }).selectOption("recovery-reset");
+    await expect(other.getByRole("textbox", { name: "Project name", exact: true })).toHaveValue("Retired project");
+    const before = await recoveryCounters(page);
+    expect((await page.request.get("/api/openui-fixture?clear=recovery-reset")).ok()).toBe(true);
+    await expect(form).toHaveCount(0);
+    await expect(other.getByRole("form", { name: "Project details", exact: true })).toHaveCount(0);
+    expect(await recoveryCounters(page)).toEqual(before);
+    for (const tab of [page, other]) {
+      await tab.reload();
+      await tab.getByRole("combobox", { name: "Conversation", exact: true }).selectOption("recovery-reset");
+      await expect(tab.getByRole("combobox", { name: "Interactive replies" })).toBeVisible();
+      await expect(tab.getByRole("form", { name: "Project details", exact: true })).toHaveCount(0);
+      await expect(tab.getByText("Retired project", { exact: false })).toHaveCount(0);
+    }
+    expect(await recoveryCounters(page)).toEqual(before);
+    await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("openui");
+    await page.getByRole("textbox", { name: "Question", exact: true }).fill("I want to define a new project.");
+    await page.getByRole("button", { name: "Ask", exact: true }).click();
+    await expect(form.getByRole("textbox", { name: "Project name", exact: true })).toBeEnabled();
+    await expect(form.getByRole("textbox", { name: "Project name", exact: true })).toHaveValue("");
+    expect(observed.snapshots.at(-1)!.session_generation).not.toBe(retired.session_generation);
+    expect(await recoveryCounters(page)).toEqual({ agent_calls: before.agent_calls + 1,
+      ui_calls: before.ui_calls + 1, tool_calls: before.tool_calls });
+    expect(observed.errors).toEqual([]);
+    await page.screenshot({ path: test.info().outputPath("reset-fresh-questionnaire.png"), fullPage: true });
+  } finally {
+    await otherContext.close();
+  }
+});
+
 test("a disconnected generating view resumes its snapshot and saved form without replay", async ({ page }) => {
   const observed = observeRecovery(page);
   await page.goto("/browser/openui-gateway.html?recovery");

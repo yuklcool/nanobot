@@ -54,7 +54,7 @@ function RecoveryConversations({ client }: { client: NanobotClient }) {
       client.attach(event.target.value);
       setSelected(event.target.value);
     }}>
-      {["recovery-reconnect", "recovery-switch-a", "recovery-switch-b", "recovery-history"].map((id) => <option key={id}>{id}</option>)}
+      {["recovery-reconnect", "recovery-switch-a", "recovery-switch-b", "recovery-history", "recovery-reset"].map((id) => <option key={id}>{id}</option>)}
     </select><output aria-label="Connection status">{status}</output>
   </nav><Thread key={selected} client={client} chatId={selected} recovery /></>;
 }

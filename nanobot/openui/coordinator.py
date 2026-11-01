@@ -74,8 +74,9 @@ class UIJobCoordinator:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
 
-    async def cancel_session(self, session_key: str) -> None:
-        tasks = [task for key, task in self._tasks.items() if key[1] == session_key]
+    async def cancel_session(self, session_key: str, *, generation: str | None = None) -> None:
+        tasks = [task for key, task in self._tasks.items()
+                 if key[1] == session_key and (generation is None or key[2] == generation)]
         for task in tasks:
             task.cancel()
         if tasks:
