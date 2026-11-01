@@ -425,6 +425,8 @@ async def test_retired_session_cleans_drafts_actions_and_rejects_old_requests(ga
     fresh = (await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": ["fresh-turn"]}))["result"]
     assert len(fresh["blocks"]) == 1 and fresh["blocks"][0]["status"] == "complete"
     assert fresh["session_generation"] != scope.generation and fresh["blocks"][0]["state"] == {}
+    await runtime.retire_generation(scope.session_key, scope.generation)
+    assert (await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": ["fresh-turn"]}))["result"] == fresh
 
 
 async def test_reset_cancels_inflight_view_without_reviving_it_or_replaying_tools(gateway):

@@ -19,6 +19,7 @@ from nanobot.command.router import CommandContext, CommandRouter, normalize_comm
 from nanobot.providers.base import LLMUsage
 from nanobot.session.display_history import HISTORY_GENERATION_METADATA_KEY
 from nanobot.session.history_visibility import HIDDEN_HISTORY_META
+from nanobot.session.keys import session_key_for_channel
 from nanobot.utils.cancellation import shield_and_drain
 from nanobot.utils.helpers import build_status_content
 from nanobot.utils.restart import set_restart_notice_to_env
@@ -332,11 +333,12 @@ async def cmd_new(ctx: CommandContext) -> OutboundMessage:
         )
     async def reset_and_schedule_archive() -> None:
         await loop.sessions.state.reset(session.key)
+        display_key = session_key_for_channel(ctx.msg.channel, ctx.msg.chat_id)
         if (ctx.msg.channel == "websocket" and ctx.msg.metadata.get("webui") is True
-                and ctx.msg.session_key != session.key):
+                and session.policy.persist and display_key != session.key):
             # Unified execution has a distinct, independently fenced display history.
             await loop.sessions.state.reset(
-                ctx.msg.session_key,
+                display_key,
                 expected_generation=ctx.msg.metadata[HISTORY_GENERATION_METADATA_KEY],
             )
         if archive_snapshot is not None and runtime is not None:
