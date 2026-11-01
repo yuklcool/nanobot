@@ -3,6 +3,13 @@ import { uiSnapshotSchema, type UiSnapshot } from "../src/openui/snapshot";
 
 test.skip(!process.env.NANOBOT_OPENUI_GATEWAY_PYTHON, "Requires the disposable native Gateway; run test:openui:gateway.");
 
+test.afterEach(async ({ request }) => {
+  for (const tag of ["reconnect", "switch"]) {
+    const response = await request.get(`/api/openui-fixture?release=${tag}`);
+    expect([200, 409]).toContain(response.status());
+  }
+});
+
 function observeRecovery(page: Page) {
   const sent: Record<string, unknown>[] = [];
   const snapshots: UiSnapshot[] = [];

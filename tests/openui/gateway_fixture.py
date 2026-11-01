@@ -23,6 +23,7 @@ from nanobot.channels.websocket.runtime import WebSocketChannel, WebSocketConfig
 from nanobot.config.home import set_home_path
 from nanobot.config.loader import load_config, resolve_config_env_vars, save_config, set_config_path
 from nanobot.config.schema import Config
+from nanobot.llm_usage.context import current_llm_usage_source
 from nanobot.openui.collector import OpenUICollector
 from nanobot.openui.config import OpenUIOptions
 from nanobot.openui.snapshots import UiSnapshot
@@ -90,7 +91,8 @@ class FixtureProvider(LLMProvider):
         return "offline-openui-browser"
 
     async def chat(self, messages, **kwargs):
-        self.agent_calls += 1
+        if current_llm_usage_source() == "user":
+            self.agent_calls += 1
         index = max(i for i, row in enumerate(messages) if row["role"] == "user")
         question = str(messages[index]["content"])
         has_result = any(row["role"] == "tool" for row in messages[index + 1:])
