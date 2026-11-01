@@ -74,7 +74,7 @@ from nanobot.webui.session_access import (
     WebuiSessionAccess,
     session_mentions_runtime_context,
 )
-from nanobot.webui.session_identity import is_valid_webui_chat_id, webui_session_key
+from nanobot.webui.session_identity import is_valid_webui_chat_id, webui_chat_id, webui_session_key
 from nanobot.webui.sidebar_state import read_webui_sidebar_state, write_webui_sidebar_state
 from nanobot.webui.temporary_chats import TemporaryChatError
 from nanobot.webui.transcription_ws import webui_transcription_event
@@ -183,6 +183,15 @@ class WebUICommandRouter:
         self._openui_connections: set[ServerConnection] = set()
         self._accepted_messages: dict[tuple[str, str], float] = {}
         self._message_locks: dict[tuple[str, str], tuple[asyncio.Lock, int]] = {}
+        self._unsubscribe_retirement = (
+            gateway.session_manager.state.subscribe_retirement(self.notify_retired_session)
+            if gateway.openui is not None and gateway.session_manager is not None else None
+        )
+
+    async def notify_retired_session(self, session_key: str, _generation: str) -> None:
+        chat_id = webui_chat_id(session_key)
+        if chat_id is not None:
+            await self._transport.send_session_updated(chat_id, scope="thread")
 
     def workspace_project_selection_available(self, connection: ServerConnection) -> bool:
         return self._http_router.workspace_project_selection_available(connection)
@@ -1374,6 +1383,8 @@ class WebUICommandRouter:
 
     async def close(self) -> None:
         """Cancel command work and release application-owned gateway state."""
+        if self._unsubscribe_retirement is not None:
+            self._unsubscribe_retirement()
         if self.gateway.openui is not None:
             await self.gateway.openui.close()
         self._openui_connections.clear()

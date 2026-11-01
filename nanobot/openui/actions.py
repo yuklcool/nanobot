@@ -29,6 +29,11 @@ class UiActionLedger:
             [block_id, revision, action_id, data_ref, record_id, content], ensure_ascii=False, separators=(",", ":"),
         ).encode()).hexdigest()
         with self.store.transaction() as db:
+            if db.execute(
+                "SELECT 1 FROM ui_tombstones WHERE owner=? AND session_key=? AND generation=?",
+                self.store.key(scope),
+            ).fetchone():
+                raise UiConflictError("STALE_GENERATION")
             block = self.store._read(db, scope, block_id) if form_id else None
             if block is not None:
                 entry = block.state.get("$forms", {}).get(form_id)

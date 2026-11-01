@@ -237,6 +237,10 @@ class UiSnapshotStore:
                 "DELETE FROM ui_snapshots WHERE owner=? AND session_key=? AND generation=?",
                 self.key(scope),
             )
+            db.execute(
+                "DELETE FROM ui_actions WHERE owner=? AND session_key=? AND generation=?",
+                self.key(scope),
+            )
 
     def for_turns(self, scope: UiScope, turn_ids: list[str]) -> list[UiSnapshot]:
         if not turn_ids:

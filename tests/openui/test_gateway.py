@@ -360,6 +360,92 @@ async def test_rejects_foreign_session_deleted_generation_and_unknown_admission(
     assert not foreign["ok"]
 
 
+@pytest.mark.parametrize("operation", ["sdk-clear", "sdk-delete", "command-new"])
+async def test_retired_session_cleans_drafts_actions_and_rejects_old_requests(gateway, operation, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from nanobot.openui.snapshots import UiConflictError, UiSnapshotStore
+    from nanobot.sdk.clients import SessionClient
+
+    block = await first_card(gateway)
+    runtime = gateway.services.openui
+    scope = await runtime.scope("chat")
+    payload = {key: block[key] for key in ("chat_id", "session_generation", "block_id", "revision")}
+    draft = {**payload, "expected_state_version": 0, "form": {
+        "form_id": "form-0", "title": "Project", "fields": [{"label": "Name", "persist": True}],
+        "values": ["Retired draft"],
+    }}
+    assert (await rpc(gateway, "openui.form", draft))["ok"]
+    action = {"session_generation": scope.generation, "block_id": block["block_id"], "revision": 1,
+              "request_id": "retired-action", "action_id": "conversation.followup"}
+    await runtime.admit_action("chat", "retired-action", "Old follow-up", action)
+
+    gateway.channel._attach(gateway.connection, "other")
+    await rpc(gateway, "openui.subscribe", {"chat_id": "other"})
+    await dispatch(gateway, {"type": "message", "chat_id": "other", "turn_id": "other-turn",
+                             "webui": True, "ui_mode": "openui", "content": "Lookup"})
+    await execute(gateway)
+    other = (await rpc(gateway, "openui.subscribe", {"chat_id": "other", "turn_ids": ["other-turn"]}))["result"]
+    before = (gateway.loop.provider.agent_calls, gateway.loop.provider.ui_calls, gateway.tool.calls)
+    if operation == "command-new":
+        monkeypatch.setattr(gateway.loop.consolidator, "archive_session", AsyncMock())
+        await dispatch(gateway, {"type": "message", "chat_id": "chat", "turn_id": "reset-command",
+                                 "webui": True, "content": "/new"})
+        await execute(gateway)
+    elif operation == "sdk-clear":
+        await SessionClient(gateway.loop).clear("websocket:chat")
+    else:
+        assert await SessionClient(gateway.loop).delete("websocket:chat")
+
+    assert (gateway.loop.provider.agent_calls, gateway.loop.provider.ui_calls, gateway.tool.calls) == before
+    assert any(row.get("event") == "session_updated" and row.get("chat_id") == "chat"
+               and row.get("scope") == "thread" for row in gateway.connection.sent)
+    restarted = UiSnapshotStore(runtime.store.path)
+    with restarted.transaction() as db:
+        for table in ("ui_snapshots", "ui_actions"):
+            assert db.execute(f"SELECT count(*) FROM {table} WHERE session_key=? AND generation=?",
+                              (scope.session_key, scope.generation)).fetchone()[0] == 0
+    with pytest.raises(KeyError):
+        restarted.read(scope, block["block_id"])
+    with pytest.raises(UiConflictError, match="STALE_GENERATION"):
+        runtime.actions.reserve(scope, request_id="late-reservation", block_id=block["block_id"],
+                                revision=1, content="Old follow-up")
+    restored = await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": ["turn-1"]})
+    assert restored["result"]["blocks"] == []
+    for name, params in [("openui.form", draft), ("openui.retry", payload)]:
+        rejected = await rpc(gateway, name, params)
+        assert not rejected["ok"] and rejected["error"]["message"] == "STALE_GENERATION"
+    await dispatch(gateway, {"type": "message", "chat_id": "chat", "turn_id": action["request_id"],
+                             "webui": True, "content": "Old follow-up", "ui_action": action})
+    assert gateway.connection.sent[-1]["detail"] == "STALE_GENERATION" and gateway.bus.inbound_size == 0
+    assert (await rpc(gateway, "openui.subscribe", {"chat_id": "other", "turn_ids": ["other-turn"]}))["result"] == other
+    await dispatch(gateway, {"type": "message", "chat_id": "chat", "turn_id": "fresh-turn",
+                             "webui": True, "ui_mode": "openui", "content": "Lookup"})
+    await execute(gateway)
+    fresh = (await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": ["fresh-turn"]}))["result"]
+    assert len(fresh["blocks"]) == 1 and fresh["blocks"][0]["status"] == "complete"
+    assert fresh["session_generation"] != scope.generation and fresh["blocks"][0]["state"] == {}
+
+
+async def test_reset_cancels_inflight_view_without_reviving_it_or_replaying_tools(gateway):
+    provider = gateway.loop.provider
+    provider.ui_gate = asyncio.Event()
+    await rpc(gateway, "openui.subscribe", {"chat_id": "chat"})
+    await dispatch(gateway, {"type": "message", "chat_id": "chat", "turn_id": "streaming-reset",
+                             "webui": True, "ui_mode": "openui", "content": "Lookup"})
+    await execute(gateway, wait_ui=False)
+    await asyncio.wait_for(provider.ui_started.wait(), 2)
+    runtime = gateway.services.openui
+    scope = await runtime.scope("chat")
+    before = (provider.agent_calls, provider.ui_calls, gateway.tool.calls)
+    await asyncio.wait_for(gateway.sessions.state.reset("websocket:chat"), 2)
+    provider.ui_gate.set()
+    await runtime.jobs.drain()
+    assert runtime.store.for_turns(scope, ["streaming-reset"]) == []
+    assert not any(key[:3] == runtime.store.key(scope) for key in runtime._runtimes)
+    assert (provider.agent_calls, provider.ui_calls, gateway.tool.calls) == before
+
+
 async def test_untrusted_client_and_disabled_mode_preserve_native_chat(gateway):
     connection = Connection()
     gateway.channel._attach(connection, "chat")

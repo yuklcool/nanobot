@@ -37,6 +37,41 @@ async def test_writes_run_in_submission_order(tmp_path):
     await state.aclose()
 
 
+@pytest.mark.parametrize("operation", ["reset", "delete"])
+async def test_retirement_drains_on_cancellation_and_keeps_recreated_session(tmp_path, operation):
+    state = SessionManager(tmp_path).state
+    original = await state.get("websocket:chat")
+    started, release = asyncio.Event(), asyncio.Event()
+    observed = []
+
+    async def retired(key, generation):
+        observed.append((key, generation))
+        started.set()
+        await release.wait()
+
+    unsubscribe = state.subscribe_retirement(retired)
+    try:
+        task = asyncio.create_task(getattr(state, operation)(original.key))
+        await asyncio.wait_for(started.wait(), 2)
+        task.cancel()
+        current = await state.get(original.key)
+        assert current.generation != original.generation
+        await state.update_metadata(original.key, {"title": "New generation"})
+        assert not task.done()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert observed == [(original.key, original.generation)]
+        assert (await state.read(original.key)).metadata["title"] == "New generation"
+        unsubscribe()
+        unsubscribe()
+        await state.reset(original.key)
+        assert len(observed) == 1
+    finally:
+        release.set()
+        await state.aclose()
+
+
 async def test_close_drains_accepted_operations(tmp_path, monkeypatch):
     manager = SessionManager(tmp_path)
     state = manager.state

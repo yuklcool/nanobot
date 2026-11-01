@@ -64,6 +64,7 @@ class SessionState:
         self._types = types if types is not None else SessionTypes()
         self._store = store
         self._on_delete = on_delete
+        self._retirement_observers: list[Callable[[str, str], Awaitable[None]]] = []
         self._snapshots: dict[str, Session] = {}
         self._transients: dict[str, Session] = {}
         self._policies: dict[str, SessionPolicy] = {}
@@ -93,6 +94,23 @@ class SessionState:
     def is_bound(self) -> bool:
         """Whether runtime operations have claimed this state owner."""
         return self._loop is not None
+
+    def subscribe_retirement(
+        self, observer: Callable[[str, str], Awaitable[None]],
+    ) -> Callable[[], None]:
+        """Observe committed reset/deletion with the exact retired generation."""
+        self._retirement_observers.append(observer)
+
+        def unsubscribe() -> None:
+            if observer in self._retirement_observers:
+                self._retirement_observers.remove(observer)
+
+        return unsubscribe
+
+    async def _notify_retirement(self, retired: Sequence[tuple[str, str]]) -> None:
+        for key, generation in retired:
+            for observer in tuple(self._retirement_observers):
+                await observer(key, generation)
 
     @property
     def bound_loop(self) -> asyncio.AbstractEventLoop | None:
@@ -1003,8 +1021,11 @@ class SessionState:
         *,
         expected_generation: str | None = None,
     ) -> bool:
-        def delete() -> tuple[bool, set[str]]:
-            def write() -> tuple[bool, set[str]]:
+        retired: list[tuple[str, str]] = []
+        removed: set[str] = set()
+
+        def delete() -> bool:
+            def write() -> tuple[bool, set[str], list[tuple[str, str]]]:
                 session = self._load(key, history=False)
                 if expected_generation is not None and (
                     session is None or session.generation != expected_generation
@@ -1021,6 +1042,7 @@ class SessionState:
                         children.setdefault(parent, []).append(row["key"])
                 pending = [key]
                 removed: set[str] = set()
+                retired: list[tuple[str, str]] = []
                 deleted = False
                 while pending:
                     current = pending.pop()
@@ -1028,23 +1050,30 @@ class SessionState:
                         continue
                     removed.add(current)
                     pending.extend(children.get(current, ()))
+                    old = self._load(current, history=False)
+                    if old is not None:
+                        retired.append((current, old.generation))
                     deleted = self._store.delete(current) or deleted
-                return deleted, removed
+                return deleted, removed, retired
 
-            deleted, removed = self._store.run_write(write)
+            deleted, committed_removed, committed_retired = self._store.run_write(write)
             with self._cache_lock:
-                for current in removed:
+                for current in committed_removed:
                     self._transients.pop(current, None)
                     self._snapshots.pop(current, None)
                     self._policies.pop(current, None)
                     self._retired.add(current)
-            return deleted, removed
+            removed.update(committed_removed)
+            retired.extend(committed_retired)
+            return deleted
 
-        deleted, removed = await self._execute(None, delete, operation_name="delete")
-        if self._on_delete is not None:
-            for current in removed:
-                self._on_delete(current)
-        return deleted
+        try:
+            return await self._execute(None, delete, operation_name="delete")
+        finally:
+            if self._on_delete is not None:
+                for current in removed:
+                    self._on_delete(current)
+            await shield_and_drain(self._notify_retirement(retired))
 
     async def update_metadata(
         self,
@@ -1110,8 +1139,10 @@ class SessionState:
 
     async def reset(self, key: str) -> None:
         """Clear the transcript and revoke any old turn in one commit."""
+        retired: list[tuple[str, str]] = []
+
         def reset() -> None:
-            def write() -> Session:
+            def write() -> tuple[Session, str | None]:
                 old = self._load(key, history=False)
                 with self._cache_lock:
                     self._retired.discard(key)
@@ -1124,8 +1155,14 @@ class SessionState:
                 if session.policy.persist:
                     self._store.delete(key)
                 self._commit(session)
-                return session
+                return session, old.generation if old is not None else None
 
-            session = self._store.run_write(write)
+            session, generation = self._store.run_write(write)
             self._publish(session)
-        await self._execute(key, reset)
+            if generation is not None:
+                retired.append((key, generation))
+
+        try:
+            await self._execute(key, reset)
+        finally:
+            await shield_and_drain(self._notify_retirement(retired))
