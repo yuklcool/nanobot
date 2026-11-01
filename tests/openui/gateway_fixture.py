@@ -8,6 +8,7 @@ import signal
 from dataclasses import asdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 from loguru import logger
@@ -22,14 +23,19 @@ from nanobot.channels.websocket.runtime import WebSocketChannel, WebSocketConfig
 from nanobot.config.home import set_home_path
 from nanobot.config.loader import load_config, resolve_config_env_vars, save_config, set_config_path
 from nanobot.config.schema import Config
+from nanobot.llm_usage.context import current_llm_usage_source
 from nanobot.openui.collector import OpenUICollector
 from nanobot.openui.config import OpenUIOptions
+from nanobot.openui.snapshots import UiSnapshot
 from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from nanobot.providers.factory import make_provider
 from nanobot.session.manager import SessionManager
 from nanobot.session.webui_turns import WebuiTurnCoordinator
 from nanobot.utils.file_io import write_text_atomic
 from nanobot.webui.gateway_services import build_gateway_services
+from nanobot.webui.history import fact_from_record
+from nanobot.webui.http_utils import http_json_response
+from nanobot.webui.openui_runtime import LIBRARY_HASH
 
 SURVEY_TITLE = "公司员工就业情况调查表"
 SURVEY_DESCRIPTION = "本问卷用于了解员工今年的工作情况，结果仅作汇总分析。"
@@ -75,13 +81,24 @@ class Lookup(Tool):
 
 
 class FixtureProvider(LLMProvider):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.agent_calls = 0
+        self.ui_calls = 0
+        self.gates = {}
+
     def get_default_model(self):
         return "offline-openui-browser"
 
     async def chat(self, messages, **kwargs):
+        if current_llm_usage_source() == "user":
+            self.agent_calls += 1
         index = max(i for i, row in enumerate(messages) if row["role"] == "user")
         question = str(messages[index]["content"])
         has_result = any(row["role"] == "tool" for row in messages[index + 1:])
+        question_line = question.split("\n", 1)[0]
+        if question_line in {"Recovery reconnect", "Recovery switch"} and has_result:
+            return LLMResponse(content=f"{question_line} answer", tool_calls=[])
         if "Rename this chat to Project plan" in question:
             return LLMResponse(content="Review the proposed conversation title and confirm the change below.", tool_calls=[])
         if "Create an employee survey" in question:
@@ -130,8 +147,16 @@ class FixtureProvider(LLMProvider):
         if "Generate only OpenUI Lang" not in str(messages[0].get("content")):
             return await super().chat_stream(messages, on_content_delta=on_content_delta, **kwargs)
         payload = json.loads(messages[-1]["content"])
+        self.ui_calls += 1
         datasets = payload["datasets"]
-        if datasets and all(not item["row_count"] for item in datasets):
+        recovery = payload["public_answer"] in {"Recovery reconnect answer", "Recovery switch answer"}
+        if recovery:
+            tag = payload["public_answer"].split()[1]
+            self.gates[tag] = asyncio.Event()
+            source = ('root = Panel([heading, details])\n'
+                      + f'heading = Text("Recovery {tag} streaming")\n'
+                      + f'details = Form("Recovery {tag} form", [{{label:"Project name",persist:true}}])\n')
+        elif datasets and all(not item["row_count"] for item in datasets):
             source = ('root = Panel([details])\ndetails = Form("Search details", [{label: "Project keyword"}])\n'
                       if payload["public_answer"].startswith("Please provide a project keyword") else "root = Panel([])\n")
         elif payload["public_answer"] == SURVEY_ANSWER:
@@ -170,10 +195,71 @@ class FixtureProvider(LLMProvider):
         else:
             source = "root = Panel([])\n"
         if on_content_delta is not None:
-            await on_content_delta(source[:40])
-            await asyncio.sleep(0.02)
-            await on_content_delta(source[40:])
+            boundary = source.index("details =") if recovery else 40
+            await on_content_delta(source[:boundary])
+            if recovery:
+                await self.gates[tag].wait()
+            else:
+                await asyncio.sleep(0.02)
+            await on_content_delta(source[boundary:])
         return LLMResponse(content=source, tool_calls=[])
+
+
+class RecoveryChannel(WebSocketChannel):
+    """Loopback-only fixture controls; all application traffic uses the real gateway."""
+
+    async def _dispatch_http(self, connection, request):
+        url = urlsplit(request.path)
+        if url.path != "/api/openui-fixture":
+            return await super()._dispatch_http(connection, request)
+        params = parse_qs(url.query)
+        provider = self.fixture_provider
+        if "release" in params:
+            gate = provider.gates.get(params["release"][0])
+            if gate is None:
+                return http_json_response({"error": "Stream not started"}, status=409)
+            gate.set()
+        if "disconnect" in params:
+            for socket in tuple(self._subs.get(params["disconnect"][0], ())):
+                await socket.close(code=1012, reason="Fixture connection interruption")
+        return http_json_response({"agent_calls": provider.agent_calls, "ui_calls": provider.ui_calls,
+                                   "tool_calls": self.fixture_tool.calls})
+
+
+async def seed_recovery_history(sessions, runtime):
+    """Persist 245 artificial turns and views without invoking a provider or tool."""
+    chat_id = "recovery-history"
+    key = f"websocket:{chat_id}"
+    session = sessions.get_or_create(key)
+    session.metadata["webui"] = True
+    sessions.save(session)
+    facts = []
+    for index in range(245):
+        turn_id = f"recovery-history-{index}"
+        for sequence, (event, phase, text) in enumerate([
+            ("user", "user", f"History question {index}"),
+            ("message", "answer", f"History answer {index}"),
+            ("turn_end", "complete", ""),
+        ], start=1):
+            facts.append(fact_from_record({"event": event, "turn_id": turn_id,
+                "turn_seq": sequence, "turn_phase": phase, "text": text, "created_at_ms": 1793443200000 + index * 1000}))
+    await sessions.state.append_history(key, facts, expected_generation=None)
+    await sessions.state.read(key)
+    scope = await runtime.scope(chat_id)
+    assert scope is not None
+    for index in range(245):
+        block_id = f"history-{index}"
+        snapshot = UiSnapshot(chat_id=chat_id, session_generation=scope.generation,
+            turn_id=f"recovery-history-{index}", anchor_seq=2, block_id=block_id, library_hash=LIBRARY_HASH,
+            fallback_text=f"History answer {index}")
+        runtime.store.create(scope, snapshot, state_keys=frozenset({"$question"}))
+        source = f'root = Panel([heading])\nheading = Text("History card {index}")\n'
+        if index == 0:
+            source = '$question = ""\n' + source.replace("[heading]", "[heading, followup]") + 'followup = Followup($question)\n'
+        runtime.store.advance(scope, block_id, revision=1, expected_seq=0, delta=source, status="complete")
+        if index == 0:
+            runtime.store.save_state(scope, block_id, revision=1, expected_state_version=0,
+                                     state={"$question": "Saved historical draft"})
 
 
 def isolated_live_config(path: Path, workspace: Path) -> Config:
@@ -283,7 +369,7 @@ async def run(port, live_config=None, evidence_path=None):
                 record.add_message("user", question)
                 record.add_message("assistant", answer)
                 sessions.save(record)
-        ws_config = WebSocketConfig(port=port, openui_enabled=True, openui=OpenUIOptions.model_validate({
+        ws_config = WebSocketConfig(host="127.0.0.1", port=port, openui_enabled=True, openui=OpenUIOptions.model_validate({
             "generation": "model", "tables": {"lookup": {"title": "Tasks",
                 "columns": {"name": "Name", "energy": "Energy", "status": "Status"}},
                 "search_sessions": {"title": "Saved conversations", "recordsKey": "results", "idField": "session_key",
@@ -296,7 +382,7 @@ async def run(port, live_config=None, evidence_path=None):
             runtime_model_name=lambda: preset.model, runtime_surface="browser",
             runtime_capabilities_overrides=None, config_path=root / "config.json",
         )
-        channel = WebSocketChannel(ws_config, bus, gateway=services)
+        channel = WebSocketChannel(ws_config, bus, gateway=services) if live_config else RecoveryChannel(ws_config, bus, gateway=services)
         agent = AgentLoop(bus=bus, provider=provider, model=preset.model,
                           workspace=workspace, session_manager=sessions, max_iterations=5,
                           hooks=[evidence] if evidence else [], hook_factories=[collector.hook])
@@ -304,7 +390,11 @@ async def run(port, live_config=None, evidence_path=None):
             for name in agent.tools.tool_names:
                 agent.tools.unregister(name)
         else:
-            agent.tools.register(Lookup())
+            tool = Lookup()
+            agent.tools.register(tool)
+            channel.fixture_provider = provider
+            channel.fixture_tool = tool
+            await seed_recovery_history(sessions, services.openui)
         agent.tools.register(SearchSessionsTool(sessions))
         agent.tools.register(ReadSessionTool(sessions))
         disconnect = WebuiTurnCoordinator(bus, sessions, schedule_background=asyncio.ensure_future).subscribe()

@@ -1,6 +1,160 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+import { uiSnapshotSchema, type UiSnapshot } from "../src/openui/snapshot";
 
 test.skip(!process.env.NANOBOT_OPENUI_GATEWAY_PYTHON, "Requires the disposable native Gateway; run test:openui:gateway.");
+
+test.afterEach(async ({ request }) => {
+  for (const tag of ["reconnect", "switch"]) {
+    const response = await request.get(`/api/openui-fixture?release=${tag}`);
+    expect([200, 409]).toContain(response.status());
+  }
+});
+
+function observeRecovery(page: Page) {
+  const sent: Record<string, unknown>[] = [];
+  const snapshots: UiSnapshot[] = [];
+  const restored: UiSnapshot[] = [];
+  const errors: string[] = [];
+  let ready = 0;
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("websocket", (socket) => {
+    socket.on("framesent", ({ payload }) => sent.push(JSON.parse(String(payload))));
+    socket.on("framereceived", ({ payload }) => {
+      const frame = JSON.parse(String(payload));
+      if (frame.event === "ready") ready += 1;
+      if (frame.event === "openui.snapshot") snapshots.push(uiSnapshotSchema.parse(frame.snapshot));
+      if (frame.event === "webui_response" && Array.isArray(frame.result?.blocks)) {
+        restored.push(...frame.result.blocks.map((block: unknown) => uiSnapshotSchema.parse(block)));
+      }
+    });
+  });
+  return { sent, snapshots, restored, errors, ready: () => ready };
+}
+
+async function recoveryCounters(page: Page) {
+  const response = await page.request.get("/api/openui-fixture");
+  expect(response.ok()).toBe(true);
+  return await response.json() as { agent_calls: number; ui_calls: number; tool_calls: number };
+}
+
+test("a disconnected generating view resumes its snapshot and saved form without replay", async ({ page }) => {
+  const observed = observeRecovery(page);
+  await page.goto("/browser/openui-gateway.html?recovery");
+  await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("openui");
+  const before = await recoveryCounters(page);
+  await page.getByRole("textbox", { name: "Question", exact: true }).fill("Recovery reconnect");
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  const heading = page.getByText("Recovery reconnect streaming", { exact: true });
+  await expect(heading).toBeVisible();
+  await expect(page.getByRole("button", { name: "Cancel view", exact: true })).toBeVisible();
+  const original = observed.snapshots.at(-1)!;
+  expect(original.status).toBe("streaming");
+  const generated = await recoveryCounters(page);
+  expect(generated).toEqual({ agent_calls: before.agent_calls + 2, ui_calls: before.ui_calls + 1, tool_calls: before.tool_calls + 1 });
+  expect((await page.request.get("/api/openui-fixture?disconnect=recovery-reconnect")).ok()).toBe(true);
+  await expect.poll(observed.ready).toBe(2);
+  await expect(heading).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Interactive replies" })).toHaveValue("openui");
+  expect(await recoveryCounters(page)).toEqual(generated);
+  expect((await page.request.get("/api/openui-fixture?release=reconnect")).ok()).toBe(true);
+  const form = page.getByRole("form", { name: "Recovery reconnect form", exact: true });
+  const name = form.getByRole("textbox", { name: "Project name", exact: true });
+  await expect(name).toBeEnabled();
+  await expect(heading).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Cancel view", exact: true })).toHaveCount(0);
+  await name.fill("Recovered project");
+  await expect(form.getByRole("status")).toHaveText("Draft saved");
+  await page.reload();
+  await expect(name).toHaveValue("Recovered project");
+  await expect(heading).toHaveCount(1);
+  expect(await recoveryCounters(page)).toEqual(generated);
+  expect(observed.sent.filter((frame) => frame.type === "message")).toHaveLength(1);
+  expect(observed.snapshots.every((snapshot) => snapshot.block_id === original.block_id && snapshot.turn_id === original.turn_id)).toBe(true);
+  expect(observed.restored.some((snapshot) => snapshot.block_id === original.block_id && snapshot.status === "streaming")).toBe(true);
+  expect(observed.restored.some((snapshot) => snapshot.block_id === original.block_id && snapshot.status === "complete")).toBe(true);
+  expect(observed.errors).toEqual([]);
+  await page.screenshot({ path: test.info().outputPath("reconnected-view-draft.png"), fullPage: true });
+});
+
+test("switching conversations during generation keeps each view and action in its own session", async ({ page }) => {
+  const observed = observeRecovery(page);
+  await page.goto("/browser/openui-gateway.html?recovery");
+  const conversation = page.getByRole("combobox", { name: "Conversation", exact: true });
+  await conversation.selectOption("recovery-switch-a");
+  await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("openui");
+  await page.getByRole("textbox", { name: "Question", exact: true }).fill("Recovery switch");
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  await expect(page.getByText("Recovery switch streaming", { exact: true })).toBeVisible();
+  await conversation.selectOption("recovery-switch-b");
+  await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
+  await page.getByRole("textbox", { name: "Question", exact: true }).fill("Plan a small project");
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Define the project", exact: true })).toBeVisible();
+  const generated = await recoveryCounters(page);
+  expect((await page.request.get("/api/openui-fixture?release=switch")).ok()).toBe(true);
+  await expect.poll(() => observed.snapshots.some((snapshot) => snapshot.chat_id === "recovery-switch-a" && snapshot.status === "complete")).toBe(true);
+  await expect(page.getByText("Recovery switch streaming", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("form", { name: "Recovery switch form", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Define the project", exact: true })).toHaveCount(1);
+  await conversation.selectOption("recovery-switch-a");
+  const form = page.getByRole("form", { name: "Recovery switch form", exact: true });
+  await expect(form.getByRole("textbox", { name: "Project name", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Define the project", exact: true })).toHaveCount(0);
+  expect(await recoveryCounters(page)).toEqual(generated);
+  await form.getByRole("textbox", { name: "Project name", exact: true }).fill("Session A only");
+  await form.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(form.getByRole("status")).toHaveText("Submitted");
+  await expect(page.getByText(/^Lookup result \d+$/, { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Ask", exact: true })).toBeEnabled();
+  expect(observed.sent.filter((frame) => frame.type === "message").map((frame) => frame.chat_id))
+    .toEqual(["recovery-switch-a", "recovery-switch-b", "recovery-switch-a"]);
+  const afterSubmit = await recoveryCounters(page);
+  await conversation.selectOption("recovery-switch-b");
+  await expect(page.getByRole("button", { name: "Define the project", exact: true })).toHaveCount(1);
+  await expect(page.getByText("Session A only", { exact: false })).toHaveCount(0);
+  expect(await recoveryCounters(page)).toEqual(afterSubmit);
+  expect(observed.errors).toEqual([]);
+  await page.screenshot({ path: test.info().outputPath("switched-session-isolation.png"), fullPage: true });
+});
+
+test("native history pages restore more than one subscription batch at the original answer anchors", async ({ page }) => {
+  test.setTimeout(60_000);
+  const observed = observeRecovery(page);
+  await page.goto("/browser/openui-gateway.html?recovery");
+  await page.getByRole("combobox", { name: "Conversation", exact: true }).selectOption("recovery-history");
+  await expect(page.getByText("History card 244", { exact: true })).toBeVisible();
+  const before = await recoveryCounters(page);
+  const older = page.getByRole("button", { name: "Load older messages", exact: true });
+  const reads: string[] = [];
+  page.on("request", (request) => { if (request.url().includes("/webui-thread") && request.url().includes("before=")) reads.push(request.url()); });
+  for (let pageIndex = 0; pageIndex < 10; pageIndex += 1) {
+    const response = page.waitForResponse((value) => value.url().includes("/webui-thread") && value.url().includes("before="));
+    await older.click();
+    const body = await (await response).json();
+    if (!body.page.has_more_before) break;
+    await expect(older).toBeEnabled();
+  }
+  await expect(older).toBeDisabled();
+  expect(reads.length).toBeGreaterThanOrEqual(2);
+  const rows = page.locator("[data-thread-display-unit]");
+  await expect(rows).toHaveCount(490);
+  for (const index of [0, 124, 244]) {
+    const row = rows.nth(index * 2 + 1);
+    await row.scrollIntoViewIfNeeded();
+    await expect(row.getByText(`History answer ${index}`, { exact: true })).toHaveCount(1);
+    await expect(row.getByText(`History card ${index}`, { exact: true })).toHaveCount(1);
+  }
+  await rows.nth(1).scrollIntoViewIfNeeded();
+  await expect(page.getByRole("textbox", { name: "Follow-up question", exact: true })).toHaveValue("Saved historical draft");
+  const subscriptions = observed.sent.filter((frame) => frame.action === "openui.subscribe" && (frame.payload as { chat_id: string }).chat_id === "recovery-history");
+  expect(subscriptions.length).toBeGreaterThanOrEqual(3);
+  expect(subscriptions.every((frame) => (frame.payload as { turn_ids: string[] }).turn_ids.length <= 100)).toBe(true);
+  expect(new Set(observed.restored.filter((snapshot) => snapshot.chat_id === "recovery-history").map((snapshot) => snapshot.block_id)).size).toBe(245);
+  expect(await recoveryCounters(page)).toEqual(before);
+  expect(observed.sent.filter((frame) => frame.type === "message" || frame.action === "openui.form" || frame.action === "openui.query")).toHaveLength(0);
+  expect(observed.errors).toEqual([]);
+  await page.screenshot({ path: test.info().outputPath("history-anchor-draft.png") });
+});
 
 test("two tabs resolve a form draft conflict without automatic overwrite or an Agent turn", async ({ page, browser, baseURL }) => {
   const otherContext = await browser.newContext({ baseURL });
@@ -174,11 +328,12 @@ test("native model adapter, captured data, record actions and refresh recovery",
   }));
   await page.goto("/browser/openui-gateway.html");
   await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("openui");
+  const before = (await recoveryCounters(page)).tool_calls;
   await page.getByRole("button", { name: "Ask", exact: true }).click();
   const followup = page.getByRole("textbox", { name: "Follow-up question" });
   await expect(followup).toBeVisible();
   await expect(followup).toHaveCount(1);
-  await expect(page.getByRole("list", { name: "Conversation" })).toContainText("Lookup result 1");
+  await expect(page.getByRole("list", { name: "Conversation" })).toContainText(`Lookup result ${before + 1}`);
   const table = page.getByRole("table");
   await expect(table).toContainText("5412.5");
   await expect(table).toContainText("Zero energy");
@@ -196,17 +351,17 @@ test("native model adapter, captured data, record actions and refresh recovery",
   expect(messages).toHaveLength(1);
   await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("openui");
   await page.getByRole("button", { name: "Send", exact: true }).click();
-  await expect(page.getByRole("list", { name: "Conversation" })).toContainText("Lookup result 2");
+  await expect(page.getByRole("list", { name: "Conversation" })).toContainText(`Lookup result ${before + 2}`);
   expect(messages).toHaveLength(2);
   expect(messages[1]).toMatchObject({ chat_id: "gateway-poc", content: "Look up again", ui_action: {
     action_id: "conversation.followup", request_id: messages[1].turn_id,
   } });
   await page.reload();
   await expect(page.getByRole("textbox", { name: "Follow-up question" })).toHaveCount(2);
-  await expect(page.getByRole("list", { name: "Conversation" })).toContainText("Lookup result 2");
+  await expect(page.getByRole("list", { name: "Conversation" })).toContainText(`Lookup result ${before + 2}`);
   expect(messages).toHaveLength(2);
   await page.getByRole("button", { name: "Analyze snapshot", exact: true }).first().click();
-  await expect(page.getByRole("list", { name: "Conversation" })).toContainText("Lookup result 3");
+  await expect(page.getByRole("list", { name: "Conversation" })).toContainText(`Lookup result ${before + 3}`);
   expect(messages).toHaveLength(3);
   expect(messages[2]).toMatchObject({ chat_id: "gateway-poc", ui_action: {
     action_id: "record.analyze", record_id: "task_08", request_id: messages[2].turn_id,
@@ -215,10 +370,10 @@ test("native model adapter, captured data, record actions and refresh recovery",
   await Promise.all([page.waitForEvent("load"), page.getByRole("button", { name: "Delete conversation", exact: true }).click()]);
   await expect(page.getByRole("combobox", { name: "Interactive replies" })).toBeAttached();
   await expect(page.getByRole("textbox", { name: "Follow-up question" })).toHaveCount(0);
-  await expect(page.getByRole("list", { name: "Conversation" })).not.toContainText("Lookup result 1");
+  await expect(page.getByRole("list", { name: "Conversation" })).not.toContainText(`Lookup result ${before + 1}`);
   await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("openui");
   await page.getByRole("button", { name: "Ask", exact: true }).click();
-  await expect(page.getByRole("list", { name: "Conversation" })).toContainText("Lookup result 4");
+  await expect(page.getByRole("list", { name: "Conversation" })).toContainText(`Lookup result ${before + 4}`);
   await expect(page.getByRole("textbox", { name: "Follow-up question" })).toHaveCount(1);
   expect(messages).toHaveLength(4);
   expect(errors).toEqual([]);

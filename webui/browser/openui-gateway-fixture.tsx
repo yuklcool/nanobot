@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ClientProvider } from "../src/providers/ClientProvider";
 import { NanobotClient } from "../src/lib/nanobot-client";
+import { deriveWsUrl, fetchBootstrap } from "../src/lib/bootstrap";
 import { useNanobotStream } from "../src/hooks/useNanobotStream";
 import { useSidebarState } from "../src/hooks/useSidebarState";
 import { ThreadMessages } from "../src/components/thread/ThreadMessages";
@@ -15,11 +16,11 @@ import { initializeI18n } from "../src/i18n";
 import "../src/globals.css";
 
 const chatId = "gateway-poc";
-function Thread({ client }: { client: NanobotClient }) {
+function Thread({ client, chatId = "gateway-poc", recovery = false }: { client: NanobotClient; chatId?: string; recovery?: boolean }) {
   useReadingTypography();
   const sidebar = useSidebarState([], false);
   const [question, setQuestion] = useState("Lookup");
-  const { messages, send, isStreaming } = useNanobotStream(chatId, undefined, false, undefined, undefined, undefined,
+  const { messages, send, isStreaming, loadOlder, history } = useNanobotStream(chatId, undefined, false, undefined, undefined, undefined,
     { key: `websocket:${chatId}` });
   const displayed = projectWebuiThreadMessages(messages);
   return <OpenUIChatProvider client={client} chatId={chatId} messages={displayed} send={send}>
@@ -32,6 +33,8 @@ function Thread({ client }: { client: NanobotClient }) {
         location.reload();
       }}>Delete conversation</button></header>
       <output aria-label="Conversation title">{sidebar.state.title_overrides[`websocket:${chatId}`] ?? "Original conversation title"}</output>
+      {recovery && <button type="button" disabled={!history.hasMoreBefore || history.loadingOlder}
+        onClick={() => { void loadOlder(); }}>Load older messages</button>}
       <div className="flex-1" role="list" aria-label="Conversation">
         <ThreadMessages messages={displayed} isStreaming={isStreaming} />
       </div>
@@ -41,6 +44,19 @@ function Thread({ client }: { client: NanobotClient }) {
       </form>
     </main>
   </OpenUIChatProvider>;
+}
+function RecoveryConversations({ client }: { client: NanobotClient }) {
+  const [selected, setSelected] = useState("recovery-reconnect");
+  const [status, setStatus] = useState(client.status);
+  useEffect(() => client.onStatus(setStatus), [client]);
+  return <><nav aria-label="Recovery fixture">
+    <select aria-label="Conversation" value={selected} onChange={(event) => {
+      client.attach(event.target.value);
+      setSelected(event.target.value);
+    }}>
+      {["recovery-reconnect", "recovery-switch-a", "recovery-switch-b", "recovery-history"].map((id) => <option key={id}>{id}</option>)}
+    </select><output aria-label="Connection status">{status}</output>
+  </nav><Thread key={selected} client={client} chatId={selected} recovery /></>;
 }
 function NewConversation({ client }: { client: NanobotClient }) {
   useReadingTypography();
@@ -55,17 +71,22 @@ function NewConversation({ client }: { client: NanobotClient }) {
 }
 async function start() {
   await initializeI18n();
-  const bootstrap = await (await fetch("/webui/bootstrap")).json();
-  const url = new URL(bootstrap.ws_url);
-  url.searchParams.set("token", bootstrap.token);
-  url.searchParams.set("client_id", `openui-browser-acceptance-${crypto.randomUUID()}`);
-  const client = new NanobotClient({ url: url.toString(), reconnect: true });
+  const bootstrap = await fetchBootstrap();
+  const url = new URL(deriveWsUrl(bootstrap.ws_path, bootstrap.token, bootstrap.ws_url));
+  const clientId = `openui-browser-acceptance-${crypto.randomUUID()}`;
+  url.searchParams.set("client_id", clientId);
+  const client = new NanobotClient({ url: url.toString(), reconnect: true, onReauth: async () => {
+    const refreshed = await fetchBootstrap();
+    const next = new URL(deriveWsUrl(refreshed.ws_path, refreshed.token, refreshed.ws_url));
+    next.searchParams.set("client_id", clientId);
+    return next.toString();
+  } });
   client.attach(chatId);
   client.connect();
   createRoot(document.getElementById("root")!).render(
-    <ClientProvider client={client} token={bootstrap.api_token} allowUpdateFlow={false}>
-      <TooltipProvider>{new URLSearchParams(location.search).has("new")
-        ? <NewConversation client={client} /> : <Thread client={client} />}</TooltipProvider>
+    <ClientProvider client={client} token={bootstrap.api_token ?? ""} allowUpdateFlow={false}>
+      <TooltipProvider>{new URLSearchParams(location.search).has("recovery") ? <RecoveryConversations client={client} />
+        : new URLSearchParams(location.search).has("new") ? <NewConversation client={client} /> : <Thread client={client} />}</TooltipProvider>
     </ClientProvider>);
 }
 void start();
