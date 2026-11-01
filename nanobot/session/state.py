@@ -1137,13 +1137,17 @@ class SessionState:
             operation_name="import_messages",
         )
 
-    async def reset(self, key: str) -> None:
+    async def reset(self, key: str, *, expected_generation: str | None = None) -> None:
         """Clear the transcript and revoke any old turn in one commit."""
         retired: list[tuple[str, str]] = []
 
         def reset() -> None:
             def write() -> tuple[Session, str | None]:
                 old = self._load(key, history=False)
+                if expected_generation is not None and (
+                    old is None or old.generation != expected_generation
+                ):
+                    raise SessionConflictError("reset belongs to a replaced session")
                 with self._cache_lock:
                     self._retired.discard(key)
                 session = Session(key=key)

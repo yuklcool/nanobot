@@ -10,6 +10,7 @@ on:
       - 'nanobot/agent/tools/sessions.py'
       - 'nanobot/session/history.py'
       - 'nanobot/session/state.py'
+      - 'nanobot/command/builtin.py'
       - 'nanobot/cli/gateway_runtime.py'
       - 'nanobot/webui/**'
       - 'nanobot/channels/websocket/**'
@@ -64,7 +65,7 @@ jobs:
       - run: bun run openui:check
         working-directory: webui
       - run: python -m pytest tests/openui tests/session tests/test_sdk_streaming.py tests/agent/test_new_command_archival.py tests/agent/tools/test_sessions.py tests/agent/tools/test_session_history.py tests/utils/test_webui_sidebar_state.py -q
-      - run: python -m ruff check nanobot/agent/tools/sessions.py nanobot/session/history.py nanobot/session/state.py tests/session/test_session_async.py tests/agent/tools/test_sessions.py
+      - run: python -m ruff check nanobot/agent/tools/sessions.py nanobot/session/history.py nanobot/session/state.py nanobot/command/builtin.py nanobot/openui/coordinator.py tests/session/test_session_async.py tests/agent/tools/test_sessions.py
       - run: python -m scripts.check_import_boundaries
       - run: bun run typecheck
         working-directory: webui

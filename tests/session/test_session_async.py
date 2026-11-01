@@ -72,6 +72,29 @@ async def test_retirement_drains_on_cancellation_and_keeps_recreated_session(tmp
         await state.aclose()
 
 
+async def test_stale_reset_preserves_recreated_session_without_notifying_retirement(tmp_path):
+    from unittest.mock import AsyncMock
+
+    from nanobot.session.sqlite_store import SessionConflictError
+
+    state = SessionManager(tmp_path).state
+    observer = AsyncMock()
+    try:
+        original = await state.get("websocket:chat")
+        await state.reset(original.key, expected_generation=original.generation)
+        current = await state.get(original.key)
+        await state.update_metadata(original.key, {"title": "Keep this conversation"})
+        unsubscribe = state.subscribe_retirement(observer)
+        with pytest.raises(SessionConflictError, match="replaced"):
+            await state.reset(original.key, expected_generation=original.generation)
+        assert (await state.read(original.key)).generation == current.generation
+        assert (await state.read(original.key)).metadata["title"] == "Keep this conversation"
+        observer.assert_not_awaited()
+        unsubscribe()
+    finally:
+        await state.aclose()
+
+
 async def test_close_drains_accepted_operations(tmp_path, monkeypatch):
     manager = SessionManager(tmp_path)
     state = manager.state
