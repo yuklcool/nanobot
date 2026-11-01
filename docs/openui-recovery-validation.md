@@ -10,4 +10,6 @@ Refs #1，对应 AT12、AT13、AT14 的现有 WebUI 恢复路径，基线为 dev
 
 测试、类型检查、lint 与构建仅在 GitHub Actions 执行，实际结果以本批 PR 的确切提交与运行产物为准。进程崩溃对账、重置/截断的物理清理、跨版本迁移及 Issue #1 整体验收不在本批范围内。
 
-本批已提交 [PR #18](https://github.com/yuklcool/nanobot/pull/18)。2026-11-01 尝试启动验收时，GitHub 返回 HTTP 422：Actions has been disabled for this repository。读取到的仓库 Actions 配置为 enabled:true，工作流为 active，幂等启用与再次调度仍被拒绝。因此本批尚无测试执行结果，PR 保持待验收，不据此合并或部署，也不将失败启动记作测试失败或通过。本地没有执行测试、静态检查或构建。
+本批见 [PR #18](https://github.com/yuklcool/nanobot/pull/18)。2026-11-01 启动验收曾返回 HTTP 422：Actions has been disabled for this repository；仓库配置仍为 enabled:true，工作流仍为 active。登录后的 Actions 页面明确显示 Workflows on this fork have been disabled，说明 GitHub 为减少 fork 的无效计算而停用了工作流。通过页面上的重新启用按钮恢复后，手动调度及 PR 触发均可创建运行；无需修改工作流权限或账单预算。
+
+[GitHub Actions 运行 41292134757](https://github.com/yuklcool/nanobot/actions/runs/41292134757) 对提交 ef8457a042bc230252686d810f43fe78613f3828 验收通过：158 个 Python 测试、298 个前端测试、13 个浏览器用例、清单一致性、lint、类型检查、导入边界、容器与安装包验收。夹具复用生产 bootstrap 方法在重连时取得新握手凭据，按既有调用来源区分 Agent 与系统标题调用，并在用例结束时释放暂停流，避免失败污染后续用例。之后仅更新本验收文档，测试源码及运行代码未变，沿用该次证据；本地未执行测试、静态检查或构建。本次未执行真实模型用例，历史分页结论仍受前述范围限制。
