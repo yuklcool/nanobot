@@ -181,19 +181,17 @@ class OpenUIRuntime:
     async def scope(self, chat_id: str) -> UiScope | None:
         # Authenticated WebUI is an instance-wide principal; client_id isn't RBAC.
         key = webui_session_key(chat_id)
-        session = await self.sessions.state.read_metadata(key)
-        identity = self.sessions.state.peek_identity(key)
-        if session is None or identity is None or not identity.policy.persist:
+        session = await self.sessions.state.read_header(key)
+        if session is None or not session.policy.persist:
             return None
-        if session.get("metadata", {}).get("webui") is not True:
+        if session.metadata.get("webui") is not True:
             return None
-        return UiScope(owner="webui", session_key=key, generation=identity.generation)
+        return UiScope(owner="webui", session_key=key, generation=session.generation)
 
     async def retire_session(self, session_key: str) -> None:
-        await self.sessions.state.read_metadata(session_key)
-        identity = self.sessions.state.peek_identity(session_key)
+        session = await self.sessions.state.read_header(session_key)
         await store_call(self.store.delete_session, "webui", session_key,
-                         identity.generation if identity is not None else None)
+                         session.generation if session is not None else None)
         await self.jobs.cancel_session(session_key)
         self._prepared = OrderedDict((key, value) for key, value in self._prepared.items()
                                      if webui_session_key(key[0]) != session_key)
