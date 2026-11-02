@@ -351,7 +351,7 @@ class OpenUIRuntime:
         elif action.form_id is None and len(content) > 2000:
             raise ValueError("INVALID_PARAMS")
         if action.action_id == "conversation.followup":
-            context = RuntimeContextBlock(source="openui_followup", content=form_followup(snapshot, action.form_id).model_dump_json())
+            context = RuntimeContextBlock(source="openui_followup", content=form_followup(snapshot, action.form_id).model_dump_json(exclude_none=True))
         result = await store_call(self.actions.reserve, scope, request_id=action.request_id,
                                   block_id=action.block_id, revision=action.revision, content=content,
                                   action_id=action.action_id, data_ref=action.data_ref, record_id=action.record_id,
@@ -432,7 +432,7 @@ class OpenUIRuntime:
             fallback_text=answer["text"].encode("utf-16-le")[:32000].decode("utf-16-le", errors="ignore"),
             question=prepared.question if prepared else "",
             tables=tables,
-            state={"$followup": followup.model_dump(mode="json")} if followup is not None else {},
+            state={"$followup": followup.model_dump(mode="json", exclude_none=True)} if followup is not None else {},
         )
         holder.append(snapshot)
         try:

@@ -109,7 +109,7 @@ async def generate_view(
             "question": question,
             "public_answer": answer,
             "datasets": [table.descriptor() for table in tables.values()],
-            "conversation_followup": followup.model_dump(mode="json") if followup is not None else None,
+            "conversation_followup": followup.model_dump(mode="json", exclude_none=True) if followup is not None else None,
         }, ensure_ascii=False, separators=(",", ":"))},
     ]
     response = await runtime.provider.chat_stream_with_retry(
