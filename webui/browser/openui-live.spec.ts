@@ -522,6 +522,8 @@ test("live model creates, revises and confirms a conditional questionnaire witho
     expect(evidence().runs.slice(before.runs.length).every((run) => !run.error)).toBe(true);
     expect(evidence().calls.slice(before.calls.length).every((call) => call.finish_reason !== "error" && call.error_status_code === null)).toBe(true);
     expect([...snapshots.values()].every((item) => item.status === "complete" && item.error_code === null)).toBe(true);
+    // This scenario requests a readable questionnaire, including the fallback when UI generation fails.
+    expect([...snapshots.values()].every((item) => !item.fallback_text?.includes("```"))).toBe(true);
     expect(errors).toEqual([]);
   } finally {
     const summaryPath = test.info().outputPath("live-questionnaire-summary.json");
