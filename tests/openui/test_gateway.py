@@ -364,6 +364,78 @@ async def test_whole_questionnaire_admission_uses_prepared_digest_and_form_messa
     await execute(gateway)
 
 
+async def test_form_context_survives_recap_restart_revision_and_ui_only_retry(gateway, monkeypatch):
+    from dataclasses import replace
+
+    from nanobot.openui.forms import ConversationForm
+    from nanobot.webui.inbound_commands import WebUICommandRouter
+    from nanobot.webui.openui_runtime import OpenUIRuntime
+
+    block = await first_card(gateway)
+    form = {"form_id": "form-0", "title": "Project", "presentation": "questionnaire", "fields": [
+        {"label": "Code", "persist": True},
+        {"label": "Scope", "type": "checkbox", "options": ["UI", "API", "Other"], "persist": True},
+        {"label": "Other detail", "when": {"field": 1, "value": "Other"}, "persist": True},
+        {"label": "Private detail", "required": False},
+    ], "values": ["ORIGINAL", ["UI", "Other"], "Keyboard", "PRIVATE-ANSWER"], "submit": True}
+    original = await rpc(gateway, "openui.form", {
+        "chat_id": "chat", "session_generation": block["session_generation"], "block_id": block["block_id"],
+        "revision": 1, "expected_state_version": 0, "form": form,
+    })
+    request_id = original["result"]["snapshot"]["state"]["$forms"]["form-0"]["request_id"]
+    agent_contexts = []
+
+    async def answer(messages, **kwargs):
+        agent_contexts.append(messages[-1]["content"])
+        # No questionnaire wording or routing keywords: the admitted action owns the intent signal.
+        return LLMResponse(content="Current information is ready.", tool_calls=[])
+
+    monkeypatch.setattr(gateway.loop.provider, "chat", answer)
+
+    async def act(source, content, request_id, form_id=None):
+        await dispatch(gateway, {"type": "message", "chat_id": "chat", "turn_id": request_id,
+                                 "content": content, "webui": True, "ui_mode": "auto", "ui_action": {
+            "session_generation": source["session_generation"], "block_id": source["block_id"], "revision": 1,
+            "request_id": request_id, "action_id": "conversation.followup", "form_id": form_id,
+        }})
+        await execute(gateway)
+        return (await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": [request_id]}))["result"]["blocks"][0]
+
+    recap = await act(block, ConversationForm.model_validate(form).content(), request_id, "form-0")
+    data = json.loads(gateway.loop.provider.ui_requests[-1][0][-1]["content"])
+    assert data["conversation_followup"]["form"]["values"] == ["ORIGINAL", ["UI", "Other"], "Keyboard", ""]
+    assert '"when":{"field":1,"value":"Other"}' in agent_contexts[-1]
+    # Reopen the actual sidecar to ensure no in-memory link is required by a later click.
+    options = gateway.services.openui.options
+    await gateway.channel._commands.close()
+    gateway.services = replace(gateway.services, openui=OpenUIRuntime(gateway.sessions, gateway.bus, options=options))
+    gateway.channel._commands = WebUICommandRouter(gateway.channel, gateway.services)
+    gateway.channel._webui_connections.add(gateway.connection)
+    await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": [request_id]})
+    revision = await act(recap, "Adjust these details", "revision")
+    assert json.loads(gateway.loop.provider.ui_requests[-1][0][-1]["content"])["conversation_followup"] == data["conversation_followup"]
+    revision_form = {**form, "values": ["REVISED", ["API"], "", "NEW-PRIVATE"]}
+    prepared = await rpc(gateway, "openui.form", {
+        "chat_id": "chat", "session_generation": block["session_generation"], "block_id": revision["block_id"],
+        "revision": 1, "expected_state_version": 0, "form": revision_form,
+    })
+    request2 = prepared["result"]["snapshot"]["state"]["$forms"]["form-0"]["request_id"]
+    revised_recap = await act(revision, ConversationForm.model_validate(revision_form).content(), request2, "form-0")
+    latest = json.loads(gateway.loop.provider.ui_requests[-1][0][-1]["content"])["conversation_followup"]
+    assert latest["form"]["values"] == ["REVISED", ["API"], "", ""]
+    assert "PRIVATE" not in json.dumps(latest)
+    before_agent, before_tools = len(agent_contexts), gateway.tool.calls
+    retry = await rpc(gateway, "openui.retry", {
+        "chat_id": "chat", "session_generation": block["session_generation"], "block_id": revised_recap["block_id"], "revision": 1,
+    })
+    assert retry["ok"]
+    await gateway.services.openui.jobs.drain()
+    assert json.loads(gateway.loop.provider.ui_requests[-1][0][-1]["content"])["conversation_followup"] == latest
+    assert (len(agent_contexts), gateway.tool.calls) == (before_agent, before_tools)
+    original_restored = (await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": ["turn-1"]}))["result"]["blocks"][0]
+    assert original_restored["state"]["$forms"]["form-0"]["values"][0] == "ORIGINAL"
+
+
 async def test_rejects_foreign_session_deleted_generation_and_unknown_admission(gateway):
     block = await first_card(gateway)
     request = {"type": "message", "chat_id": "chat", "turn_id": "action-unknown", "webui": True,

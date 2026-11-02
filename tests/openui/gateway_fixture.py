@@ -134,6 +134,8 @@ class FixtureProvider(LLMProvider):
             return LLMResponse(content="Please choose whether to define a new project or review an existing draft.", tool_calls=[])
         if "I want to define a new project." in question:
             return LLMResponse(content="Please provide a name and priority to get started.", tool_calls=[])
+        if "I want to change the project details first." in question:
+            return LLMResponse(content="Here is the current information for editing.", tool_calls=[])
         if "Project details\nProject name:" in question:
             return LLMResponse(content="I have the details. Please confirm when you are ready to prepare the plan.", tool_calls=[])
         if "Confirm the proposed project plan." in question:
@@ -185,6 +187,12 @@ class FixtureProvider(LLMProvider):
             source = ('root = Panel([details])\ndetails = Form("Project details", ['
                       '{label: "Project name", persist: true, placeholder: "Give your project a name"}, '
                       '{label: "Priority", persist: true, options: ["Normal", "High"]}])\n')
+        elif payload["public_answer"] == "Here is the current information for editing.":
+            form = payload["conversation_followup"]["form"]
+            fields = [{**field, **({"initial": value} if field["persist"] else {})}
+                      for field, value in zip(form["fields"], form["values"])]
+            source = ('root = Panel([details])\ndetails = Form('
+                      + json.dumps(form["title"]) + ', ' + json.dumps(fields) + ')\n')
         elif payload["public_answer"].startswith("I have the details"):
             source = ('root = Panel([confirm])\nconfirm = Choices("Ready to continue?", ['
                       '{label: "Confirm plan", question: "Confirm the proposed project plan."}, '

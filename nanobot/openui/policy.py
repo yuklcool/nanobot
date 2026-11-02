@@ -28,7 +28,7 @@ _RENAME = re.compile(
 )
 
 
-def should_generate_view(question: str, answer: str, *, has_tables: bool) -> bool:
+def should_generate_view(question: str, answer: str, *, has_tables: bool, is_followup: bool = False) -> bool:
     """Prefer text unless authorized data or a concrete interaction is present.
 
     This is a bounded Chinese/English heuristic. Explicit OpenUI mode remains
@@ -39,7 +39,7 @@ def should_generate_view(question: str, answer: str, *, has_tables: bool) -> boo
         return False
     intent = re.sub(r"```.*?(?:```|$)", "", question, flags=re.S)
     intent = "\n".join(line for line in intent.splitlines() if not line.lstrip().startswith(">"))
-    if has_tables or _REQUEST.search(question) or _RENAME.search(intent):
+    if is_followup or has_tables or _REQUEST.search(question) or _RENAME.search(intent):
         return True
     # Examples and quoted instructions in an explanation are not questions to
     # the current user. Do not let code samples alone trigger a UI request.

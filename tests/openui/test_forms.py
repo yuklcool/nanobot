@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from nanobot.openui.actions import UiActionLedger
-from nanobot.openui.forms import ConversationForm, FormField, save_form
+from nanobot.openui.forms import ConversationForm, FormField, form_followup, save_form
 from nanobot.openui.snapshots import UiConflictError, UiScope, UiSnapshot, UiSnapshotStore
 
 
@@ -154,3 +154,25 @@ def test_initial_answers_accept_retained_text_and_multiselect():
 def test_initial_answers_reject_unconsented_or_invalid_values(field):
     with pytest.raises(ValidationError, match="INVALID_INITIAL_VALUE"):
         FormField.model_validate(field)
+
+
+def test_followup_keeps_definition_and_latest_retained_values_without_reviving_initials(form_store):
+    store, scope = form_store
+    survey = questionnaire(fields=[
+        {"label": "Scope", "type": "checkbox", "options": ["API", "Other"], "persist": True,
+         "initial": ["API", "Other"]},
+        {"label": "Other detail", "when": {"field": 0, "value": "Other"}, "persist": True,
+         "initial": "OLD-INITIAL"},
+        {"label": "Private comment", "required": False},
+    ], values=[["API"], "WITHDRAWN", "PRIVATE-ANSWER"])
+    saved = save_form(store, scope, "block", revision=1, expected_state_version=0, form=survey)
+    retained = form_followup(UiSnapshotStore(store.path).read(scope, "block"), "form-0")
+    assert retained.form.title == survey.title
+    assert retained.form.fields[0].options == ["API", "Other"]
+    assert retained.form.fields[1].when == survey.fields[1].when
+    assert not retained.form.fields[2].required
+    assert retained.form.values == [["API"], "", ""]
+    assert all(field.initial is None for field in retained.form.fields)
+    for secret in ["OLD-INITIAL", "WITHDRAWN", "PRIVATE-ANSWER"]:
+        assert secret not in retained.model_dump_json()
+    assert "PRIVATE-ANSWER" not in saved.model_dump_json()

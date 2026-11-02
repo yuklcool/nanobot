@@ -19,7 +19,9 @@ from nanobot.bus.events import INBOUND_META_TURN_ID
 from nanobot.bus.queue import MessageBus
 from nanobot.events import AgentEvent
 from nanobot.openui.data import DisplayTable, SessionQuery, TableAdapterConfig, capture_table
+from nanobot.openui.forms import ConversationFollowup
 from nanobot.providers.base import ToolCallRequest
+from nanobot.runtime_context import runtime_context_blocks_from_metadata
 from nanobot.session.display_history import HISTORY_GENERATION_METADATA_KEY
 from nanobot.utils.llm_runtime import LLMRuntime
 
@@ -32,6 +34,7 @@ class UITurnPrepared(AgentEvent):
     runtime: LLMRuntime | None
     tables: tuple[DisplayTable, ...]
     question: str
+    followup: ConversationFollowup | None = None
 
 
 class OpenUICollector:
@@ -49,20 +52,24 @@ class OpenUICollector:
                 or not isinstance(turn_id, str) or not isinstance(generation, str)
                 or request is None or not request.persist_session):
             return None
+        followup = next((ConversationFollowup.model_validate_json(block.content)
+                         for block in runtime_context_blocks_from_metadata(request.metadata)
+                         if block.source == "openui_followup"), None)
         return _Capture(self, context.chat_id, turn_id, generation, request.runtime,
-                        (request.original_user_text or "")[:4000])
+                        (request.original_user_text or "")[:4000], followup)
 
 
 class _Capture(AgentHook):
     def __init__(
         self, collector: OpenUICollector, chat_id: str, turn_id: str,
-        generation: str, runtime: LLMRuntime | None, question: str,
+        generation: str, runtime: LLMRuntime | None, question: str, followup: ConversationFollowup | None,
     ) -> None:
         super().__init__()
         self.collector = collector
         self.chat_id, self.turn_id, self.generation = chat_id, turn_id, generation
         self.runtime = runtime
         self.question = question
+        self.followup = followup
         self.tables: dict[str, DisplayTable] = {}
 
     async def after_execute_tool(
@@ -97,4 +104,5 @@ class _Capture(AgentHook):
     async def after_run(self, context: AgentRunHookContext) -> None:
         await self.collector.bus.publish(UITurnPrepared(
             self.chat_id, self.turn_id, self.generation, self.runtime, tuple(self.tables.values()), self.question,
+            self.followup,
         ))

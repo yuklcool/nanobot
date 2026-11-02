@@ -444,7 +444,7 @@ test("inline choices, short forms and confirmations continue the native conversa
   expect(messages).toHaveLength(1);
   await page.screenshot({ path: test.info().outputPath("inline-choices-desktop.png"), fullPage: true });
   await page.getByRole("button", { name: "Define the project", exact: true }).click();
-  const form = page.getByRole("form", { name: "Project details" });
+  const form = page.getByRole("form", { name: "Project details" }).first();
   await expect(form).toBeVisible();
   const submit = form.getByRole("button", { name: "Send", exact: true });
   await expect(submit).toBeDisabled();
@@ -478,16 +478,33 @@ test("inline choices, short forms and confirmations continue the native conversa
   expect(messages).toHaveLength(3);
   await page.screenshot({ path: test.info().outputPath("form-submitted-after-refresh.png"), fullPage: true });
   await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
-  await page.getByRole("button", { name: "Confirm plan", exact: true }).click();
+  await page.getByRole("button", { name: "Change details", exact: true }).click();
+  const revised = page.getByRole("form", { name: "Project details", exact: true }).last();
+  await expect(revised.getByRole("textbox", { name: "Project name" })).toHaveValue("Nanobot interaction");
+  await expect(revised.getByRole("combobox", { name: "Priority" })).toHaveValue("High");
+  await expect(submit).toBeDisabled();
+  await revised.getByRole("textbox", { name: "Project name" }).fill("Nanobot revision");
+  await revised.getByRole("combobox", { name: "Priority" }).selectOption("Normal");
+  await expect(revised.getByRole("status")).toHaveText("Draft saved");
+  await page.reload();
+  await expect(revised.getByRole("textbox", { name: "Project name" })).toHaveValue("Nanobot revision");
+  await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
+  await revised.getByRole("button", { name: "Send", exact: true }).dblclick();
+  await expect(revised.getByRole("status")).toHaveText("Submitted");
+  expect(messages).toHaveLength(5);
+  expect(messages[4].content).toBe("Project details\nProject name: Nanobot revision\nPriority: Normal");
+  expect(messages[4].turn_id).not.toBe(messages[2].turn_id);
+  await expect(form.first().getByRole("textbox", { name: "Project name" })).toHaveValue("Nanobot interaction");
+  await page.getByRole("button", { name: "Confirm plan", exact: true }).last().click();
   await expect(page.getByText("Confirmed. We can now prepare the plan in this conversation.", { exact: true }).filter({ visible: true })).toBeVisible();
-  expect(messages).toHaveLength(4);
-  expect(messages[3]).toMatchObject({ content: "Confirm the proposed project plan.", ui_action: {
-    action_id: "conversation.followup", request_id: messages[3].turn_id,
+  expect(messages).toHaveLength(6);
+  expect(messages[5]).toMatchObject({ content: "Confirm the proposed project plan.", ui_action: {
+    action_id: "conversation.followup", request_id: messages[5].turn_id,
   } });
   expect(messages.every((message) => message.ui_mode === "auto")).toBe(true);
   await page.reload();
   await expect(page.getByText("Confirmed. We can now prepare the plan in this conversation.", { exact: true }).filter({ visible: true })).toBeVisible();
-  expect(messages).toHaveLength(4);
+  expect(messages).toHaveLength(6);
   expect(errors).toEqual([]);
 });
 

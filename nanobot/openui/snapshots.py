@@ -149,10 +149,12 @@ class UiSnapshotStore:
             raise UiConflictError("session generation mismatch")
         if snapshot.seq != 0 or snapshot.status != "streaming" or snapshot.source:
             raise UiConflictError("new block must start as an empty stream")
-        if snapshot.state or snapshot.state_version != 0:
-            raise UiConflictError("new block cannot contain persisted state")
+        if snapshot.state_version != 0:
+            raise UiConflictError("new block must start at state version zero")
         if len(state_keys) > 64 or any(not key or len(key) > 128 for key in state_keys):
             raise ValueError("invalid state allowlist")
+        if snapshot.state.keys() - state_keys:
+            raise ValueError("initial state field is not allowed for persistence")
         with self.transaction() as db:
             if db.execute(
                 "SELECT 1 FROM ui_tombstones WHERE owner=? AND session_key=? AND generation=?",
@@ -291,7 +293,9 @@ class UiSnapshotStore:
                 raise UiConflictError("BUDGET_EXCEEDED")
             snapshot = UiSnapshot.model_validate({
                 **current.model_dump(), "revision": revision + 1, "seq": 0,
-                "source": "", "status": "streaming", "state": {}, "state_version": 0,
+                "source": "", "status": "streaming",
+                "state": {"$followup": current.state["$followup"]} if "$followup" in current.state else {},
+                "state_version": 0,
                 "error_code": None, "usage": {},
             })
             self._write(db, scope, snapshot)

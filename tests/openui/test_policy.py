@@ -47,3 +47,8 @@ from nanobot.openui.policy import should_generate_view
 ])
 def test_selects_useful_interactions_without_a_classifier_call(question, answer, tables, expected):
     assert should_generate_view(question, answer, has_tables=tables) is expected
+
+
+def test_admitted_action_routes_without_requiring_magic_words_but_respects_text_only():
+    assert should_generate_view("调整一下", "下面是之前的信息。", has_tables=False, is_followup=True)
+    assert not should_generate_view("调整一下，只用文字", "下面是之前的信息。", has_tables=False, is_followup=True)
