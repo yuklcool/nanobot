@@ -479,6 +479,7 @@ test("inline choices, short forms and confirmations continue the native conversa
   await page.screenshot({ path: test.info().outputPath("form-submitted-after-refresh.png"), fullPage: true });
   await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
   await page.getByRole("button", { name: "Change details", exact: true }).click();
+  await expect(page.getByRole("form", { name: "Project details", exact: true })).toHaveCount(2);
   const revised = page.getByRole("form", { name: "Project details", exact: true }).last();
   await expect(revised.getByRole("textbox", { name: "Project name" })).toHaveValue("Nanobot interaction");
   await expect(revised.getByRole("combobox", { name: "Priority" })).toHaveValue("High");
@@ -494,7 +495,8 @@ test("inline choices, short forms and confirmations continue the native conversa
   expect(messages).toHaveLength(5);
   expect(messages[4].content).toBe("Project details\nProject name: Nanobot revision\nPriority: Normal");
   expect(messages[4].turn_id).not.toBe(messages[2].turn_id);
-  await expect(form.first().getByRole("textbox", { name: "Project name" })).toHaveValue("Nanobot interaction");
+  await expect(form.getByRole("textbox", { name: "Project name" })).toHaveValue("Nanobot interaction");
+  await expect(page.getByRole("button", { name: "Confirm plan", exact: true })).toHaveCount(2);
   await page.getByRole("button", { name: "Confirm plan", exact: true }).last().click();
   await expect(page.getByText("Confirmed. We can now prepare the plan in this conversation.", { exact: true }).filter({ visible: true })).toBeVisible();
   expect(messages).toHaveLength(6);
