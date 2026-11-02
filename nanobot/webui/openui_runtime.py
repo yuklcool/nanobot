@@ -22,7 +22,7 @@ from nanobot.openui.collector import UITurnPrepared
 from nanobot.openui.config import OpenUIOptions
 from nanobot.openui.coordinator import JobFailure, JobKey, UIJobCoordinator, store_call
 from nanobot.openui.data import DisplayRow, SessionDetail, capture_table
-from nanobot.openui.forms import ConversationForm, save_form
+from nanobot.openui.forms import ConversationFollowup, ConversationForm, form_followup, save_form
 from nanobot.openui.generator import generate_view
 from nanobot.openui.policy import should_generate_view
 from nanobot.openui.snapshots import (
@@ -351,16 +351,7 @@ class OpenUIRuntime:
         elif action.form_id is None and len(content) > 2000:
             raise ValueError("INVALID_PARAMS")
         if action.action_id == "conversation.followup":
-            context = RuntimeContextBlock(source="openui_followup", content=wrap_runtime_context_lines([
-                "Respond to the user's conversational follow-up. If they ask to revise a submitted questionnaire, "
-                "produce a new editable questionnaire preserving its original fields, options and conditions. "
-                "Include the previous answers and state which the user already explicitly allowed to retain; "
-                "prefill only those permitted answers and leave personal or unconsented answers blank. "
-                "Starting a new questionnaire blank does not mean clearing an explicitly requested revision. "
-                "Check the original user questionnaire request for retention permission; an explicit permission "
-                "continues until the user revokes it. Asking to modify or refill is not itself revocation. "
-                "Use only the existing conversation; do not invent answers or new persistence consent.",
-            ]))
+            context = RuntimeContextBlock(source="openui_followup", content=form_followup(snapshot, action.form_id).model_dump_json(exclude_none=True))
         result = await store_call(self.actions.reserve, scope, request_id=action.request_id,
                                   block_id=action.block_id, revision=action.revision, content=content,
                                   action_id=action.action_id, data_ref=action.data_ref, record_id=action.record_id,
@@ -424,10 +415,12 @@ class OpenUIRuntime:
         if answer.get("resuming") or answer.get("merge_next") or type(answer.get("turn_seq")) is not int:
             return
         tables = {table.data_ref: table for table in prepared.tables} if prepared else {}
+        followup = prepared.followup if prepared else None
         if self.options.generation == "preview":
             # Preview has no model to choose interactions; it only previews actual rows.
             tables = {key: table for key, table in tables.items() if table.rows}
-        if auto and not should_generate_view(prepared.question if prepared else "", answer["text"], has_tables=bool(tables)):
+        if auto and not should_generate_view(prepared.question if prepared else "", answer["text"],
+                                             has_tables=bool(tables), is_followup=followup is not None):
             return
         if self.options.generation == "preview" and not tables:
             return
@@ -439,10 +432,11 @@ class OpenUIRuntime:
             fallback_text=answer["text"].encode("utf-16-le")[:32000].decode("utf-16-le", errors="ignore"),
             question=prepared.question if prepared else "",
             tables=tables,
+            state={"$followup": followup.model_dump(mode="json", exclude_none=True)} if followup is not None else {},
         )
         holder.append(snapshot)
         try:
-            await store_call(self.store.create, scope, snapshot, state_keys=frozenset({"$question", "$forms", "$renames"}))
+            await store_call(self.store.create, scope, snapshot, state_keys=frozenset({"$question", "$forms", "$renames", "$followup"}))
         except UiConflictError:
             return
         runtime = prepared.runtime if prepared else None
@@ -484,6 +478,8 @@ class OpenUIRuntime:
                 raise UiConflictError("UI_MODEL_UNAVAILABLE")
             result = await generate_view(runtime=runtime, answer=snapshot.fallback_text, tables=snapshot.tables,
                                          question=snapshot.question,
+                                         followup=ConversationFollowup.model_validate(snapshot.state["$followup"])
+                                         if "$followup" in snapshot.state else None,
                                          library_prompt=_MANIFEST["prompt"], max_tokens=self.options.max_output_tokens,
                                          emit=delta)
             usage = result.to_turn_dict() if result is not None else {}

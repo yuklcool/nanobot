@@ -111,6 +111,25 @@ def content_digest(content: str) -> str:
     return hashlib.sha256(content.encode()).hexdigest()
 
 
+class ConversationFollowup(BaseModel):
+    """Data carried by an admitted UI action, never an execution permission."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    form: ConversationForm | None = None
+
+
+def form_followup(block: UiSnapshot, form_id: str | None) -> ConversationFollowup:
+    if form_id is None:
+        return ConversationFollowup.model_validate(block.state.get("$followup", {}))
+    entry = block.state.get("$forms", {}).get(form_id, {})
+    # Older cards have only a schema digest; do not guess their missing fields.
+    if "definition" not in entry:
+        return ConversationFollowup()
+    return ConversationFollowup(form=ConversationForm.model_validate({
+        **entry["definition"], "form_id": form_id, "values": entry["values"], "submit": False,
+    }))
+
+
 def save_form(
     store: UiSnapshotStore, scope: UiScope, block_id: str, *, revision: int,
     expected_state_version: int, form: ConversationForm,
@@ -138,7 +157,10 @@ def save_form(
             if not form.submit and previous["values"] != values:
                 raise UiConflictError("FORM_LOCKED")
             return block
-        entry = {"schema": schema, "values": values, "status": "draft"}
+        definition = form.model_dump(mode="json", exclude_none=True, exclude={
+            "form_id": True, "values": True, "submit": True, "fields": {"__all__": {"initial"}},
+        })
+        entry = {"schema": schema, "values": values, "status": "draft", "definition": definition}
         if form.submit:
             entry.update(request_id=str(uuid.uuid4()), content_digest=digest, status="prepared")
         if previous == entry:
