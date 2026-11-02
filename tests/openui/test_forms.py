@@ -50,11 +50,11 @@ def test_draft_restore_preserves_other_state_and_omits_unmarked_values(form_stor
 
 def test_submission_receipt_survives_restart_and_fences_duplicates(form_store):
     store, scope = form_store
-    submitted = form(submit=True, values=["Nanobot", "Private detail", "High"])
+    submitted = form(submit=True, values=["Nanobot", "PRIVATE-SUBMITTED-VALUE", "High"])
     prepared = save_form(store, scope, "block", revision=1, expected_state_version=0, form=submitted)
     entry = prepared.state["$forms"]["form-0"]
     assert entry["values"] == ["Nanobot", "", "High"]
-    assert "Private detail" not in prepared.model_dump_json()
+    assert "PRIVATE-SUBMITTED-VALUE" not in prepared.model_dump_json()
     replay = save_form(store, scope, "block", revision=1, expected_state_version=0, form=submitted)
     assert replay == prepared
     ledger = UiActionLedger(store)

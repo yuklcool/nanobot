@@ -367,6 +367,7 @@ async def test_whole_questionnaire_admission_uses_prepared_digest_and_form_messa
 async def test_form_context_survives_recap_restart_revision_and_ui_only_retry(gateway, monkeypatch):
     from dataclasses import replace
 
+    from nanobot.llm_usage.context import current_llm_usage_source
     from nanobot.openui.forms import ConversationForm
     from nanobot.webui.inbound_commands import WebUICommandRouter
     from nanobot.webui.openui_runtime import OpenUIRuntime
@@ -386,7 +387,8 @@ async def test_form_context_survives_recap_restart_revision_and_ui_only_retry(ga
     agent_contexts = []
 
     async def answer(messages, **kwargs):
-        agent_contexts.append(messages[-1]["content"])
+        if current_llm_usage_source() == "user":
+            agent_contexts.append(messages[-1]["content"])
         # No questionnaire wording or routing keywords: the admitted action owns the intent signal.
         return LLMResponse(content="Current information is ready.", tool_calls=[])
 
