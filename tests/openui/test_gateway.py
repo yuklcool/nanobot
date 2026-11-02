@@ -193,6 +193,30 @@ async def first_card(gateway, *, mode="openui", question="Look up the result"):
     return events[-1]
 
 
+async def test_card_scope_survives_native_history_and_title_update(gateway):
+    from nanobot.session.display_history import HistoryFact, HistoryKind
+
+    block = await first_card(gateway)
+    state = gateway.sessions.state
+    await state.append_history("websocket:chat", [HistoryFact(
+        kind=HistoryKind.COMPLETION, content={}, turn_id=block["turn_id"],
+    )], expected_generation=block["session_generation"])
+    await state.update_metadata("websocket:chat", {"title": "Updated after completion"})
+
+    restored = await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": [block["turn_id"]]})
+    assert restored["result"]["session_generation"] == block["session_generation"]
+    assert restored["result"]["blocks"][0]["block_id"] == block["block_id"]
+    saved = await rpc(gateway, "openui.form", {
+        **{key: block[key] for key in ("chat_id", "session_generation", "block_id", "revision")},
+        "expected_state_version": block["state_version"],
+        "form": {"form_id": "form-0", "title": "Fault details",
+                 "fields": [{"label": "Location", "persist": True}], "values": ["Test road"]},
+    })
+    assert saved["ok"]
+    assert saved["result"]["snapshot"]["state"]["$forms"]["form-0"]["values"] == ["Test road"]
+    assert gateway.tool.calls == 1
+
+
 async def test_confirmed_title_change_replays_receipt_without_agent_turn(gateway, tmp_path, monkeypatch):
     from nanobot.webui.sidebar_state import read_webui_sidebar_state
 

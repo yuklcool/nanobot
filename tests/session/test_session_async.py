@@ -37,6 +37,35 @@ async def test_writes_run_in_submission_order(tmp_path):
     await state.aclose()
 
 
+async def test_read_header_restores_identity_without_loading_history_or_creating_sessions(tmp_path, monkeypatch):
+    state = SessionManager(tmp_path).state
+    await state.import_messages("websocket:chat", [{"role": "user", "content": "Existing history"}])
+    await state.update_metadata("websocket:chat", {"webui": True, "title": "Saved"})
+    generation = (await state.read("websocket:chat")).generation
+    await state.aclose()
+    state = SessionManager(tmp_path).state
+    load = state._store.load
+
+    def header_only(key, *, history=True):
+        assert not history, "Header controls must not load the conversation history"
+        return load(key, history=history)
+
+    monkeypatch.setattr(state._store, "load", header_only)
+    try:
+        header = await state.read_header("websocket:chat")
+        assert header.generation == generation and header.policy.persist
+        assert header.metadata == {"webui": True, "title": "Saved"}
+        assert header.messages == [] and header.provider_state is None
+        header.metadata["title"] = "Detached edit"
+        assert (await state.read_header("websocket:chat")).metadata["title"] == "Saved"
+        assert await state.read_header("websocket:missing") is None
+        assert await state.read_metadata("websocket:missing") is None
+        await state.register_transient("websocket:temporary")
+        assert not (await state.read_header("websocket:temporary")).policy.persist
+    finally:
+        await state.aclose()
+
+
 @pytest.mark.parametrize("operation", ["reset", "delete"])
 async def test_retirement_drains_on_cancellation_and_keeps_recreated_session(tmp_path, operation):
     state = SessionManager(tmp_path).state
