@@ -61,6 +61,7 @@ function lastSocket(): FakeSocket {
 }
 
 beforeEach(() => {
+  localStorage.clear();
   FakeSocket.instances = [];
   vi.useFakeTimers();
 });
@@ -2144,6 +2145,7 @@ describe("NanobotClient", () => {
       protocol: 1, library_hash: "a".repeat(64), modes: ["markdown", "auto", "openui"],
     } });
     client.setOpenUIMode(null, mode);
+    client.setOpenUIActive(null, true);
     const creation = client.newChat();
     lastSocket().fakeMessage({ event: "attached", chat_id: "fresh-id" });
     await Promise.resolve();
@@ -2153,7 +2155,7 @@ describe("NanobotClient", () => {
     lastSocket().fakeMessage({ event: "webui_response", ok: true, request_id: request.request_id, result: {} });
     await expect(creation).resolves.toBe("fresh-id");
     expect(client.getOpenUIMode("fresh-id")).toBe(mode);
-    expect(client.getOpenUIMode(null)).toBe("markdown");
+    expect(client.getOpenUIMode(null)).toBe(mode);
     client.sendMessage("fresh-id", "First question");
     expect(JSON.parse(lastSocket().sent.at(-1)!)).toMatchObject({ chat_id: "fresh-id", ui_mode: mode });
     client.close();
@@ -2168,6 +2170,7 @@ describe("NanobotClient", () => {
       protocol: 1, library_hash: "a".repeat(64), modes: ["markdown", "auto", "openui"],
     } });
     client.setOpenUIMode(null, "auto");
+    client.setOpenUIActive(null, true);
     const creation = client.newChat();
     const rejected = expect(creation).rejects.toThrow();
     lastSocket().fakeMessage({ event: "attached", chat_id: "fresh-id" });
@@ -2180,6 +2183,61 @@ describe("NanobotClient", () => {
     expect(client.getOpenUIMode("fresh-id")).toBe("markdown");
     expect(lastSocket().sent.map((raw) => JSON.parse(raw)).filter((frame) => frame.type === "message")).toHaveLength(0);
     client.close();
+  });
+
+  it.each(["markdown", "auto", "openui"] as const)("remembers %s per conversation and scopes preferences without credentials", (mode) => {
+    const capability = { protocol: 1, library_hash: "a".repeat(64), modes: ["markdown", "auto", "openui"] };
+    const connect = (url: string) => {
+      const client = new NanobotClient({ url, reconnect: false,
+        socketFactory: (address) => new FakeSocket(address) as unknown as WebSocket });
+      client.connect(); lastSocket().fakeOpen();
+      lastSocket().fakeMessage({ event: "ready", chat_id: "initial", openui: capability });
+      return client;
+    };
+    const first = connect("ws://test/chat?token=secret-one&client_id=one");
+    first.setOpenUIMode("a", mode);
+    first.setOpenUIMode("b", "markdown");
+    first.close();
+    const restored = connect("ws://test/chat?token=secret-two&client_id=two");
+    expect(restored.getOpenUIMode("a")).toBe(mode);
+    expect(restored.getOpenUIMode("b")).toBe("markdown");
+    expect(restored.getOpenUIMode(null)).toBe("markdown");
+    expect(restored.getOpenUIMode("unselected-old-chat")).toBe("markdown");
+    restored.sendMessage("a", "Before renderer negotiation");
+    expect(JSON.parse(lastSocket().sent.at(-1)!)).not.toHaveProperty("ui_mode");
+    restored.setOpenUIActive("a", true);
+    restored.sendMessage("a", "Restored choice");
+    expect(JSON.parse(lastSocket().sent.at(-1)!).ui_mode).toBe(mode === "markdown" ? undefined : mode);
+    restored.sendMessage("a", "echo hello", undefined, { userShell: true });
+    expect(JSON.parse(lastSocket().sent.at(-1)!)).not.toHaveProperty("ui_mode");
+    restored.updateUrl("ws://other/chat?token=secret-two");
+    expect(restored.getOpenUIMode("a")).toBe("markdown");
+    restored.setOpenUIMode(null, "openui");
+    restored.updateUrl("ws://test/chat?token=renewed");
+    expect(restored.getOpenUIMode("a")).toBe(mode);
+    restored.updateUrl("nanobot-host://engine-a/");
+    restored.setOpenUIMode("a", "auto");
+    restored.updateUrl("nanobot-host://engine-b/");
+    expect(restored.getOpenUIMode("a")).toBe("markdown");
+    expect(Object.keys(localStorage).join(" ")).not.toMatch(/secret-one|secret-two|renewed|client_id/);
+    restored.close();
+  });
+
+  it("keeps mode selection usable when browser storage is unavailable", () => {
+    const read = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("blocked"); });
+    const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("blocked"); });
+    const client = new NanobotClient({ url: "ws://test", reconnect: false,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket });
+    try {
+      client.connect(); lastSocket().fakeOpen();
+      lastSocket().fakeMessage({ event: "ready", chat_id: "initial", openui: {
+        protocol: 1, library_hash: "a".repeat(64), modes: ["markdown", "auto", "openui"],
+      } });
+      expect(client.getOpenUIMode(null)).toBe("markdown");
+      client.setOpenUIMode("a", "auto");
+      expect(client.getOpenUIMode("a")).toBe("auto");
+      expect(client.getOpenUIMode(null)).toBe("auto");
+    } finally { client.close(); read.mockRestore(); write.mockRestore(); }
   });
 
   it("serializes workspace scope for new chats and messages", async () => {

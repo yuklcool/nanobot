@@ -92,17 +92,19 @@ export function OpenUIChatProvider({ client, chatId, disabled = false, messages,
       setFormRecovery(client.getOpenUI()?.form_recovery === true);
       setReadonlyQuery(client.getOpenUI()?.readonly_query === true);
       setSessionRename(client.getOpenUI()?.session_rename === true);
-      if (mode.current === "auto" && !supportsAuto) {
-        mode.current = "markdown";
-        setSelectedMode("markdown");
-      }
-      client.setOpenUIMode(chatId, mode.current);
+      mode.current = client.getOpenUIMode(chatId);
+      setSelectedMode(mode.current);
+      client.setOpenUIActive(chatId, true);
       setAvailable(true);
     }
     async function load() {
       const requestEpoch = epoch.current;
       const invocation = ++latestLoad;
-      if (disabled || !supported()) { if (active) setAvailable(false); return; }
+      if (disabled || !supported()) {
+        client.setOpenUIActive(chatId, false);
+        if (active) { setAvailable(false); setSelectedMode("markdown"); }
+        return;
+      }
       if (!chatId) { if (active) activate(); return; }
       try {
         const turns: string[] = JSON.parse(turnIds);
@@ -145,7 +147,7 @@ export function OpenUIChatProvider({ client, chatId, disabled = false, messages,
     return () => { active = false; unready(); unsession(); unstatus(); unevent(); };
   }, [client, chatId, disabled, merge, turnIds]);
 
-  useEffect(() => () => { client.setOpenUIMode(chatId, "markdown"); }, [client, chatId, disabled]);
+  useEffect(() => () => { client.setOpenUIActive(chatId, false); }, [client, chatId, disabled]);
   const updateState = useCallback((snapshot: UiSnapshot, action: string, payload: object, draftFormId?: string) => {
     const requestEpoch = epoch.current;
     const operation = stateQueue.current.catch(() => {}).then(async () => {

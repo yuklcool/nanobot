@@ -26,6 +26,12 @@ const WS_OPEN = 1;
 const WS_CLOSING = 2;
 const HOST_SOCKET_URL_PREFIX = "nanobot-host://";
 
+function openUIModeScope(address: string): string {
+  const url = new URL(address);
+  // Custom host URLs have a null origin; exclude credentials and query tokens.
+  return `${url.protocol}//${url.host}${url.pathname}`;
+}
+
 function createDefaultSocket(url: string): WebSocket {
   if (url.startsWith(HOST_SOCKET_URL_PREFIX)) {
     return createHostWebSocket(url);
@@ -275,12 +281,34 @@ export class NanobotClient {
   private openui: OpenUICapability | null = null;
   private openuiHandlers = new Set<(event: unknown) => void>();
   private openuiModes = new Map<string | null, OpenUIMode>();
+  private openuiChats = new Set<string | null>();
 
   getOpenUI(): OpenUICapability | null { return this.openui; }
-  getOpenUIMode(chatId: string | null): OpenUIMode { return this.openuiModes.get(chatId) ?? "markdown"; }
+  getOpenUIMode(chatId: string | null): OpenUIMode {
+    if (chatId && this.temporaryChatIds.has(chatId)) return "markdown";
+    if (!this.openuiModes.has(chatId)) {
+      let saved: string | null = null;
+      try { saved = localStorage.getItem(this.openUIModeKey(chatId)); } catch { /* Storage is optional. */ }
+      this.openuiModes.set(chatId, saved === "auto" || saved === "openui" ? saved : "markdown");
+    }
+    const mode = this.openuiModes.get(chatId)!;
+    return !this.openui || (mode === "auto" && !this.openui.modes?.includes("auto")) ? "markdown" : mode;
+  }
   setOpenUIMode(chatId: string | null, mode: OpenUIMode): void {
+    if (chatId && this.temporaryChatIds.has(chatId)) throw new Error("UI_DISABLED");
     if (mode === "auto" && !this.openui?.modes?.includes("auto")) throw new Error("UI_MODE_UNSUPPORTED");
-    if (mode === "markdown") this.openuiModes.delete(chatId); else this.openuiModes.set(chatId, mode);
+    for (const key of new Set([chatId, null])) this.rememberOpenUIMode(key, mode);
+  }
+  private rememberOpenUIMode(chatId: string | null, mode: OpenUIMode): void {
+    this.openuiModes.set(chatId, mode);
+    try { localStorage.setItem(this.openUIModeKey(chatId), mode); } catch { /* Keep the in-memory choice. */ }
+  }
+  /** Renderer activation is connection-local; it must never overwrite a user's preference. */
+  setOpenUIActive(chatId: string | null, active: boolean): void {
+    if (active) this.openuiChats.add(chatId); else this.openuiChats.delete(chatId);
+  }
+  private openUIModeKey(chatId: string | null): string {
+    return `nanobot.openui-mode.v1.${encodeURIComponent(openUIModeScope(this.currentUrl))}.${JSON.stringify(chatId)}`;
   }
   onOpenUI(handler: (event: unknown) => void): Unsubscribe {
     this.openuiHandlers.add(handler);
@@ -316,6 +344,10 @@ export class NanobotClient {
 
   /** Swap the URL (e.g. after fetching a fresh token) then reconnect. */
   updateUrl(url: string, socketFactory?: (url: string) => WebSocket): void {
+    if (openUIModeScope(url) !== openUIModeScope(this.currentUrl)) {
+      this.openuiModes.clear();
+      this.openuiChats.clear();
+    }
     this.currentUrl = url;
     if (socketFactory) {
       this.socketFactory = socketFactory;
@@ -588,6 +620,7 @@ export class NanobotClient {
   }
 
   close(): void {
+    this.openuiChats.clear();
     this.upload = null;
     this.receipts.close();
     this.intentionallyClosed = true;
@@ -619,7 +652,9 @@ export class NanobotClient {
     if (this.pendingNewChat) {
       return Promise.reject(new Error("newChat already in flight"));
     }
-    const mode = this.getOpenUIMode(null);
+    const selected = this.getOpenUIMode(null);
+    const preferred = this.openuiModes.get(null) ?? "markdown";
+    const mode = this.openuiChats.has(null) ? selected : "markdown";
     const chatId = await new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingNewChat = null;
@@ -633,9 +668,9 @@ export class NanobotClient {
     });
     if (mode !== "markdown") {
       await this.requestMutation("openui.subscribe", { chat_id: chatId, turn_ids: [] });
-      this.setOpenUIMode(chatId, mode);
+      this.setOpenUIActive(chatId, true);
     }
-    this.openuiModes.delete(null);
+    this.rememberOpenUIMode(chatId, preferred);
     return chatId;
   }
 
@@ -860,7 +895,8 @@ export class NanobotClient {
       ...(options?.workspaceScope ? { workspace_scope: options.workspaceScope } : {}),
       ...(options?.turnId ? { turn_id: options.turnId } : {}),
       webui: true,
-      ...(this.openui && this.openuiModes.has(chatId) && !options?.userShell ? { ui_mode: this.openuiModes.get(chatId)! } : {}),
+      ...(this.openui && this.openuiChats.has(chatId) && !temporary && !options?.userShell
+        && this.getOpenUIMode(chatId) !== "markdown" ? { ui_mode: this.getOpenUIMode(chatId) } : {}),
       ...(options?.uiAction ? { ui_action: options.uiAction } : {}),
     };
     if (!this.frameFitsTransport(frame)) {
@@ -1051,10 +1087,6 @@ export class NanobotClient {
 
     if (parsed.event === "ready") {
       this.openui = openUICapability(parsed.openui);
-      if (!this.openui) this.openuiModes.clear();
-      else if (!this.openui.modes?.includes("auto")) {
-        for (const [chatId, mode] of this.openuiModes) if (mode === "auto") this.openuiModes.delete(chatId);
-      }
       this.upload = uploadCapability(parsed.upload);
       this.readyChatId = parsed.chat_id;
       this.knownChats.add(parsed.chat_id);
@@ -1200,6 +1232,7 @@ export class NanobotClient {
 
   private handleClose(event?: { code?: number }): void {
     this.openui = null;
+    this.openuiChats.clear();
     this.upload = null;
     this.receipts.close();
     this.socket = null;
@@ -1319,7 +1352,7 @@ export class NanobotClient {
       if (this.options.onReauth) {
         try {
           const refreshed = await this.options.onReauth();
-          if (refreshed) this.currentUrl = refreshed;
+          if (refreshed) this.updateUrl(refreshed);
         } catch {
           // fall through to retry with current URL
         }

@@ -91,6 +91,8 @@ class Provider(LLMProvider):
             return LLMResponse(content="A variable stores a value.", tool_calls=[])
         if "Help me plan" in question:
             return LLMResponse(content="Please provide a name and priority.", tool_calls=[])
+        if "下一步" in question:
+            return LLMResponse(content="先查看概览还是详细记录？", tool_calls=[])
         if not any(row["role"] == "tool" for row in messages[index + 1:]):
             return LLMResponse(content=None, tool_calls=[ToolCallRequest(id=uuid4().hex, name="lookup", arguments={})])
         content = str(messages[-1]["content"])
@@ -741,8 +743,12 @@ async def test_auto_skips_plain_answers_but_preserves_explicit_mode_and_followup
         ("auto-plain", "auto", "Explain variables", 0),
         ("forced", "openui", "Explain variables", 1),
         ("disabled", "markdown", "Help me plan", 1),
+        ("forced-text-only", "openui", "Explain variables, text only", 1),
         ("auto-ask", "auto", "Help me plan", 2),
         ("auto-request", "auto", "Explain variables. Use clickable buttons for follow-up choices.", 3),
+        ("natural-choice", "auto", "下一步", 4),
+        ("edit-form", "auto", "修改上面的问卷。Explain variables", 5),
+        ("quoted-request", "auto", "Explain variables:\n> Use clickable buttons", 5),
     ]
     for turn_id, mode, content, calls in cases:
         await dispatch(gateway, {"type": "message", "chat_id": "chat", "turn_id": turn_id,
@@ -750,7 +756,7 @@ async def test_auto_skips_plain_answers_but_preserves_explicit_mode_and_followup
         await execute(gateway)
         assert gateway.loop.provider.ui_calls == calls
         blocks = (await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": [turn_id]}))["result"]["blocks"]
-        assert len(blocks) == (0 if turn_id in {"auto-plain", "disabled"} else 1)
+        assert len(blocks) == (0 if turn_id in {"auto-plain", "disabled", "forced-text-only", "quoted-request"} else 1)
     assert gateway.tool.calls == 0
 
 

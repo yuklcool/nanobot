@@ -419,8 +419,8 @@ class OpenUIRuntime:
         if self.options.generation == "preview":
             # Preview has no model to choose interactions; it only previews actual rows.
             tables = {key: table for key, table in tables.items() if table.rows}
-        if auto and not should_generate_view(prepared.question if prepared else "", answer["text"],
-                                             has_tables=bool(tables), is_followup=followup is not None):
+        if not should_generate_view(prepared.question if prepared else "", answer["text"], has_tables=bool(tables),
+                                    is_followup=followup is not None, explicit=not auto):
             return
         if self.options.generation == "preview" and not tables:
             return
