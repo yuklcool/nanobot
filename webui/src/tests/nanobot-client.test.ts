@@ -2223,6 +2223,26 @@ describe("NanobotClient", () => {
     restored.close();
   });
 
+  it("keeps temporary conversations out of saved interaction preferences", async () => {
+    const client = new NanobotClient({ url: "ws://test", reconnect: false,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket });
+    client.connect(); lastSocket().fakeOpen();
+    lastSocket().fakeMessage({ event: "ready", chat_id: "initial", openui: {
+      protocol: 1, library_hash: "a".repeat(64), modes: ["markdown", "auto", "openui"],
+    } });
+    client.setOpenUIMode(null, "auto");
+    const creation = client.newTemporaryChat();
+    lastSocket().fakeMessage({ event: "attached", chat_id: "private", temporary: true });
+    await expect(creation).resolves.toBe("private");
+    expect(client.getOpenUIMode("private")).toBe("markdown");
+    expect(() => client.setOpenUIMode("private", "openui")).toThrow("UI_DISABLED");
+    client.sendMessage("private", "Private question");
+    expect(JSON.parse(lastSocket().sent.at(-1)!)).not.toHaveProperty("ui_mode");
+    expect(client.getOpenUIMode(null)).toBe("auto");
+    expect(Object.keys(localStorage).join(" ")).not.toContain('"private"');
+    client.close();
+  });
+
   it("keeps mode selection usable when browser storage is unavailable", () => {
     const read = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("blocked"); });
     const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("blocked"); });

@@ -201,6 +201,26 @@ it("shows modes on the blank new-chat page without creating a session and hides 
   } finally { hidden.unmount(); privateChat.client.close(); }
 });
 
+it("preserves a saved mode without activating an incompatible component library", async () => {
+  const capability = { protocol: 1, library_hash: manifest.library_hash, modes: ["markdown", "openui", "auto"] };
+  const saved = setup(capability, [], initial, null);
+  saved.client.setOpenUIMode(null, "auto");
+  saved.client.close();
+  const incompatible = setup({ ...capability, library_hash: "b".repeat(64) }, [], initial, null);
+  const view = incompatible.mount();
+  try {
+    await act(async () => {});
+    expect(screen.queryByRole("combobox", { name: "openui.enable" })).toBeNull();
+    const creation = incompatible.client.newChat();
+    act(() => incompatible.socket.onmessage?.({ data: JSON.stringify({ event: "attached", chat_id: "new-text-chat" }) } as MessageEvent));
+    const chatId = await creation;
+    incompatible.client.sendMessage(chatId, "First question");
+    expect(incompatible.frames.filter((frame) => frame.action === "openui.subscribe")).toHaveLength(0);
+    expect(incompatible.frames.find((frame) => frame.type === "message")).not.toHaveProperty("ui_mode");
+    expect(incompatible.client.getOpenUIMode(null)).toBe("auto");
+  } finally { view.unmount(); incompatible.client.close(); }
+});
+
 it("restores only the canonical anchor, saves drafts explicitly and sends one structured same-session turn", async () => {
   const fixture = setup();
   const view = fixture.mount();
