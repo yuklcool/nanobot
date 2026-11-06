@@ -112,6 +112,7 @@ test("a disconnected generating view resumes its snapshot and saved form without
   await expect(form.getByRole("status")).toHaveText("Draft saved");
   await page.reload();
   await expect(name).toHaveValue("Recovered project");
+  await expect(page.getByRole("combobox", { name: "Interactive replies" })).toHaveValue("openui");
   await expect(heading).toHaveCount(1);
   expect(await recoveryCounters(page)).toEqual(generated);
   expect(observed.sent.filter((frame) => frame.type === "message")).toHaveLength(1);
@@ -144,6 +145,7 @@ test("switching conversations during generation keeps each view and action in it
   await expect(page.getByRole("button", { name: "Define the project", exact: true })).toHaveCount(1);
   await conversation.selectOption("recovery-switch-a");
   const form = page.getByRole("form", { name: "Recovery switch form", exact: true });
+  await expect(page.getByRole("combobox", { name: "Interactive replies" })).toHaveValue("openui");
   await expect(form.getByRole("textbox", { name: "Project name", exact: true })).toBeEnabled();
   await expect(page.getByRole("button", { name: "Define the project", exact: true })).toHaveCount(0);
   expect(await recoveryCounters(page)).toEqual(generated);
@@ -157,10 +159,13 @@ test("switching conversations during generation keeps each view and action in it
   const afterSubmit = await recoveryCounters(page);
   await conversation.selectOption("recovery-switch-b");
   await expect(page.getByRole("button", { name: "Define the project", exact: true })).toHaveCount(1);
+  await expect(page.getByRole("combobox", { name: "Interactive replies" })).toHaveValue("auto");
   await expect(page.getByText("Session A only", { exact: false })).toHaveCount(0);
   expect(await recoveryCounters(page)).toEqual(afterSubmit);
   expect(observed.errors).toEqual([]);
   await page.screenshot({ path: test.info().outputPath("switched-session-isolation.png"), fullPage: true });
+  await page.goto("/browser/openui-gateway.html?new");
+  await expect(page.getByRole("combobox", { name: "Interactive replies" })).toHaveValue("auto");
 });
 
 test("native history pages restore more than one subscription batch at the original answer anchors", async ({ page }) => {
@@ -353,6 +358,8 @@ test("new conversation selects a mode before its first message through the produ
   await page.screenshot({ path: test.info().outputPath("new-conversation-mode-mobile.png"), fullPage: true });
   await page.setViewportSize({ width: 1280, height: 720 });
   expect(frames.filter((frame) => frame.type === "new_chat" || frame.type === "message")).toHaveLength(0);
+  await page.reload();
+  await expect(mode).toHaveValue("auto");
   await page.getByRole("textbox", { name: "Message input", exact: true }).fill("Plan a small project");
   await page.getByRole("button", { name: "Send message", exact: true }).click();
   await expect(page.getByRole("button", { name: "Define the project", exact: true })).toBeVisible();
@@ -364,6 +371,23 @@ test("new conversation selects a mode before its first message through the produ
   await page.screenshot({ path: test.info().outputPath("new-conversation-auto-first-message.png"), fullPage: true });
   expect(errors).toEqual([]);
 });
+test("an explicit text preference survives refresh and skips UI generation", async ({ page }) => {
+  const observed = observeRecovery(page);
+  await page.goto("/browser/openui-gateway.html");
+  const mode = page.getByRole("combobox", { name: "Interactive replies" });
+  await mode.selectOption("auto");
+  await mode.selectOption("markdown");
+  await page.reload();
+  await expect(mode).toHaveValue("markdown");
+  const before = await recoveryCounters(page);
+  await page.getByRole("textbox", { name: "Question", exact: true }).fill("Plan a small project");
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  await expect(page.getByText("Please choose whether to define a new project or review an existing draft.", { exact: true })).toBeVisible();
+  expect((await recoveryCounters(page)).ui_calls).toBe(before.ui_calls);
+  expect(observed.sent.find((frame) => frame.type === "message")).not.toHaveProperty("ui_mode");
+  expect(observed.errors).toEqual([]);
+});
+
 test("native model adapter, captured data, record actions and refresh recovery", async ({ page }) => {
   const errors: string[] = [];
   const messages: Record<string, unknown>[] = [];

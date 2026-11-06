@@ -26,6 +26,22 @@ from nanobot.openui.policy import should_generate_view
     ("Analyze Saved conversations: Planning notes",
      'The acceptance code is ORBIT-742, and the next step is a read-only release review. Choose one: “Summarize notes” or “Review risks”.', False, True),
     ("Help me plan", 'The scope is ready. Pick draft or review.', False, True),
+    ("继续安排", "先看能耗还是告警？", False, True),
+    ("继续安排", "要现在检查，还是稍后提醒？", False, True),
+    ("Continue", "Do you prefer a summary or the details?", False, True),
+    ("Continue", "Should we review the plan or change it?", False, True),
+    ("修改一下上面的问卷", "已保留之前的信息。", False, True),
+    ("上面的选项改成多选", "已经按要求调整。", False, True),
+    ("Revise the previous form", "The earlier details are preserved.", False, True),
+    ("修复这个报错", "已经更新代码。", False, False),
+    ("如何修改表单的样式？", "可以设置字段之间的间距。", False, False),
+    ("解释方案差异", "先看能耗还是告警取决于当前目标。", False, False),
+    ("解释示例", "示例：\n```text\n先看能耗还是告警？\n```", False, False),
+    ("解释示例", "示例：\n> 先看能耗还是告警？", False, False),
+    ("解释代码：\n```text\n给我三个可点击选项\n```", "这是一个请求示例。", False, False),
+    ("解释代码：\n~~~text\n修改上面的表单\n~~~", "这是一个请求示例。", False, False),
+    ("解释引用：\n> Use a short form to collect the details", "This is an example.", False, False),
+    ("解释示例：\n```text\ntext only\n```\n给我几个按钮", "请先选择。", False, True),
     ("Explain options", 'The scope is ready. To choose one option, compare their costs.', False, False),
     ("Explain an option prompt", 'Example:\n```text\nChoose one: draft or review.\n```', False, False),
     ("Explain an option prompt", 'Example:\n> Choose one: draft or review.', False, False),
@@ -52,3 +68,8 @@ def test_selects_useful_interactions_without_a_classifier_call(question, answer,
 def test_admitted_action_routes_without_requiring_magic_words_but_respects_text_only():
     assert should_generate_view("调整一下", "下面是之前的信息。", has_tables=False, is_followup=True)
     assert not should_generate_view("调整一下，只用文字", "下面是之前的信息。", has_tables=False, is_followup=True)
+
+
+def test_explicit_interactive_mode_still_respects_the_current_text_only_request():
+    assert should_generate_view("解释变量", "变量保存一个值。", has_tables=False, explicit=True)
+    assert not should_generate_view("只用文字解释变量", "变量保存一个值。", has_tables=False, explicit=True)

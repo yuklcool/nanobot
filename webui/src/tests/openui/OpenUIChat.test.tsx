@@ -11,7 +11,7 @@ import type { UIMessage } from "../../lib/types";
 import { emptyFormValue, type FormInput } from "../../openui/form-contract";
 
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
-afterEach(cleanup);
+afterEach(() => { cleanup(); localStorage.clear(); });
 const message: UIMessage = { id: "answer", role: "assistant", content: "Lookup result 1", createdAt: 1,
   turnId: "turn-1", turnSeq: 7, turnPhase: "answer" };
 const initial: UiSnapshot = {
@@ -191,7 +191,7 @@ it("shows modes on the blank new-chat page without creating a session and hides 
     expect(draft.client.getOpenUIMode(null)).toBe("auto");
     expect(draft.frames).toHaveLength(0);
   } finally { view.unmount(); draft.client.close(); }
-  expect(draft.client.getOpenUIMode(null)).toBe("markdown");
+  expect(draft.client.getOpenUIMode(null)).toBe("auto");
   const privateChat = setup(capability, [], initial, null, true);
   const hidden = privateChat.mount();
   try {
@@ -199,6 +199,26 @@ it("shows modes on the blank new-chat page without creating a session and hides 
     expect(screen.queryByRole("combobox", { name: "openui.enable" })).toBeNull();
     expect(privateChat.frames).toHaveLength(0);
   } finally { hidden.unmount(); privateChat.client.close(); }
+});
+
+it("preserves a saved mode without activating an incompatible component library", async () => {
+  const capability = { protocol: 1, library_hash: manifest.library_hash, modes: ["markdown", "openui", "auto"] };
+  const saved = setup(capability, [], initial, null);
+  saved.client.setOpenUIMode(null, "auto");
+  saved.client.close();
+  const incompatible = setup({ ...capability, library_hash: "b".repeat(64) }, [], initial, null);
+  const view = incompatible.mount();
+  try {
+    await act(async () => {});
+    expect(screen.queryByRole("combobox", { name: "openui.enable" })).toBeNull();
+    const creation = incompatible.client.newChat();
+    act(() => incompatible.socket.onmessage?.({ data: JSON.stringify({ event: "attached", chat_id: "new-text-chat" }) } as MessageEvent));
+    const chatId = await creation;
+    incompatible.client.sendMessage(chatId, "First question");
+    expect(incompatible.frames.filter((frame) => frame.action === "openui.subscribe")).toHaveLength(0);
+    expect(incompatible.frames.find((frame) => frame.type === "message")).not.toHaveProperty("ui_mode");
+    expect(incompatible.client.getOpenUIMode(null)).toBe("auto");
+  } finally { view.unmount(); incompatible.client.close(); }
 });
 
 it("restores only the canonical anchor, saves drafts explicitly and sends one structured same-session turn", async () => {
@@ -249,7 +269,7 @@ it("does not request OpenUI from an older host and rejects another generation", 
   } finally { cleanup(); current.client.close(); }
 });
 
-it("negotiates auto mode and clears it when reconnecting to a host without it", async () => {
+it("uses text on a host without auto and restores the saved choice when support returns", async () => {
   const fixture = setup({ protocol: 1, library_hash: manifest.library_hash, modes: ["markdown", "openui", "auto"] });
   const view = fixture.mount();
   try {
@@ -270,6 +290,9 @@ it("negotiates auto mode and clears it when reconnecting to a host without it", 
     await waitFor(() => expect(screen.getByRole("combobox", { name: "openui.enable" })).toHaveValue("markdown"));
     expect(screen.queryByRole("option", { name: "openui.modeAuto" })).toBeNull();
     expect(() => fixture.client.setOpenUIMode("chat", "auto")).toThrow("UI_MODE_UNSUPPORTED");
+    act(() => fixture.socket.onmessage?.({ data: JSON.stringify({ event: "ready", chat_id: "chat", client_id: "browser",
+      openui: { protocol: 1, library_hash: manifest.library_hash, modes: ["markdown", "openui", "auto"] } }) } as MessageEvent));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "openui.enable" })).toHaveValue("auto"));
   } finally { view.unmount(); fixture.client.close(); }
 });
 
