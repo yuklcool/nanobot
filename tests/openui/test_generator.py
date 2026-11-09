@@ -7,7 +7,13 @@ from loguru import logger
 
 from nanobot.openui.data import SessionQuery, TableAdapterConfig, capture_table
 from nanobot.openui.generator import UiGenerationError, generate_view
-from nanobot.providers.base import GenerationSettings, LLMProvider, LLMResponse, LLMUsage, ToolCallRequest
+from nanobot.providers.base import (
+    GenerationSettings,
+    LLMProvider,
+    LLMResponse,
+    LLMUsage,
+    ToolCallRequest,
+)
 from nanobot.utils.llm_runtime import LLMRuntime
 
 

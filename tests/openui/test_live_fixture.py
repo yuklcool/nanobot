@@ -3,8 +3,8 @@
 import json
 
 import pytest
-from loguru import logger
 from gateway_fixture import LiveEvidence, isolated_live_config
+from loguru import logger
 
 from nanobot.config.schema import Config
 from nanobot.llm_usage.models import LLMCallRecord
