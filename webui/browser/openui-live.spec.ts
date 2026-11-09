@@ -446,6 +446,7 @@ test("live model creates, revises and confirms a conditional questionnaire witho
     await page.getByRole("button", { name: "修改需求", exact: true }).last().click();
     await expect.poll(() => [...snapshots.values()].filter((item) => !previousBlocks.has(item.block_id)
       && item.status === "complete").length, { timeout: 90_000 }).toBe(1);
+    expect(String(messages[2].content)).toBe("修改需求");
     await expect(latestReply.getByRole("form")).toHaveCount(1);
     const revised = page.locator("[data-assistant-message]").getByRole("form").last();
     const revisedCode = revised.getByRole("textbox", { name: "项目代号", exact: true });
@@ -492,6 +493,7 @@ test("live model creates, revises and confirms a conditional questionnaire witho
     await revisedSubmit.dblclick();
     await expect(latestReply.getByRole("button", { name: "确认需求", exact: true })).toBeVisible({ timeout: 90_000 });
     await expect(latestReply.getByRole("button", { name: "确认需求", exact: true })).toBeEnabled({ timeout: 60_000 });
+    await expect(latestReply.getByRole("button")).toHaveCount(2);
     await expect(latestReply).toContainText("LANTERN-2026-R2");
     await expect(latestReply).toContainText("演示");
     await expect(revised.getByRole("status")).toHaveText("Submitted");
