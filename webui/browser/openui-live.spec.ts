@@ -346,6 +346,7 @@ test("live model creates, revises and confirms a conditional questionnaire witho
     const latestReply = page.locator("[data-assistant-message]").last();
     await page.getByRole("textbox", { name: "Question", exact: true }).fill(
       "请生成一份可直接填写的“项目需求调查表”，只包含以下字段，标签和选项保持原文："
+      + "下述括号仅说明控件类型、选项和显示条件，不属于字段标签。"
       + "项目代号（文本）；交付形式（单选：演示、文档、其他）；其他交付说明（仅选其他时显示）；"
       + "重点关注（多选：易用性、可靠性、其他）；补充说明（仅重点关注选其他时显示）。"
       + "所有可见字段必填。这些都是虚构的公开项目资料，允许保存所有字段的草稿以便刷新后继续填写，"
