@@ -41,6 +41,7 @@ class Provider(LLMProvider):
         self.ui_started = asyncio.Event()
         self.ui_gate = None
         self.ui_invalid_tool = False
+        self.ui_stream_stalled = False
 
     async def chat_stream(self, messages, on_content_delta=None, **kwargs):
         if "Generate only OpenUI Lang" not in str(messages[0].get("content", "")):
@@ -53,6 +54,8 @@ class Provider(LLMProvider):
         if on_content_delta:
             await on_content_delta(prefix)
         self.ui_started.set()
+        if self.ui_stream_stalled:
+            return LLMResponse(content="stream timeout", finish_reason="error", error_kind="timeout")
         if self.ui_gate is not None:
             await self.ui_gate.wait()
         suffix = "".join(f'table{i} = DataTable({json.dumps(item["data_ref"])})\n' for i, item in enumerate(datasets))
@@ -925,6 +928,36 @@ async def test_ui_failure_retry_is_display_only_and_idempotent(gateway):
     assert restored["result"]["blocks"][0]["status"] == "complete"
     assert provider.ui_calls == 2 and gateway.tool.calls == 1 and gateway.bus.inbound_size == 0
     assert [json.loads(messages[-1]["content"])["question"] for messages, _ in provider.ui_requests] == ["Lookup", "Lookup"]
+
+
+async def test_interrupted_ui_stays_failed_until_display_only_retry(gateway):
+    provider = enable_model_tables(gateway)
+    provider.ui_stream_stalled = True
+    await rpc(gateway, "openui.subscribe", {"chat_id": "chat"})
+    await dispatch(gateway, {"type": "message", "chat_id": "chat", "turn_id": "interrupted-ui", "webui": True,
+                             "content": "Lookup", "ui_mode": "openui"})
+    await execute(gateway)
+    block = [row["snapshot"] for row in gateway.connection.sent if row["event"] == "openui.snapshot"][-1]
+    assert block["status"] == "failed" and block["fallback_text"] == "Lookup result 1"
+    assert provider.ui_calls == 1 and gateway.tool.calls == 1
+    provider.ui_stream_stalled = False
+    request = {key: block[key] for key in ("chat_id", "session_generation", "block_id", "revision")}
+    assert (await rpc(gateway, "openui.retry", request))["ok"]
+    await gateway.services.openui.jobs.drain()
+    restored = (await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": ["interrupted-ui"]}))["result"]["blocks"][0]
+    assert restored["status"] == "complete" and restored["revision"] == 2
+    assert restored["source"].count("root = Panel") == 1
+    assert gateway.tool.calls == 1 and provider.ui_calls == 2 and gateway.bus.inbound_size == 0
+
+
+async def test_ui_retry_preserves_saved_user_input(gateway):
+    block = await first_card(gateway)
+    request = {key: block[key] for key in ("chat_id", "session_generation", "block_id", "revision")}
+    saved = (await rpc(gateway, "openui.state", {**request, "expected_state_version": 0, "question": "Keep this draft"}))["result"]["snapshot"]
+    result = await rpc(gateway, "openui.retry", request)
+    assert not result["ok"] and result["error"]["message"] == "UI_STATE_SAVED"
+    restored = (await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": [block["turn_id"]]}))["result"]["blocks"][0]
+    assert restored == saved and gateway.tool.calls == 1
 
 
 async def test_ui_timeout_keeps_native_answer(gateway):

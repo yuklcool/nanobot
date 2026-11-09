@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Awaitable, Callable
 from typing import Literal, ParamSpec, TypeVar
+
+from loguru import logger
 
 from nanobot.runtime_admission import RuntimeAdmission
 from nanobot.utils.cancellation import shield_and_drain
@@ -39,22 +42,39 @@ class UIJobCoordinator:
     ) -> bool:
         self._admission.check()
         if self._closed or (key in self._tasks and not self._tasks[key].done()):
+            logger.bind(event="openui_job_rejected", turn_id=key[3], reason="closed" if self._closed else "duplicate").info("OpenUI job rejected")
             return False
         if len(self._tasks) >= self.capacity:
+            logger.bind(event="openui_job_rejected", turn_id=key[3], reason="capacity").warning("OpenUI job rejected")
             return False
 
+        queued_at = time.monotonic()
+
         async def run() -> None:
-            try:
-                async with asyncio.timeout(self.timeout):
-                    async with self._slots:
-                        await work()
-            except asyncio.CancelledError:
-                await shield_and_drain(failed("cancelled"))
-                raise
-            except TimeoutError:
-                await failed("timeout")
-            except Exception:
-                await failed("failed")
+            status, error_type = "complete", None
+            queue_ms: int | None = None
+            with logger.contextualize(turn_id=key[3], session_generation=key[2], session_key=key[1]):
+                try:
+                    async with asyncio.timeout(self.timeout):
+                        async with self._slots:
+                            queue_ms = round((time.monotonic() - queued_at) * 1000)
+                            await work()
+                except asyncio.CancelledError:
+                    status = "cancelled"
+                    await shield_and_drain(failed("cancelled"))
+                    raise
+                except TimeoutError:
+                    status = "timeout"
+                    await failed("timeout")
+                except Exception as error:
+                    status, error_type = "failed", type(error).__name__
+                    await failed("failed")
+                finally:
+                    duration_ms = round((time.monotonic() - queued_at) * 1000)
+                    logger.bind(event="openui_job_completed", status=status, queue_ms=queue_ms,
+                                duration_ms=duration_ms, error_type=error_type).info(
+                        "OpenUI job status={} queue_ms={} duration_ms={} error_type={}", status, queue_ms, duration_ms, error_type,
+                    )
 
         task = asyncio.create_task(run(), name="nanobot-openui-job")
         self._tasks[key] = task
@@ -63,7 +83,9 @@ class UIJobCoordinator:
             if self._tasks.get(key) is completed:
                 self._tasks.pop(key, None)
             if not completed.cancelled():
-                completed.exception()  # Observe cleanup failures, never orphan a task exception.
+                error = completed.exception()
+                if error is not None:
+                    logger.bind(event="openui_job_cleanup_failed", turn_id=key[3], error_type=type(error).__name__).warning("OpenUI cleanup failed")
 
         task.add_done_callback(done)
         return True

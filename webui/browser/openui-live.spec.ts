@@ -346,11 +346,13 @@ test("live model creates, revises and confirms a conditional questionnaire witho
     const latestReply = page.locator("[data-assistant-message]").last();
     await page.getByRole("textbox", { name: "Question", exact: true }).fill(
       "请生成一份可直接填写的“项目需求调查表”，只包含以下字段，标签和选项保持原文："
+      + "下述括号仅说明控件类型、选项和显示条件，不属于字段标签。"
       + "项目代号（文本）；交付形式（单选：演示、文档、其他）；其他交付说明（仅选其他时显示）；"
       + "重点关注（多选：易用性、可靠性、其他）；补充说明（仅重点关注选其他时显示）。"
       + "所有可见字段必填。这些都是虚构的公开项目资料，允许保存所有字段的草稿以便刷新后继续填写，"
       + "并允许提交后修改时沿用这些已有答案；首次新建问卷不要预填答案。"
-      + "提交后请复述我的答案，再让我选择“修改需求”或“确认需求”。确认后只总结此项目的代号和下一步，不执行任何业务操作。请全程用中文回答，不调用工具。",
+      + "提交后请复述我的答案，再让我选择“修改需求”或“确认需求”，这两个选项发送的回复内容也分别保持为“修改需求”和“确认需求”，不要扩展。"
+      + "确认后只总结此项目的代号和下一步，不执行任何业务操作。请全程用中文回答，不调用工具。",
     );
     await ask.click();
     const survey = page.getByRole("form", { name: "项目需求调查表", exact: true }).first();
@@ -415,6 +417,7 @@ test("live model creates, revises and confirms a conditional questionnaire witho
     await expect(confirm).toBeVisible({ timeout: 90_000 });
     await expect(confirm).toBeEnabled({ timeout: 60_000 });
     await expect(latestReply.getByRole("button", { name: "修改需求", exact: true })).toBeVisible();
+    await expect(latestReply.getByRole("button")).toHaveCount(2);
     await expect(latestReply).toContainText("LANTERN-2026");
     await expect(latestReply).toContainText("文档");
     await expect(latestReply).toContainText("支持键盘操作");
@@ -444,6 +447,7 @@ test("live model creates, revises and confirms a conditional questionnaire witho
     await page.getByRole("button", { name: "修改需求", exact: true }).last().click();
     await expect.poll(() => [...snapshots.values()].filter((item) => !previousBlocks.has(item.block_id)
       && item.status === "complete").length, { timeout: 90_000 }).toBe(1);
+    expect(String(messages[2].content)).toBe("修改需求");
     await expect(latestReply.getByRole("form")).toHaveCount(1);
     const revised = page.locator("[data-assistant-message]").getByRole("form").last();
     const revisedCode = revised.getByRole("textbox", { name: "项目代号", exact: true });
@@ -490,6 +494,7 @@ test("live model creates, revises and confirms a conditional questionnaire witho
     await revisedSubmit.dblclick();
     await expect(latestReply.getByRole("button", { name: "确认需求", exact: true })).toBeVisible({ timeout: 90_000 });
     await expect(latestReply.getByRole("button", { name: "确认需求", exact: true })).toBeEnabled({ timeout: 60_000 });
+    await expect(latestReply.getByRole("button")).toHaveCount(2);
     await expect(latestReply).toContainText("LANTERN-2026-R2");
     await expect(latestReply).toContainText("演示");
     await expect(revised.getByRole("status")).toHaveText("Submitted");
@@ -517,6 +522,7 @@ test("live model creates, revises and confirms a conditional questionnaire witho
     await expect(latestReply).toContainText("LANTERN-2026-R2");
     await expect.poll(() => [...snapshots.values()].every((item) => item.status === "complete"), { timeout: 60_000 }).toBe(true);
     expect(messages).toHaveLength(5);
+    expect(String(messages[4].content)).toBe("确认需求");
     expect(messages.every((message) => message.chat_id === "gateway-poc" && message.ui_mode === "auto")).toBe(true);
     expect(evidence().tools).toEqual(before.tools);
     expect(evidence().runs.slice(before.runs.length).every((run) => !run.error)).toBe(true);
