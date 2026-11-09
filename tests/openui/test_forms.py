@@ -48,6 +48,16 @@ def test_draft_restore_preserves_other_state_and_omits_unmarked_values(form_stor
         save_form(store, foreign, "block", revision=1, expected_state_version=0, form=form())
 
 
+@pytest.mark.parametrize("submitted", [False, True])
+def test_regeneration_cannot_erase_saved_form_or_submission(form_store, submitted):
+    store, scope = form_store
+    saved = save_form(store, scope, "block", revision=1, expected_state_version=0,
+                      form=form(values=["Nanobot", "Private input", "High"], submit=submitted))
+    with pytest.raises(UiConflictError, match="UI_STATE_SAVED"):
+        store.restart(scope, "block", revision=1)
+    assert store.read(scope, "block") == saved
+
+
 def test_submission_receipt_survives_restart_and_fences_duplicates(form_store):
     store, scope = form_store
     submitted = form(submit=True, values=["Nanobot", "PRIVATE-SUBMITTED-VALUE", "High"])

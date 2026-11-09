@@ -54,6 +54,10 @@ class UiSnapshot(BaseModel):
     state: dict[str, JsonValue] = Field(default_factory=dict)
     state_version: Annotated[int, Field(ge=0)] = 0
 
+    @property
+    def has_saved_input(self) -> bool:
+        return any(self.state.get(key) for key in ("$question", "$forms", "$renames"))
+
     @field_validator("source")
     @classmethod
     def bounded_source(cls, value: str) -> str:
@@ -291,6 +295,8 @@ class UiSnapshotStore:
                 raise UiConflictError("STALE_REVISION")
             if revision >= 3:
                 raise UiConflictError("BUDGET_EXCEEDED")
+            if current.has_saved_input:
+                raise UiConflictError("UI_STATE_SAVED")
             snapshot = UiSnapshot.model_validate({
                 **current.model_dump(), "revision": revision + 1, "seq": 0,
                 "source": "", "status": "streaming",

@@ -294,6 +294,8 @@ class LiveEvidence(AgentHook):
     def __init__(self, path: Path):
         super().__init__()
         self.path = path
+        self.trace_path = path.with_suffix(".openui.jsonl")
+        self.trace_path.write_text("", encoding="utf-8")
         self.data = {"calls": [], "tools": [], "runs": []}
         self.save()
 
@@ -303,6 +305,18 @@ class LiveEvidence(AgentHook):
     def observe(self, record):
         self.data["calls"].append(asdict(record))
         self.save()
+
+    def observe_generation(self, message):
+        fields = message.record["extra"]
+        if fields.get("event") not in {"turn_completed", "openui_model_completed", "openui_job_completed", "openui_job_rejected"}:
+            return
+        # Copy metrics only: log messages and native response previews can contain user data.
+        keys = ("event", "turn_id", "block_id", "revision", "manual_retry_count", "duration_ms", "queue_ms",
+                "first_delta_ms", "output_bytes", "retry_waits", "status", "outcome", "reason", "error_code", "error_type",
+                "finish_reason", "error_status_code", "model", "max_output_tokens", "reasoning_effort",
+                "input_tokens", "output_tokens", "total_tokens")
+        with self.trace_path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps({key: fields[key] for key in keys if key in fields}) + "\n")
 
     async def after_execute_tool(self, context, tool_call, tool, params, result):
         selection = params.get("session_keys")
@@ -355,6 +369,7 @@ async def run(port, live_config=None, evidence_path=None):
         evidence = LiveEvidence(Path(evidence_path)) if live_config else None
         if evidence:
             provider.set_llm_call_observer(evidence.observe)
+            logger.add(evidence.observe_generation)
         bus = MessageBus()
         sessions = SessionManager(workspace)
         saved = sessions.get_or_create("websocket:saved-planning")

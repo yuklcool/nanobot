@@ -3,6 +3,7 @@
 import json
 
 import pytest
+from loguru import logger
 from gateway_fixture import LiveEvidence, isolated_live_config
 
 from nanobot.config.schema import Config
@@ -45,3 +46,17 @@ def test_live_evidence_records_physical_calls_without_request_content(tmp_path):
     assert report["calls"][0]["duration_ms"] == 123
     assert report["calls"][0]["usage"]["total_tokens"] == 15
     assert report["tools"] == []
+
+
+def test_live_generation_trace_copies_metrics_without_log_content(tmp_path):
+    evidence = LiveEvidence(tmp_path / "evidence.json")
+    sink = logger.add(evidence.observe_generation)
+    try:
+        logger.bind(event="openui_model_completed", turn_id="turn", status="complete", duration_ms=15,
+                    first_delta_ms=5, total_tokens=20, private_field="PRIVATE-SECRET").info("PRIVATE-ANSWER")
+    finally:
+        logger.remove(sink)
+    trace = evidence.trace_path.read_text()
+    assert "PRIVATE" not in trace
+    assert json.loads(trace) == {"event": "openui_model_completed", "turn_id": "turn", "status": "complete",
+                                "duration_ms": 15, "first_delta_ms": 5, "total_tokens": 20}

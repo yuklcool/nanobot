@@ -4,6 +4,7 @@ import asyncio
 import threading
 
 import pytest
+from loguru import logger
 
 from nanobot.openui.coordinator import UIJobCoordinator, store_call
 from nanobot.runtime_admission import RuntimeAdmission, RuntimeBusyError
@@ -61,3 +62,41 @@ async def test_store_worker_is_drained_before_cancellation_returns():
     finally:
         finish.set()
         await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_queued_timeout_is_distinguishable_from_running_cancellation():
+    records = []
+    sink = logger.add(lambda message: records.append(message.record["extra"]),
+                      filter=lambda record: record["extra"].get("event") == "openui_job_completed")
+    jobs = UIJobCoordinator(RuntimeAdmission(), concurrency=1, timeout=2)
+    started, queued_failed = asyncio.Event(), asyncio.Event()
+
+    async def running():
+        started.set()
+        await asyncio.Event().wait()
+
+    async def queued():
+        raise AssertionError("A queued timeout must not start generation")
+
+    async def failed(reason):
+        pass
+
+    async def queue_failure(reason):
+        assert reason == "timeout"
+        queued_failed.set()
+
+    key = ("webui", "chat", "generation", "running")
+    try:
+        jobs.schedule(key, running, failed)
+        await started.wait()
+        jobs.timeout = 0.02
+        jobs.schedule(("webui", "other", "generation", "queued"), queued, queue_failure)
+        await asyncio.wait_for(queued_failed.wait(), 1)
+        await jobs.cancel(key)
+        await jobs.drain()
+        by_turn = {record["turn_id"]: record for record in records}
+        assert by_turn["queued"]["status"] == "timeout" and by_turn["queued"]["queue_ms"] is None
+        assert by_turn["running"]["status"] == "cancelled" and by_turn["running"]["queue_ms"] is not None
+    finally:
+        await jobs.close()
+        logger.remove(sink)

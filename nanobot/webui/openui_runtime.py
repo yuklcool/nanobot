@@ -11,6 +11,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
+from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from nanobot.agent.tools.base import ToolResult
@@ -379,6 +380,8 @@ class OpenUIRuntime:
         async def failed(reason: JobFailure) -> None:
             if holder:
                 await self._fail(scope, holder[0], reason, emit)
+            else:
+                self._prepared.pop((chat_id, generation, turn_id), None)
 
         try:
             self.jobs.schedule((*self.store.key(scope), turn_id), work, failed)
@@ -444,7 +447,8 @@ class OpenUIRuntime:
             self._runtimes[(*self.store.key(scope), snapshot.block_id)] = runtime
             while len(self._runtimes) > 128:
                 self._runtimes.popitem(last=False)
-        await self._render(scope, snapshot, runtime, emit)
+        with logger.contextualize(block_id=snapshot.block_id, revision=snapshot.revision, manual_retry_count=0):
+            await self._render(scope, snapshot, runtime, emit)
 
     async def _render(
         self, scope: UiScope, snapshot: UiSnapshot, runtime: LLMRuntime | None, emit: EmitSnapshot,
@@ -521,6 +525,8 @@ class OpenUIRuntime:
             raise UiConflictError("STALE_REVISION")
         if request.revision >= 3:
             raise UiConflictError("BUDGET_EXCEEDED")
+        if snapshot.has_saved_input:
+            raise UiConflictError("UI_STATE_SAVED")
         runtime = self._runtimes.get((*self.store.key(scope), snapshot.block_id))
         if snapshot.generation_mode == "model" and runtime is None:
             raise UiConflictError("UI_MODEL_UNAVAILABLE")
@@ -529,7 +535,8 @@ class OpenUIRuntime:
         async def work() -> None:
             holder.append(snapshot.model_copy(update={"revision": request.revision + 1}))
             current = await store_call(self.store.restart, scope, snapshot.block_id, revision=request.revision)
-            await self._render(scope, current, runtime, emit)
+            with logger.contextualize(block_id=current.block_id, revision=current.revision, manual_retry_count=current.revision - 1):
+                await self._render(scope, current, runtime, emit)
 
         async def failed(reason: JobFailure) -> None:
             if holder:
