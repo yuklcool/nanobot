@@ -196,7 +196,7 @@ jobs:
           docker run -d --name nanobot-openui-smoke -p 127.0.0.1:18765:8765 \
             -v "$RUNNER_TEMP/openui-container:/home/nanobot/.nanobot" nanobot-openui:test \
             gateway --foreground --config /home/nanobot/.nanobot/config.json
-          for attempt in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             if curl -fs -H 'Authorization: Bearer test-only-secret' http://127.0.0.1:18765/webui/bootstrap >/dev/null; then break; fi
             sleep 1
           done

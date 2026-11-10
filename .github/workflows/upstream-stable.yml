@@ -30,7 +30,7 @@ jobs:
       - run: python -m pytest --confcutdir=tests/scripts tests/scripts/test_upstream_stable.py tests/scripts/test_ci_workflows.py -q
       - run: python -m ruff check scripts/upstream_stable.py tests/scripts/test_upstream_stable.py
       - name: Validate workflow expressions and shell
-        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/upstream-stable.yml .github/workflows/openui.yml
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/upstream-stable.yml .github/workflows/openui.yml
 
   prepare:
     needs: tooling
