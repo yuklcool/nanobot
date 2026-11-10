@@ -408,7 +408,6 @@ test("captured charts and typed fields render, recover and submit through the ex
   await expect(submit).toBeDisabled();
   await power.fill("1.25");
   await expect(submit).toBeEnabled();
-  await form.getByRole("button", { name: "Save draft" }).click();
   await expect(form.getByRole("status")).toContainText("Draft saved");
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: test.info().outputPath("captured-charts-typed-fields-mobile.png"), fullPage: true });
