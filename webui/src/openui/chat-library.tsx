@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useId, useRef, useState } from "react";
 import { createLibrary, defineComponent, reactive, useIsStreaming, useStateField, useTriggerAction, createParser } from "@openuidev/react-lang";
-import { ArrowUp, ArrowUpRight, Search, RefreshCw, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, ArrowUpRight, Search, RefreshCw, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import { Button } from "../components/ui/button";
@@ -258,6 +258,7 @@ const DataTable = defineComponent({
     const streaming = useIsStreaming();
     const trigger = useTriggerAction();
     const [filter, setFilter] = useState("");
+    const [sort, setSort] = useState<{ key: string; direction: "ascending" | "descending" } | null>(null);
     const query = useContext(ReadonlyQuery);
     const [detail, setDetail] = useState<SessionDetail | null>(null);
     const [loading, setLoading] = useState(false);
@@ -278,6 +279,17 @@ const DataTable = defineComponent({
     if (!data) return <p role="status">{t("openui.unavailable")}</p>;
     const rows = data.rows.filter((row) => Object.values(row.values).some((value) =>
       String(value ?? "").toLocaleLowerCase().includes(filter.toLocaleLowerCase())));
+    if (sort) rows.sort((a, b) => {
+      const left = a.values[sort.key], right = b.values[sort.key];
+      if (left === null) return right === null ? 0 : 1;
+      if (right === null) return -1;
+      let order: number;
+      if (typeof left === "number" && typeof right === "number") order = left - right;
+      else if (typeof left === "number") order = -1;
+      else if (typeof right === "number") order = 1;
+      else order = String(left).localeCompare(String(right), undefined, { numeric: true });
+      return sort.direction === "ascending" ? order : -order;
+    });
     return <section className="flex min-w-0 flex-col gap-3" aria-busy={loading}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
       <h3 className="text-reading-small font-medium">{data.title}</h3>
@@ -293,7 +305,15 @@ const DataTable = defineComponent({
         <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden />{t("openui.refreshData")}
       </Button>}</div>}
       {rows.length > 0 && <><div className="max-w-full overflow-x-auto rounded-control border border-border/70"><table className="w-full text-left text-reading-small tabular-nums" aria-label={data.title}>
-        <thead className="bg-muted/40 text-muted-foreground"><tr>{Object.entries(data.columns).map(([key, label]) => <th scope="col" className="px-3 py-2.5 font-medium" key={key}>{label}</th>)}
+        <thead className="bg-muted/40 text-muted-foreground"><tr>{Object.entries(data.columns).map(([key, label]) => <th scope="col" className="px-3 py-2.5 font-medium" key={key}
+          aria-sort={sort?.key === key ? sort.direction : undefined}>
+          <Button type="button" variant="ghost" size="sm" className="-mx-2 h-auto gap-1 px-2 py-1 font-medium"
+            onClick={() => setSort((current) => current?.key !== key ? { key, direction: "ascending" }
+              : current.direction === "ascending" ? { key, direction: "descending" } : null)}>
+            {label}{sort?.key !== key ? <ArrowUpDown className="h-3.5 w-3.5" aria-hidden />
+              : sort.direction === "ascending" ? <ArrowUp className="h-3.5 w-3.5" aria-hidden /> : <ArrowDown className="h-3.5 w-3.5" aria-hidden />}
+          </Button>
+        </th>)}
           {canQuery && <th scope="col" className="px-3 py-2.5 font-medium">{t("openui.viewDetails")}</th>}
           <th scope="col" className="px-3 py-2.5 font-medium">{t("openui.analyzeRecord")}</th></tr></thead>
         <tbody>{rows.map((row) => <tr key={row.id} className="hover:bg-muted/20">

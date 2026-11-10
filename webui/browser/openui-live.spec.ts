@@ -75,6 +75,14 @@ test("live model searches, selects and reads a saved conversation without refres
     await expect(table).not.toContainText("ORBIT-742");
     await expect(table).not.toContainText("COMET-319");
     const searched = evidence();
+    const capturedOrder = await table.locator("tbody tr").allTextContents();
+    const titleSort = table.getByRole("button", { name: "Title", exact: true });
+    await titleSort.click();
+    await expect(table.locator("tbody tr").first()).toContainText("Planning archive");
+    await titleSort.press("Enter");
+    await expect(table.locator("tbody tr").first()).toContainText("Planning notes");
+    await titleSort.press("Space");
+    expect(await table.locator("tbody tr").allTextContents()).toEqual(capturedOrder);
     await page.getByRole("textbox", { name: "Filter records" }).fill("Planning notes");
     await expect(table).not.toContainText("Planning archive");
     expect(evidence()).toEqual(searched);
