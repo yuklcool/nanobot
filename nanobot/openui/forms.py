@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+import re
 import uuid
+from datetime import date
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -30,19 +33,43 @@ class FormField(BaseModel):
     options: Annotated[list[Annotated[str, Field(min_length=1, max_length=120)]], Field(min_length=2, max_length=6)] | None = None
     persist: bool = False
     required: bool = True
-    type: Literal["text", "select", "radio", "checkbox"] | None = None
+    type: Literal["text", "number", "date", "select", "radio", "checkbox"] | None = None
+    min: Annotated[float, Field(allow_inf_nan=False)] | None = None
+    max: Annotated[float, Field(allow_inf_nan=False)] | None = None
     when: FormCondition | None = None
     initial: FormValue | None = None
 
     @model_validator(mode="after")
     def valid_initial(self) -> FormField:
+        if ((self.min is not None or self.max is not None) and self.type != "number"
+                or self.min is not None and self.max is not None and self.min > self.max):
+            raise ValueError("INVALID_NUMERIC_BOUNDS")
         if self.initial is not None:
             selected = self.initial if isinstance(self.initial, list) else [self.initial] if self.initial else []
             if (not self.persist or (self.type == "checkbox") != isinstance(self.initial, list)
                     or (self.options and (len(set(selected)) != len(selected)
-                                         or any(item not in self.options for item in selected)))):
+                                         or any(item not in self.options for item in selected)))
+                    or isinstance(self.initial, str) and not self.scalar_valid(self.initial)):
                 raise ValueError("INVALID_INITIAL_VALUE")
         return self
+
+    def scalar_valid(self, value: str) -> bool:
+        if not value:
+            return True
+        if self.type == "number":
+            if not re.fullmatch(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?", value, flags=re.ASCII):
+                return False
+            number = float(value)
+            return (math.isfinite(number) and (self.min is None or number >= self.min)
+                    and (self.max is None or number <= self.max))
+        if self.type == "date":
+            if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
+                return False
+            try:
+                date.fromisoformat(value)
+            except ValueError:
+                return False
+        return True
 
 
 class ConversationForm(BaseModel):
@@ -62,7 +89,7 @@ class ConversationForm(BaseModel):
         visible = self.visible()
         for index, (field, value) in enumerate(zip(self.fields, self.values)):
             if ((field.type in {"select", "radio", "checkbox"} and not field.options)
-                    or (field.type == "text" and field.options)
+                    or (field.type in {"text", "number", "date"} and field.options)
                     or (field.options and len(set(field.options)) != len(field.options))):
                 raise ValueError("INVALID_PARAMS")
             if field.when and (field.when.field >= index or not self.fields[field.when.field].options
@@ -74,6 +101,8 @@ class ConversationForm(BaseModel):
                 self.values[index] = [] if field.type == "checkbox" else ""
                 continue
             if self.submit and field.required and not (value if isinstance(value, list) else value.strip()):
+                raise ValueError("INVALID_PARAMS")
+            if isinstance(value, str) and not field.scalar_valid(value):
                 raise ValueError("INVALID_PARAMS")
             selected = value if isinstance(value, list) else [value] if value else []
             if field.options and (len(set(selected)) != len(selected) or any(item not in field.options for item in selected)):

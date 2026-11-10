@@ -30,6 +30,9 @@ async def generate_view(
     messages = [
         {"role": "system", "content": library_prompt + "\nGenerate only OpenUI Lang. "
          "Use the registered DataTable with the supplied data_ref for tabular facts. "
+         "For requested charts use DataChart with descriptor category_columns/numeric_columns; "
+         "MetricValue requires a single-row dataset and a numeric column. Use source column labels for units; "
+         "never invent units, conversions, aggregates or data values. Retain scope and caveats in Text. "
          "Choose the smallest useful presentation from the user's request, final answer and dataset descriptors together.\n"
          "PRESENTATION: Choose the Panel presentation explicitly before composing its children. "
          "The public answer is already visible. Use \"replace\" whenever your DataTable presents a result list/table "
@@ -113,6 +116,8 @@ async def generate_view(
          "This presentation replaces the static questionnaire; its original text remains expandable. "
          "Do not replace the questionnaire with generic next-step Choices such as optimize, anonymize or publish. "
          "Use radio for single choices, checkbox for multiple selections, and conditional text fields for Other. "
+         "Use number for numeric inputs and date for calendar dates (YYYY-MM-DD). Numeric min/max are optional "
+         "and must come from the requested constraints; do not invent limits. Preserve these field types and bounds when revising. "
          "Use when:{field:index,value:option} for dependent questions; indexes refer to earlier fields starting at zero. "
          "Preserve optionality, descriptions and choices. Leave new questionnaires blank. "
          "For an explicit revision request, use initial only for existing answers actually stated in the public "

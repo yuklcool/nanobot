@@ -8,6 +8,7 @@ import type { DataQuery, DisplayTable, SessionDetail } from "./data-contract";
 import { emptyFormValue, formComplete, formContent, formDefinitionSchema, initialFormValues, normalizeFormValues, visibleFields,
   type FormInput, type FormState, type FormValue } from "./form-contract";
 import { SessionRenameForm } from "./SessionRenameForm";
+import { chartPropsSchema, DataChartView, metricPropsSchema, MetricValueView, validChart } from "./data-views";
 
 export const ChatInteraction = createContext(false);
 export const DisplayDataContext = createContext<Record<string, DisplayTable>>({});
@@ -47,7 +48,7 @@ const Choices = defineComponent({
   },
 });
 const Form = defineComponent({
-  name: "Form", description: "Collect details or render an entire questionnaire (1–12 fields). Keep a survey together in ONE Form, with description and presentation:questionnaire; use it as the only Panel child. Preserve the questions and options from the answer. Use type:radio for one choice, checkbox for multiple choices, select for a dropdown, otherwise text. Fields are required unless required:false. when:{field:0,value:\"Other\"} shows a field only when that earlier choice is selected (also matches checkbox selections). Add conditional text fields for Other details and conditional follow-up questions. Set persist:true ONLY for explicitly non-sensitive details; omit it for employee, income or other personal survey answers. When revising a submitted questionnaire, create a NEW Form; initial may contain an existing answer from the public question or answer ONLY with persist:true and explicit permission to retain it. Never invent initial answers or copy personal survey answers into initial. Never ask for secrets. Submission sends all visible answers together to this conversation. Exception: for an explicit request to rename THIS conversation, use one required text field and action:{type:session.rename,title:requested title}; the user reviews and confirms before its sidebar title is saved. Never use this action for files or other conversations.",
+  name: "Form", description: "Collect details or render an entire questionnaire (1–12 fields). Keep a survey together in ONE Form, with description and presentation:questionnaire; use it as the only Panel child. Preserve the questions and options from the answer. Use type:radio for one choice, checkbox for multiple choices, select for a dropdown, number for numeric input, date for calendar dates (YYYY-MM-DD), otherwise text. For number fields, min/max may express explicitly requested bounds; never invent limits. Fields are required unless required:false. when:{field:0,value:\"Other\"} shows a field only when that earlier choice is selected (also matches checkbox selections). Add conditional text fields for Other details and conditional follow-up questions. Set persist:true ONLY for explicitly non-sensitive details; omit it for employee, income or other personal survey answers. When revising a submitted questionnaire, create a NEW Form; initial may contain an existing answer from the public question or answer ONLY with persist:true and explicit permission to retain it. Never invent initial answers or copy personal survey answers into initial. Never ask for secrets. Submission sends all visible answers together to this conversation. Exception: for an explicit request to rename THIS conversation, use one required text field and action:{type:session.rename,title:requested title}; the user reviews and confirms before its sidebar title is saved. Never use this action for files or other conversations.",
   props: formDefinitionSchema,
   component: ({ props }) => <FormInteraction props={props} />,
 });
@@ -167,7 +168,7 @@ function DetailForm({ props }: { props: z.infer<typeof formDefinitionSchema> }) 
         const kind = field.type ?? (field.options ? "select" : "text");
         return <fieldset disabled={disabled} className="flex min-w-0 flex-col gap-2" key={index}>
           <legend className="mb-2 max-w-full text-reading-small font-medium [overflow-wrap:anywhere]">
-            <label htmlFor={kind === "text" || kind === "select" ? fieldId : undefined}>{field.label}</label>
+            <label htmlFor={kind !== "radio" && kind !== "checkbox" ? fieldId : undefined}>{field.label}</label>
             {field.required === false && <span className="ml-2 text-caption font-normal text-muted-foreground">{t("openui.optional")}</span>}
           </legend>
           {kind === "radio" || kind === "checkbox" ? <div className="flex flex-wrap gap-x-4 gap-y-2">
@@ -185,7 +186,8 @@ function DetailForm({ props }: { props: z.infer<typeof formDefinitionSchema> }) 
             value={typeof value === "string" ? value : ""} onChange={(event) => change(index, event.target.value)}>
             <option value="" disabled={field.required !== false}>{field.placeholder || field.label}</option>
             {field.options?.map((option, optionIndex) => <option key={optionIndex} value={option}>{option}</option>)}
-          </select> : <input id={fieldId} required={field.required !== false} maxLength={400}
+          </select> : <input id={fieldId} type={kind} required={field.required !== false} maxLength={400}
+            min={field.min} max={field.max} step={kind === "number" ? "any" : undefined}
             className="h-10 min-w-0 rounded-control border border-input bg-background px-3 text-reading-small placeholder:text-muted-foreground/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             placeholder={field.placeholder} value={typeof value === "string" ? value : ""}
             onChange={(event) => change(index, event.target.value)} />}
@@ -348,15 +350,31 @@ const DataTable = defineComponent({
     </section>;
   },
 });
+const DataChart = defineComponent({
+  name: "DataChart", description: "Plot captured snapshot values only. Arguments: data_ref, category column key, one to three numeric series column keys, optional kind bar/line/pie (default bar). Use only descriptor category_columns and numeric_columns. Pie needs exactly one nonnegative series with a positive total. Null values are gaps, never zeros. Preserve snapshot order; no invented values, aggregates, units or conversions. Column labels supply known units. Chart scope is only the captured rows, not the full database. Add the same dataset's DataTable when record actions or exact values are needed.",
+  props: chartPropsSchema,
+  component: function CapturedChart({ props }) {
+    const tables = useContext(DisplayDataContext);
+    return <DataChartView table={Object.hasOwn(tables, props.data_ref) ? tables[props.data_ref] : undefined} props={props} />;
+  },
+});
+const MetricValue = defineComponent({
+  name: "MetricValue", description: "Show one numeric field from a captured dataset with exactly one record. Arguments: data_ref, field column key. Labels and values come directly from the authorized snapshot. Use only descriptor numeric_columns. Aggregation must already be performed by the tool; never pick an arbitrary record, invent units or compute a total over a truncated snapshot.",
+  props: metricPropsSchema,
+  component: function CapturedMetric({ props }) {
+    const tables = useContext(DisplayDataContext);
+    return <MetricValueView table={Object.hasOwn(tables, props.data_ref) ? tables[props.data_ref] : undefined} field={props.field} />;
+  },
+});
 const Panel = defineComponent({
-  name: "Panel", description: "Inline interactions. Choose presentation explicitly: replace when DataTable children present a list/table already in the answer, including multiple comparison tables; supplement for added interactions that need the original answer visible. In replace mode preserve essential explanation, caveats and scope labels in Text children. Every visible component must be included in children. When a static candidate list does not supply the requested content, replace it with ONE nonempty Text explaining that conclusion and search limits. The complete original answer remains expandable. Use empty children when no interaction or replacement helps. Never add redundant controls or a generic form to every reply.",
-  props: z.object({ children: z.array(z.union([Text.ref, Choices.ref, Form.ref, Followup.ref, DataTable.ref])).max(6),
+  name: "Panel", description: "Inline interactions. Choose presentation explicitly: replace when DataTable, DataChart or MetricValue children present a list/table already in the answer, including multiple comparison tables; supplement for added interactions that need the original answer visible. In replace mode preserve essential explanation, caveats and scope labels in Text children. Every visible component must be included in children. When a static candidate list does not supply the requested content, replace it with ONE nonempty Text explaining that conclusion and search limits. The complete original answer remains expandable. Use empty children when no interaction or replacement helps. Never add redundant controls or a generic form to every reply.",
+  props: z.object({ children: z.array(z.union([Text.ref, Choices.ref, Form.ref, Followup.ref, DataTable.ref, DataChart.ref, MetricValue.ref])).max(6),
     presentation: z.enum(["supplement", "replace"]).optional() }),
   component: ({ props, renderNode }) => props.children.length ? <div className="mt-4 flex min-w-0 flex-col gap-4">{
     props.children.map((child, index) => <FormPosition.Provider key={index} value={`form-${index}`}>{renderNode(child)}</FormPosition.Provider>)
   }</div> : null,
 });
-export const chatLibrary = createLibrary({ id: "nanobot-chat-v1", root: "Panel", components: [Panel, Text, Choices, Form, Followup, DataTable] });
+export const chatLibrary = createLibrary({ id: "nanobot-chat-v1", root: "Panel", components: [Panel, Text, Choices, Form, Followup, DataTable, DataChart, MetricValue] });
 export const followupSchema = z.object({ type: z.literal("continue_conversation"), params: z.object({
   action_id: z.literal("conversation.followup"), question: z.string().trim().min(1).max(2000),
 }).strict() });
@@ -371,10 +389,21 @@ export function replacesAnswer(source: string, tables: Record<string, DisplayTab
     const node = children[0];
     if (children.length === 1 && node?.typeName === "Form" && node.props?.presentation === "questionnaire"
       && formDefinitionSchema.safeParse(node.props).success) return true;
-    const data = children.filter((child) => child?.typeName === "DataTable");
+    const data = children.filter((child) => ["DataTable", "DataChart", "MetricValue"].includes(child?.typeName));
     const explanation = children.length === 1 && node?.typeName === "Text"
       && typeof node.props?.text === "string" && node.props.text.trim().length > 0 && node.props.text.length <= 16000;
     return result.root?.props.presentation === "replace" && (explanation || (data.length > 0 && data.every((child) => {
+      if (child.typeName === "DataChart") {
+        const parsed = chartPropsSchema.safeParse(child.props);
+        return parsed.success && Object.hasOwn(tables, parsed.data.data_ref) && validChart(tables[parsed.data.data_ref], parsed.data);
+      }
+      if (child.typeName === "MetricValue") {
+        const parsed = metricPropsSchema.safeParse(child.props);
+        if (!parsed.success || !Object.hasOwn(tables, parsed.data.data_ref)) return false;
+        const table = tables[parsed.data.data_ref];
+        return Object.hasOwn(table.columns, parsed.data.field) && table.rows.length === 1
+          && typeof table.rows[0].values[parsed.data.field] === "number";
+      }
       const parsed = dataTableProps.safeParse(child.props);
       return parsed.success && Object.hasOwn(tables, parsed.data.data_ref);
     })));

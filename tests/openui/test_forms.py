@@ -27,6 +27,37 @@ def form(**updates):
     })
 
 
+def test_numeric_date_fields_validate_and_retain_drafts_and_followup(form_store):
+    store, scope = form_store
+    form = ConversationForm.model_validate({"form_id": "form-0", "title": "Observation", "fields": [
+        {"label": "Power", "type": "number", "min": 0, "max": 100, "persist": True},
+        {"label": "Date", "type": "date", "persist": True},
+    ], "values": ["1.250", "2028-02-29"]})
+    block = save_form(store, scope, "block", revision=1, expected_state_version=0, form=form)
+    retained = form_followup(block, "form-0").form
+    assert retained is not None and retained.values == ["1.250", "2028-02-29"]
+    assert retained.fields[0].max == 100 and retained.fields[1].type == "date"
+    submitted = ConversationForm.model_validate({**form.model_dump(), "submit": True})
+    assert submitted.content() == "Observation\nPower: 1.250\nDate: 2028-02-29"
+
+
+@pytest.mark.parametrize("kind,value", [("number", "101"), ("number", "-1"), ("number", "0x10"),
+                                       ("number", "1e999"), ("date", "2026-02-29"), ("date", "0000-01-01")])
+def test_invalid_numeric_date_submission_is_rejected(kind, value):
+    field = {"label": "Input", "type": kind, **({"min": 0, "max": 100} if kind == "number" else {})}
+    with pytest.raises(ValidationError):
+        ConversationForm.model_validate({"form_id": "form-0", "title": "Observation", "fields": [field],
+                                        "values": [value], "submit": True})
+
+
+def test_invalid_numeric_bounds_and_date_initial_are_rejected():
+    for field in [{"label": "Power", "type": "number", "min": 10, "max": 1},
+                  {"label": "Date", "type": "date", "min": 0},
+                  {"label": "Date", "type": "date", "persist": True, "initial": "2026-02-29"}]:
+        with pytest.raises(ValidationError):
+            FormField.model_validate(field)
+
+
 def test_draft_restore_preserves_other_state_and_omits_unmarked_values(form_store):
     store, scope = form_store
     store.save_state(scope, "block", revision=1, expected_state_version=0, state={"$question": "Existing draft"})

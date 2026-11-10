@@ -6,7 +6,8 @@ export const formFieldSchema = z.object({
   label: z.string().min(1).max(80), placeholder: z.string().max(120).optional(),
   options: z.array(z.string().min(1).max(120)).min(2).max(6).optional(),
   persist: z.boolean().optional(), required: z.boolean().optional(),
-  type: z.enum(["text", "select", "radio", "checkbox"]).optional(),
+  type: z.enum(["text", "number", "date", "select", "radio", "checkbox"]).optional(),
+  min: z.number().finite().optional(), max: z.number().finite().optional(),
   initial: formValueSchema.optional(),
   when: z.object({ field: z.number().int().min(0).max(11), value: z.string().min(1).max(120) }).optional(),
 });
@@ -20,8 +21,11 @@ export const formDefinitionSchema = z.object({
     || fields[0].required === false || (fields[0].type && fields[0].type !== "text")))
     context.addIssue({ code: "custom", path: ["action"], message: "Rename needs one required text field" });
   fields.forEach((field, index) => {
-    if (field.type === "text" && field.options)
+    if ((field.type === "text" || field.type === "number" || field.type === "date") && field.options)
       context.addIssue({ code: "custom", path: ["fields", index], message: "Text fields cannot have options" });
+    if (((field.min !== undefined || field.max !== undefined) && field.type !== "number")
+      || (field.min !== undefined && field.max !== undefined && field.min > field.max))
+      context.addIssue({ code: "custom", path: ["fields", index], message: "Invalid numeric bounds" });
     if ((field.type === "radio" || field.type === "checkbox" || field.type === "select") && !field.options)
       context.addIssue({ code: "custom", path: ["fields", index], message: "Choice fields need options" });
     if (field.when && (field.when.field >= index || !fields[field.when.field]?.options?.includes(field.when.value)))
@@ -75,8 +79,21 @@ export function formComplete(fields: FormField[], values: FormValue[]): boolean 
     if (field.type === "checkbox") return Array.isArray(value) && new Set(value).size === value.length
       && (field.required === false || value.length > 0) && value.every((option) => field.options?.includes(option));
     return typeof value === "string" && (field.required === false || Boolean(value.trim()))
-      && (!value || !field.options || field.options.includes(value));
+      && (!value || !field.options || field.options.includes(value)) && fieldScalarValid(field, value);
   });
+}
+function fieldScalarValid(field: FormField, value: string): boolean {
+  if (!value) return true;
+  if (field.type === "number") {
+    if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value)) return false;
+    const number = Number(value);
+    return Number.isFinite(number) && (field.min === undefined || number >= field.min)
+      && (field.max === undefined || number <= field.max);
+  }
+  if (field.type === "date") return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(value)
+    && !value.startsWith("0000") && !Number.isNaN(Date.parse(value + "T00:00:00Z"))
+    && new Date(value + "T00:00:00Z").toISOString().slice(0, 10) === value;
+  return true;
 }
 export function formContent(form: Pick<FormInput, "title" | "fields" | "values">): string {
   const visible = visibleFields(form.fields, form.values);

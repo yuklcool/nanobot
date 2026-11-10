@@ -41,3 +41,15 @@ it("accepts retained initial answers and rejects unconsented or invalid choice v
   expect(definition({ label: "Scope", persist: true, type: "checkbox", options: ["API", "UI"], initial: ["Other"] })).toBe(false);
   expect(definition({ label: "Scope", persist: true, type: "checkbox", options: ["API", "UI"], initial: ["UI", "UI"] })).toBe(false);
 });
+
+it("validates finite numeric bounds and actual calendar dates without changing submitted strings", () => {
+  const fields: FormField[] = [{ label: "Power", type: "number", min: 0, max: 100 }, { label: "Date", type: "date" }];
+  expect(formComplete(fields, ["1.25", "2028-02-29"])).toBe(true);
+  for (const values of [["101", "2028-02-29"], ["-1", "2028-02-29"], ["0x10", "2028-02-29"],
+    ["1e999", "2028-02-29"], ["1", "2026-02-29"], ["1", "0000-01-01"]]) expect(formComplete(fields, values)).toBe(false);
+  expect(formComplete([{ ...fields[1], required: false }], [""])).toBe(true);
+  expect(formDefinitionSchema.safeParse({ title: "Limits", fields: [{ ...fields[0], min: 101 }] }).success).toBe(false);
+  expect(formDefinitionSchema.safeParse({ title: "Limits", fields: [{ ...fields[1], min: 0 }] }).success).toBe(false);
+  expect(formDefinitionSchema.safeParse({ title: "Revise", fields: [{ ...fields[1], persist: true, initial: "2026-02-29" }] }).success).toBe(false);
+  expect(normalizeFormValues(fields, ["1.250", "2028-02-29"])).toEqual(["1.250", "2028-02-29"]);
+});
