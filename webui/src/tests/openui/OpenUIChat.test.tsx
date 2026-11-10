@@ -773,7 +773,7 @@ it("sorts and filters captured rows locally while keeping record identities", as
     const before = [...fixture.frames];
     const names = () => within(rendered).getAllByRole("row").slice(1)
       .map((row) => within(row).getAllByRole("cell")[0].textContent);
-    const energy = within(rendered).getByRole("button", { name: "Energy", exact: true });
+    const energy = within(rendered).getByRole("button", { name: "Energy" });
     fireEvent.click(energy);
     expect(names()).toEqual(["Task 0", "Task 2", "Task 3", "Task 10", "Text value", "Empty"]);
     expect(within(rendered).getByRole("columnheader", { name: "Energy" })).toHaveAttribute("aria-sort", "ascending");
@@ -783,7 +783,7 @@ it("sorts and filters captured rows locally while keeping record identities", as
     fireEvent.click(energy);
     expect(names()).toEqual(["Task 10", "Task 2", "Empty", "Task 0", "Task 3", "Text value"]);
     expect(within(rendered).getByRole("columnheader", { name: "Energy" })).not.toHaveAttribute("aria-sort");
-    fireEvent.click(within(rendered).getByRole("button", { name: "Task", exact: true }));
+    fireEvent.click(within(rendered).getByRole("button", { name: "Task" }));
     expect(names()).toEqual(["Empty", "Task 0", "Task 2", "Task 3", "Task 10", "Text value"]);
     fireEvent.change(screen.getByRole("textbox", { name: "openui.filterRecords" }), { target: { value: "Task" } });
     fireEvent.click(energy);
