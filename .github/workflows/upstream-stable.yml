@@ -1,0 +1,134 @@
+name: Upstream stable compatibility
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [develop]
+    paths:
+      - '.github/workflows/upstream-stable.yml'
+      - '.github/workflows/openui.yml'
+      - 'scripts/upstream_stable.py'
+      - 'tests/scripts/test_upstream_stable.py'
+      - 'tests/scripts/test_ci_workflows.py'
+
+permissions:
+  contents: read
+
+jobs:
+  tooling:
+    name: Upgrade check tooling
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install pytest ruff pyyaml
+      - run: python -m pytest --confcutdir=tests/scripts tests/scripts/test_upstream_stable.py tests/scripts/test_ci_workflows.py -q
+      - run: python -m ruff check scripts/upstream_stable.py tests/scripts/test_upstream_stable.py
+      - name: Validate workflow expressions and shell
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/upstream-stable.yml .github/workflows/openui.yml
+
+  prepare:
+    needs: tooling
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      status: ${{ steps.assess.outputs.status || steps.pr_candidate.outputs.status }}
+      candidate_sha: ${{ steps.assess.outputs.candidate_sha || steps.pr_candidate.outputs.candidate_sha }}
+      candidate_artifact_id: ${{ steps.candidate.outputs.artifact-id }}
+      report_artifact_id: ${{ steps.report.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Read official latest stable release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api repos/HKUDS/nanobot/releases/latest > "$RUNNER_TEMP/upstream-release.json"
+      - name: Fetch development baseline and official tags
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git fetch --no-tags origin '+refs/heads/develop:refs/remotes/origin/develop' '+refs/heads/stable:refs/remotes/origin/stable'
+          git fetch --no-tags https://github.com/HKUDS/nanobot.git '+refs/tags/v*:refs/upstream-check/tags/v*'
+      - name: Assess isolated stable upgrade
+        if: github.event_name == 'workflow_dispatch'
+        id: assess
+        run: python scripts/upstream_stable.py --release "$RUNNER_TEMP/upstream-release.json" --output "$RUNNER_TEMP/upstream-stable"
+      - name: Exercise candidate handoff with the PR merge commit
+        if: github.event_name == 'pull_request'
+        id: pr_candidate
+        run: |
+          mkdir -p "$RUNNER_TEMP/upstream-stable"
+          candidate_sha=$(git rev-parse HEAD)
+          git update-ref refs/heads/codex/upstream-stable-candidate "$candidate_sha"
+          git bundle create "$RUNNER_TEMP/upstream-stable/candidate.bundle" refs/heads/codex/upstream-stable-candidate
+          printf 'status=mergeable\ncandidate_sha=%s\n' "$candidate_sha" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        id: report
+        if: always() && github.event_name == 'workflow_dispatch'
+        with:
+          name: upstream-stable-report
+          path: |
+            ${{ runner.temp }}/upstream-stable/report.json
+            ${{ runner.temp }}/upstream-stable/report.md
+            ${{ runner.temp }}/upstream-stable/merge.log
+          if-no-files-found: warn
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        id: candidate
+        if: steps.assess.outputs.status == 'mergeable' || steps.pr_candidate.outputs.status == 'mergeable'
+        with:
+          name: upstream-stable-candidate
+          path: ${{ runner.temp }}/upstream-stable/candidate.bundle
+          if-no-files-found: error
+          retention-days: 7
+
+  regression:
+    needs: prepare
+    if: needs.prepare.outputs.status == 'mergeable'
+    uses: ./.github/workflows/openui.yml
+    with:
+      candidate_artifact_id: ${{ needs.prepare.outputs.candidate_artifact_id }}
+      candidate_sha: ${{ needs.prepare.outputs.candidate_sha }}
+
+  result:
+    name: Stable upgrade result
+    if: always() && github.event_name == 'workflow_dispatch'
+    needs: [tooling, prepare, regression]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/download-artifact@v4
+        if: needs.prepare.outputs.report_artifact_id
+        with:
+          artifact-ids: ${{ needs.prepare.outputs.report_artifact_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/upstream-stable-report
+      - name: Report acceptance outcome
+        env:
+          TOOLING_RESULT: ${{ needs.tooling.result }}
+          PREPARE_RESULT: ${{ needs.prepare.result }}
+          MERGE_STATUS: ${{ needs.prepare.outputs.status }}
+          REGRESSION_RESULT: ${{ needs.regression.result }}
+        run: |
+          if [ -f "$RUNNER_TEMP/upstream-stable-report/report.md" ]; then
+            cat "$RUNNER_TEMP/upstream-stable-report/report.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          printf '\nOpenUI regression jobs: **%s**\n' "$REGRESSION_RESULT" >> "$GITHUB_STEP_SUMMARY"
+          test "$TOOLING_RESULT" = success
+          test "$PREPARE_RESULT" = success
+          case "$MERGE_STATUS" in
+            up_to_date) echo 'Official stable is already contained in develop; no upgrade was applied.' ;;
+            mergeable) test "$REGRESSION_RESULT" = success ;;
+            conflicts) echo 'Upgrade blocked by merge conflicts; inspect the report artifact.'; exit 1 ;;
+            *) echo 'Upgrade assessment did not complete.'; exit 1 ;;
+          esac

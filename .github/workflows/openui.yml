@@ -34,6 +34,16 @@ on:
         description: Unique openui-live-* label of a pre-provisioned ephemeral runner
         type: string
         default: ''
+  workflow_call:
+    inputs:
+      candidate_artifact_id:
+        description: Immutable artifact containing candidate.bundle from this run
+        type: string
+        default: ''
+      candidate_sha:
+        description: Exact trial merge commit to verify before running checks
+        type: string
+        default: ''
 permissions:
   contents: read
 jobs:
@@ -43,6 +53,23 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        if: inputs.candidate_artifact_id
+        with:
+          artifact-ids: ${{ inputs.candidate_artifact_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/openui-candidate
+      - name: Select exact trial merge
+        if: inputs.candidate_artifact_id
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          [[ "$CANDIDATE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          git fetch "$RUNNER_TEMP/openui-candidate/candidate.bundle" refs/heads/codex/upstream-stable-candidate
+          test "$(git rev-parse FETCH_HEAD)" = "$CANDIDATE_SHA"
+          git checkout --detach "$CANDIDATE_SHA"
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -99,7 +126,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: openui-browser-results-${{ github.sha }}
+          name: openui-browser-results-${{ inputs.candidate_sha || github.sha }}
           path: webui/test-results/browser/
           if-no-files-found: ignore
           retention-days: 7
@@ -117,7 +144,7 @@ jobs:
           python tests/openui/packaged_gateway_smoke.py "$RUNNER_TEMP/openui-installed"
       - uses: actions/upload-artifact@v4
         with:
-          name: nanobot-openui-test-${{ github.sha }}
+          name: nanobot-openui-test-${{ inputs.candidate_sha || github.sha }}
           path: ${{ runner.temp }}/openui-test-package/
           retention-days: 7
   container-runtime:
@@ -126,6 +153,23 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        if: inputs.candidate_artifact_id
+        with:
+          artifact-ids: ${{ inputs.candidate_artifact_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/openui-candidate
+      - name: Select exact trial merge
+        if: inputs.candidate_artifact_id
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          [[ "$CANDIDATE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          git fetch "$RUNNER_TEMP/openui-candidate/candidate.bundle" refs/heads/codex/upstream-stable-candidate
+          test "$(git rev-parse FETCH_HEAD)" = "$CANDIDATE_SHA"
+          git checkout --detach "$CANDIDATE_SHA"
       - name: Build test image
         run: docker build --build-arg NANOBOT_CHANNELS= -t nanobot-openui:test .
       - name: Start container and verify authenticated WebUI
@@ -152,7 +196,7 @@ jobs:
           docker run -d --name nanobot-openui-smoke -p 127.0.0.1:18765:8765 \
             -v "$RUNNER_TEMP/openui-container:/home/nanobot/.nanobot" nanobot-openui:test \
             gateway --foreground --config /home/nanobot/.nanobot/config.json
-          for attempt in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             if curl -fs -H 'Authorization: Bearer test-only-secret' http://127.0.0.1:18765/webui/bootstrap >/dev/null; then break; fi
             sleep 1
           done

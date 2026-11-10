@@ -75,3 +75,20 @@ def test_windows_installer_matrix_has_an_independent_required_job():
     assert not any("tests/test_install_scripts.py" in step.get("run", "")
                    for step in jobs["windows_process"]["steps"])
     assert "windows_installers" in jobs["required"]["needs"]
+
+
+def test_upstream_merge_consumers_bind_to_the_producer_artifact_id_and_commit():
+    jobs = workflow("upstream-stable.yml")["jobs"]
+    assert jobs["prepare"]["outputs"]["candidate_artifact_id"] == "${{ steps.candidate.outputs.artifact-id }}"
+    assert jobs["regression"]["with"] == {
+        "candidate_artifact_id": "${{ needs.prepare.outputs.candidate_artifact_id }}",
+        "candidate_sha": "${{ needs.prepare.outputs.candidate_sha }}",
+    }
+    consumers = workflow("openui.yml")["jobs"]
+    for name in ("gateway-browser", "container-runtime"):
+        steps = consumers[name]["steps"]
+        download = next(step for step in steps if step.get("uses") == "actions/download-artifact@v4")
+        assert download["with"]["artifact-ids"] == "${{ inputs.candidate_artifact_id }}"
+        select = next(step for step in steps if step.get("name") == "Select exact trial merge")
+        assert select["env"]["CANDIDATE_SHA"] == "${{ inputs.candidate_sha }}"
+        assert 'test "$(git rev-parse FETCH_HEAD)" = "$CANDIDATE_SHA"' in select["run"]
