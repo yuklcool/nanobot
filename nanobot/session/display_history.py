@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Iterator, Mapping
+from collections.abc import Collection, Iterator, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -166,6 +166,21 @@ class HistoryReader:
             (self.key, *kinds),
         ):
             yield int(row[0]), int(row[1]), HistoryFact.decode(row[2])
+
+    def answer_anchors(self, turn_ids: Collection[str]) -> set[tuple[str, int]]:
+        """Resolve persisted final-answer identities without loading answer bodies."""
+        if not turn_ids:
+            return set()
+        return {(str(row[0]), int(row[1])) for row in self._db.execute(
+            f"""SELECT json_extract(record, '$.turn_id'), json_extract(record, '$.sequence')
+                FROM history_entries WHERE session_key=? AND kind IN (?, ?)
+                AND json_extract(record, '$.turn_id') IN ({','.join('?' for _ in turn_ids)})
+                AND json_extract(record, '$.phase')='answer'
+                AND json_type(record, '$.sequence')='integer'
+                AND NOT coalesce(json_extract(record, '$.content.resuming'), 0)
+                AND NOT coalesce(json_extract(record, '$.content.merge_next'), 0)""",
+            (self.key, HistoryKind.ANSWER, HistoryKind.ANSWER_SEGMENT, *turn_ids),
+        )}
 
     def all_facts(self) -> list[HistoryFact]:
         return [HistoryFact.decode(row[0]) for row in self._db.execute(

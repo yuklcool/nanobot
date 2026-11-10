@@ -103,3 +103,17 @@ def test_future_schema_is_not_silently_rewritten(store, scope):
         db.execute("PRAGMA user_version = 999")
     with pytest.raises(UiConflictError, match="unsupported"):
         UiSnapshotStore(store.path)
+
+
+def test_restart_settles_only_interrupted_streams_once(store, scope):
+    original = store.read(scope, "block-1")
+    store.create(scope, original.model_copy(update={"block_id": "finished"}))
+    complete = store.advance(scope, "finished", revision=1, expected_seq=0, status="complete", delta='root = Panel([])')
+    restarted = UiSnapshotStore(store.path)
+    restarted.interrupt_streams()
+    interrupted = restarted.read(scope, "block-1")
+    assert interrupted.status == "failed" and interrupted.error_code == "UI_STREAM_INTERRUPTED"
+    assert interrupted.seq == original.seq + 1
+    assert restarted.read(scope, "finished") == complete
+    restarted.interrupt_streams()
+    assert restarted.read(scope, "block-1") == interrupted

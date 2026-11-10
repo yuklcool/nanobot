@@ -390,7 +390,7 @@ test("an explicit text preference survives refresh and skips UI generation", asy
 
 test("captured charts and typed fields render, recover and submit through the existing conversation", async ({ page }) => {
   const observed = observeRecovery(page);
-  await page.goto("/browser/openui-gateway.html");
+  await page.goto("/browser/openui-gateway.html?chat=chart-fields");
   await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("openui");
   await page.getByRole("textbox", { name: "Question", exact: true }).fill("Show captured charts");
   await page.getByRole("button", { name: "Ask", exact: true }).click();
@@ -401,7 +401,7 @@ test("captured charts and typed fields render, recover and submit through the ex
   const form = page.getByRole("form", { name: "Observation" });
   const power = form.getByRole("spinbutton", { name: "Power" });
   const date = form.getByLabel("Date", { exact: true });
-  const submit = form.getByRole("button", { name: "Submit details" });
+  const submit = form.getByRole("button", { name: "Send", exact: true });
   await expect(submit).toBeDisabled();
   await power.fill("101");
   await date.fill("2028-02-29");
@@ -420,7 +420,7 @@ test("captured charts and typed fields render, recover and submit through the ex
   await submit.click();
   await expect.poll(() => observed.sent.filter((frame) => frame.type === "message").length).toBe(2);
   expect(observed.sent.filter((frame) => frame.type === "message")[1]).toMatchObject({
-    chat_id: "gateway-poc", content: "Observation\nPower: 1.25\nDate: 2028-02-29",
+    chat_id: "chart-fields", content: "Observation\nPower: 1.25\nDate: 2028-02-29",
   });
   expect(observed.errors).toEqual([]);
 });

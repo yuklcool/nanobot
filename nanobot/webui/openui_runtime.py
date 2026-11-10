@@ -212,8 +212,26 @@ class OpenUIRuntime:
     async def list_blocks(self, request: UiRequest) -> dict[str, object]:
         scope = await self.scope(request.chat_id)
         blocks = await store_call(self.store.for_turns, scope, request.turn_ids) if scope else []
+        if scope is not None and blocks:
+            blocks = await self._reconcile(scope, blocks)
         return {"capability": self.capability(), "session_generation": scope.generation if scope else None,
                 "blocks": [block.model_dump() for block in blocks]}
+
+    async def _reconcile(self, scope: UiScope, blocks: list[UiSnapshot]) -> list[UiSnapshot]:
+        def anchors(history: HistoryReader) -> set[tuple[str, int]]:
+            if history.revision is None or history.revision[0] != scope.generation:
+                return set()
+            return history.answer_anchors({block.turn_id for block in blocks})
+
+        persisted = await self.sessions.state.project_history(scope.session_key, anchors)
+        retained = [block for block in blocks if (block.turn_id, block.anchor_seq) in persisted]
+        missing = [block.block_id for block in blocks if (block.turn_id, block.anchor_seq) not in persisted]
+        if missing:
+            await store_call(self.store.discard_blocks, scope, missing)
+            logger.bind(event="openui_orphan_blocks_removed", count=len(missing)).warning(
+                "OpenUI removed {} views without a current persisted answer", len(missing),
+            )
+        return retained
 
     async def block(self, request: UiBlockRequest) -> tuple[UiScope, UiSnapshot]:
         scope = await self.scope(request.chat_id)
@@ -222,6 +240,8 @@ class OpenUIRuntime:
         snapshot = await store_call(self.store.read, scope, request.block_id)
         if snapshot.library_hash != LIBRARY_HASH:
             raise UiConflictError("UNSUPPORTED_LIBRARY")
+        if not await self._reconcile(scope, [snapshot]):
+            raise UiConflictError("UI_ANCHOR_UNAVAILABLE")
         return scope, snapshot
 
     async def save_state(self, request: UiStateRequest) -> UiSnapshot:
