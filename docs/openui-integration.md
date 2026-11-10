@@ -26,6 +26,22 @@ Refs #1。本文说明当前实现和维护入口，功能基线为 develop `105
 
 首次使用为关闭。普通会话保存自己的选择，新建页可在首条消息前选模式，并继承同一服务最近一次明确选择；刷新会恢复已保存选择。偏好按服务地址隔离，缺少能力或组件库哈希不匹配时不启用。清除浏览器站点数据会清除偏好，不提供跨设备同步。细节见 [模式与新建会话](openui-auto-validation.md)。
 
+## 兼容与消息契约
+
+当前锁定 `@openuidev/react-lang` 和 `@openuidev/lang-core` 1.0.2，宿主使用 React 18.3、Vite 5、TypeScript 5.7；具体安装版本以提交中的锁文件为准。OpenUI 的可选协议为 1，与宿主 WebUI core protocol 1 分别协商，不按包版本猜测兼容。
+
+| 客户端与宿主能力 | 行为 |
+| --- | --- |
+| OpenUI protocol 1 且 library_hash 一致 | 可渲染当前组件；动作仍需服务端核对会话、代次和 revision |
+| 缺少 OpenUI 或组件库哈希不一致 | 保留原生聊天，不执行不兼容历史组件 |
+| 缺少 modes 中的 auto | 只提供关闭/始终；已保存自动偏好不自动改为始终 |
+| 缺少 form_recovery、readonly_query 或 session_rename | 对应增强操作不启用，不能由客户端自行授予能力 |
+| UI 数据库版本高于当前支持范围 | 禁用交互，保留数据和普通聊天；不改写未知 schema |
+
+传输复用认证 WebSocket 的 `webui_request`/响应机制：`openui.subscribe` 读取权威快照，`openui.state`、`openui.form` 保存状态，`openui.query` 读取受控数据，`openui.rename` 执行标题预览/确认/结果查询，`openui.prepare_record` 准备可信记录分析内容，`openui.cancel`/`openui.retry` 只控制 UI 生成。服务端以 `openui.snapshot` 更新已订阅视图；不另建事件通道，不把设计稿中的 ui.delta 等示意事件当成当前协议。
+
+普通 Agent 跟进复用现有发送路径，并携带 `session_generation`、`block_id`、`revision`、`request_id` 和受限 `action_id`（conversation.followup 或 record.analyze），服务端验证后才准入。字段定义以 [共享客户端合同](../packages/client-events/openui.ts)、[快照模型](../nanobot/openui/snapshots.py) 和 [现有命令入口](../nanobot/webui/inbound_commands.py) 为准，不在文档维护第二份可执行 schema。身份或会话不符会拒绝，不以渲染成功代替执行授权。
+
 ## 现有组件与动作边界
 
 组件库共八个组件，模型从受控组件中组合，不能生成任意网页或执行 JavaScript。
@@ -103,10 +119,14 @@ gh workflow run upstream-stable.yml --ref develop
 
 报告 artifact 保留 14 天，候选 bundle 保留 7 天；bundle 只用于本次 CI，不自动推送、建升级 PR、修改 stable、部署或发布。PR 检查使用 PR 自身合并提交验证 bundle 传递及精确 SHA 执行链路，不冒充官方升级验收。需要实际升级时，在独立评审的功能分支处理冲突、核对依赖和持久化格式，再完成相应回归与部署验收。
 
-仓库当前默认分支为 main，该检查放在 develop，未配置 schedule，也不宣称自动定时检查已运行。手动 dispatch 必须能在 GitHub 识别到该工作流；若 GitHub 尚未注册入口，应先检查本工作流 PR 运行记录，不通过更改 main 或默认分支绕开限制。工作流不使用真实业务凭据或生产实例。
+仓库当前默认分支为 main，该检查放在 develop，未配置 schedule，仅提供手动入口。工作流经 PR 注册后已实测从功能分支 dispatch；合入后使用上面的 `--ref develop` 命令。工作流不使用真实业务凭据或生产实例。
 
 ## 验证证据与未完成项
 
 运行时基线的 [GitHub Actions 42826811324](https://github.com/yuklcool/nanobot/actions/runs/42826811324) 验证了 428 个 Python、308 个前端、16 个浏览器用例及构建、wheel 和容器；它是上一批运行时证据，不是本批升级工作流的执行结果。真实模型的历史样本与失败边界见 [模型验收记录](openui-live-validation.md) 及各阶段说明，不能据此宣布所有模型和业务都已通过。
 
-本批工具测试、workflow 校验、候选传递回归与官方目标试合并结果以 PR 最终提交对应的 GitHub Actions 为准。业务 MCP/照明字段绑定、真实数据效果与权限、固定发布候选的完整 P0–P3/AT 矩阵仍需后续验收；不为等待这些资料新增通用业务框架。
+本批代码提交 `766ac2e9e2f19e81fa3534f1b75095b26cf6b112` 的 [候选传递验收 42838230028](https://github.com/yuklcool/nanobot/actions/runs/42838230028) 通过：15 项工具及工作流测试、Ruff、actionlint，以及复用的 Gateway/浏览器和容器回归。两个消费者均导入候选 bundle，并核对 PR 合并提交 `62ed29a96771f8c48a84e267ec6d0d2115a460ff` 后执行；这验证了候选传递，并非官方升级已通过。相同代码的 [普通 OpenUI 检查 42838229936](https://github.com/yuklcool/nanobot/actions/runs/42838229936) 也通过，包含 428 个 Python、308 个前端、16 个浏览器用例、类型/静态/清单检查、构建、wheel 安装 Gateway 和 Docker 启动。之后仅补充本文，不改变被验证的代码、依赖或工作流。
+
+[官方目标试合并 42838246345](https://github.com/yuklcool/nanobot/actions/runs/42838246345) 对 develop `105cac5bfcdc92e069dd731ccea78c18c1645b76` 检查官方 v0.4.1 `3404fe83e22b7b2cb3edae1348ed45dd9b8ad051`：上游变化 1180 个路径，双方重叠 35 个，实际冲突 12 个。工具与报告生成成功，最终检查按预期失败并跳过候选回归。冲突涉及会话工具、WebSocket、Gateway 启动、会话历史、命令/侧栏及依赖锁文件；完整清单见该运行的 report artifact。不将这次阻断报告写成升级成功，不在本批解决上游升级。
+
+业务 MCP/照明字段绑定、真实数据效果与权限、固定发布候选的完整 P0–P3/AT 矩阵仍需后续验收；不为等待这些资料新增通用业务框架。
