@@ -755,6 +755,48 @@ it("restores loaded history in bounded batches including turns older than the la
   } finally { view.unmount(); fixture.client.close(); }
 });
 
+it("sorts and filters captured rows locally while keeping record identities", async () => {
+  const table = { data_ref: "data_1", title: "Captured tasks", columns: { name: "Task", energy: "Energy" },
+    rows: [{ id: "ten", values: { name: "Task 10", energy: 10 } },
+      { id: "two", values: { name: "Task 2", energy: 2 } },
+      { id: "empty", values: { name: "Empty", energy: null } },
+      { id: "zero", values: { name: "Task 0", energy: 0 } },
+      { id: "tie", values: { name: "Task 3", energy: 2 } },
+      { id: "text", values: { name: "Text value", energy: "1" } }],
+    source_tool: "lookup", source_call_id: "call_1", captured_at: 1700000000, total_rows: 6 };
+  const fixture = setup(undefined, [message], { ...initial, tables: { data_1: table },
+    source: 'root = Panel([data])\ndata = DataTable("data_1")\n' });
+  const view = fixture.mount();
+  try {
+    const rendered = await screen.findByRole("table");
+    await act(async () => {});
+    const before = [...fixture.frames];
+    const names = () => within(rendered).getAllByRole("row").slice(1)
+      .map((row) => within(row).getAllByRole("cell")[0].textContent);
+    const energy = within(rendered).getByRole("button", { name: "Energy" });
+    fireEvent.click(energy);
+    expect(names()).toEqual(["Task 0", "Task 2", "Task 3", "Task 10", "Text value", "Empty"]);
+    expect(within(rendered).getByRole("columnheader", { name: "Energy" })).toHaveAttribute("aria-sort", "ascending");
+    fireEvent.click(energy);
+    expect(names()).toEqual(["Text value", "Task 10", "Task 2", "Task 3", "Task 0", "Empty"]);
+    expect(within(rendered).getByRole("columnheader", { name: "Energy" })).toHaveAttribute("aria-sort", "descending");
+    fireEvent.click(energy);
+    expect(names()).toEqual(["Task 10", "Task 2", "Empty", "Task 0", "Task 3", "Text value"]);
+    expect(within(rendered).getByRole("columnheader", { name: "Energy" })).not.toHaveAttribute("aria-sort");
+    fireEvent.click(within(rendered).getByRole("button", { name: "Task" }));
+    expect(names()).toEqual(["Empty", "Task 0", "Task 2", "Task 3", "Task 10", "Text value"]);
+    fireEvent.change(screen.getByRole("textbox", { name: "openui.filterRecords" }), { target: { value: "Task" } });
+    fireEvent.click(energy);
+    expect(names()).toEqual(["Task 0", "Task 2", "Task 3", "Task 10"]);
+    expect(fixture.frames).toEqual(before);
+    fireEvent.click(within(within(rendered).getAllByRole("row")[1]).getByRole("button", { name: "openui.analyzeRecord" }));
+    await screen.findByText("openui.submitted");
+    expect(fixture.frames.find((frame) => frame.type === "message")).toMatchObject({
+      ui_action: { data_ref: "data_1", record_id: "zero", action_id: "record.analyze" },
+    });
+  } finally { view.unmount(); fixture.client.close(); }
+});
+
 it("filters locally and distinguishes scoped record actions even when summaries match", async () => {
   const table = { data_ref: "data_1", title: "Captured tasks", columns: { name: "Task", energy: "Energy", status: "Status" },
     rows: [{ id: "task_08", values: { name: "Task 08", energy: 5412.5, status: "ready" } },
