@@ -170,6 +170,14 @@ class FixtureProvider(LLMProvider):
             source = ('root = Panel([intro, data], "replace")\n'
                       'intro = Text("Only visible saved conversations are included.")\n'
                       + f'data = DataTable({json.dumps(datasets[0]["data_ref"])})\n')
+        elif datasets and payload["question"] == "Show captured charts":
+            ref = json.dumps(datasets[0]["data_ref"])
+            source = ('root = Panel([bars, trend, share, fields])\n'
+                      + f'bars = DataChart({ref}, "name", ["energy"], "bar")\n'
+                      + f'trend = DataChart({ref}, "name", ["energy"], "line")\n'
+                      + f'share = DataChart({ref}, "name", ["energy"], "pie")\n'
+                      + 'fields = Form("Observation", [{label:"Power",type:"number",min:0,max:100,persist:true}, '
+                      '{label:"Date",type:"date",persist:true}])\n')
         elif datasets:
             source = ('$question = ""\nroot = Panel([heading, data, followup])\n'
                   'heading = Text("Captured lookup records")\n'

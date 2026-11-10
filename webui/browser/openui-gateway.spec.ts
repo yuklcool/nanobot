@@ -388,6 +388,42 @@ test("an explicit text preference survives refresh and skips UI generation", asy
   expect(observed.errors).toEqual([]);
 });
 
+test("captured charts and typed fields render, recover and submit through the existing conversation", async ({ page }) => {
+  const observed = observeRecovery(page);
+  await page.goto("/browser/openui-gateway.html?chat=chart-fields");
+  await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("openui");
+  await page.getByRole("textbox", { name: "Question", exact: true }).fill("Show captured charts");
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  await expect(page.locator(".recharts-bar-rectangle").first()).toBeVisible();
+  await expect(page.locator(".recharts-line-curve")).toBeVisible();
+  await expect(page.locator(".recharts-pie-sector").first()).toBeVisible();
+  const before = await recoveryCounters(page);
+  const form = page.getByRole("form", { name: "Observation" });
+  const power = form.getByRole("spinbutton", { name: "Power" });
+  const date = form.getByLabel("Date", { exact: true });
+  const submit = form.getByRole("button", { name: "Send", exact: true });
+  await expect(submit).toBeDisabled();
+  await power.fill("101");
+  await date.fill("2028-02-29");
+  await expect(submit).toBeDisabled();
+  await power.fill("1.25");
+  await expect(submit).toBeEnabled();
+  await expect(form.getByRole("status")).toContainText("Draft saved");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: test.info().outputPath("captured-charts-typed-fields-mobile.png"), fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.reload();
+  await expect(power).toHaveValue("1.25");
+  await expect(date).toHaveValue("2028-02-29");
+  expect(await recoveryCounters(page)).toEqual(before);
+  await submit.click();
+  await expect.poll(() => observed.sent.filter((frame) => frame.type === "message").length).toBe(2);
+  expect(observed.sent.filter((frame) => frame.type === "message")[1]).toMatchObject({
+    chat_id: "chart-fields", content: "Observation\nPower: 1.25\nDate: 2028-02-29",
+  });
+  expect(observed.errors).toEqual([]);
+});
+
 test("native model adapter, captured data, record actions and refresh recovery", async ({ page }) => {
   const errors: string[] = [];
   const messages: Record<string, unknown>[] = [];

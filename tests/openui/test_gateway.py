@@ -997,6 +997,111 @@ async def test_restart_restores_model_snapshot_without_business_or_model_replay(
     assert gateway.tool.calls == 1 and provider.ui_calls == 1
 
 
+async def test_lost_complete_delivery_recovers_committed_snapshot_without_replay(gateway, monkeypatch):
+    provider = enable_model_tables(gateway)
+    router = gateway.channel._commands
+    emit = router.emit_openui
+
+    async def lose_complete(snapshot):
+        if snapshot.status == "complete":
+            raise OSError("connection lost after persistence")
+        await emit(snapshot)
+
+    monkeypatch.setattr(router, "emit_openui", lose_complete)
+    await rpc(gateway, "openui.subscribe", {"chat_id": "chat"})
+    await dispatch(gateway, {"type": "message", "chat_id": "chat", "turn_id": "lost-delivery", "webui": True,
+                             "content": "Lookup", "ui_mode": "openui"})
+    await execute(gateway)
+    assert not any(row.get("snapshot", {}).get("status") == "complete" for row in gateway.connection.sent)
+    restored = await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": ["lost-delivery"]})
+    block = restored["result"]["blocks"][0]
+    assert block["status"] == "complete" and block["source"] and block["tables"]
+    assert block["fallback_text"] == "Lookup result 1"
+    assert gateway.tool.calls == 1 and provider.ui_calls == 1 and gateway.bus.inbound_size == 0
+
+
+async def test_ui_persistence_failure_leaves_native_answer_readable(gateway, monkeypatch):
+    provider = enable_model_tables(gateway)
+
+    def unavailable(*args, **kwargs):
+        raise OSError("UI storage unavailable")
+
+    monkeypatch.setattr(gateway.services.openui.store, "create", unavailable)
+    await rpc(gateway, "openui.subscribe", {"chat_id": "chat"})
+    await dispatch(gateway, {"type": "message", "chat_id": "chat", "turn_id": "lost-view", "webui": True,
+                             "content": "Lookup", "ui_mode": "openui"})
+    await execute(gateway)
+    restored = await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": ["lost-view"]})
+    assert restored["result"]["blocks"] == []
+    answers = await gateway.sessions.state.project_history("websocket:chat", lambda history: [
+        fact.content.get("text") for fact in history.all_facts() if fact.phase == "answer"
+    ])
+    assert "Lookup result 1" in answers
+    assert any(row.get("text") == "Lookup result 1" for row in gateway.connection.sent)
+    assert gateway.tool.calls == 1 and provider.ui_calls == 0 and gateway.bus.inbound_size == 0
+
+
+@pytest.mark.parametrize("entrypoint", ["subscribe", "action"])
+async def test_orphan_view_is_removed_without_losing_admission_fence(gateway, entrypoint):
+    import sqlite3
+
+    from nanobot.webui.openui_runtime import UiBlockRequest
+
+    block = await first_card(gateway)
+    runtime = gateway.services.openui
+    scope = await runtime.scope("chat")
+    reserved = dict(request_id="lost-ack", block_id=block["block_id"], revision=1, content="Continue")
+    assert runtime.actions.reserve(scope, **reserved) == "new"
+    # Simulate native-history rollback after a crash, leaving the UI sidecar ahead.
+    with sqlite3.connect(gateway.sessions.sessions_dir / "sessions.sqlite3") as db:
+        db.execute("DELETE FROM history_entries WHERE session_key=? AND json_extract(record, '$.turn_id')=? "
+                   "AND json_extract(record, '$.phase')='answer'", (scope.session_key, block["turn_id"]))
+    payload = {key: block[key] for key in ("chat_id", "session_generation", "block_id", "revision")}
+    if entrypoint == "action":
+        with pytest.raises(ValueError, match="UI_ANCHOR_UNAVAILABLE"):
+            await runtime.block(UiBlockRequest.model_validate(payload))
+    restored = await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": [block["turn_id"]]})
+    assert restored["result"]["blocks"] == []
+    rejected = await rpc(gateway, "openui.state", {**payload, "expected_state_version": 0, "question": "Continue"})
+    assert not rejected["ok"]
+    assert runtime.actions.reserve(scope, **reserved) == "unknown"
+    assert gateway.tool.calls == 1 and gateway.bus.inbound_size == 0
+
+
+async def test_future_ui_schema_disables_views_and_keeps_native_chat(gateway, tmp_path):
+    import sqlite3
+
+    from nanobot.webui.inbound_commands import WebUICommandRouter
+
+    block = await first_card(gateway)
+    path = gateway.services.openui.store.path
+    await gateway.channel._commands.close()
+    with sqlite3.connect(path) as db:
+        db.execute("PRAGMA user_version = 999")
+        before = db.execute("SELECT snapshot FROM ui_snapshots").fetchall()
+    services = build_gateway_services(
+        config=gateway.config, bus=gateway.bus, session_manager=gateway.sessions, static_dist_path=None,
+        workspace_path=gateway.loop.workspace, default_restrict_to_workspace=True,
+        runtime_model_name=None, runtime_surface="browser", runtime_capabilities_overrides=None,
+        unified_session=gateway.services.unified_session, config_path=tmp_path / "config.json",
+    )
+    try:
+        assert services.openui is None
+        gateway.channel._commands = WebUICommandRouter(gateway.channel, services)
+        services.endpoint.webui_connections.add(gateway.connection)
+        response = await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": [block["turn_id"]]})
+        assert not response["ok"] and response["error"]["message"] == "UI_DISABLED"
+        await dispatch(gateway, {"type": "message", "chat_id": "chat", "turn_id": "native-after-rollback", "webui": True,
+                                 "content": "Continue normally"})
+        await execute(gateway)
+        assert any(row.get("text") == "Lookup result 2" for row in gateway.connection.sent)
+        with sqlite3.connect(path) as db:
+            assert db.execute("PRAGMA user_version").fetchone()[0] == 999
+            assert db.execute("SELECT snapshot FROM ui_snapshots").fetchall() == before
+    finally:
+        services.temporary_chats.close()
+
+
 async def test_maintenance_at_ui_handoff_preserves_native_delivery(gateway):
     from nanobot.session.display_history import HISTORY_GENERATION_METADATA_KEY
 

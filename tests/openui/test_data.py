@@ -28,3 +28,16 @@ def test_large_integer_cells_keep_exact_digits_in_browser_json():
     table = capture_table(config, tool_name="lookup", call_id="exact",
                           result=json.dumps({"records": [{"id": "one", "total": 9007199254740993}]}))
     assert table.rows[0].values["total"] == "9007199254740993"
+
+
+def test_chart_descriptors_expose_only_eligible_column_keys_without_values():
+    config = TableAdapterConfig(title="Energy", columns={"name": "Name", "value": "Energy (kWh)", "mixed": "Mixed"})
+    table = capture_table(config, tool_name="lookup", call_id="chart", result=json.dumps({"records": [
+        {"id": "one", "name": "A", "value": 0, "mixed": 1},
+        {"id": "two", "name": "B", "value": None, "mixed": "private-value"},
+    ]}))
+    descriptor = table.descriptor()
+    assert descriptor["numeric_columns"] == ["value"]
+    assert descriptor["row_count"] == descriptor["total_rows"] == 2
+    assert descriptor["category_columns"] == ["name", "mixed"]
+    assert "private-value" not in json.dumps(descriptor)

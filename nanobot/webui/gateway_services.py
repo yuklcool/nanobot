@@ -13,6 +13,7 @@ from nanobot.channels.websocket.attachment_http import AttachmentHTTP
 from nanobot.channels.websocket.attachment_store import AttachmentStore
 from nanobot.config.loader import get_config_path
 from nanobot.config.paths import get_media_dir
+from nanobot.openui.snapshots import UiSchemaVersionError
 from nanobot.webui.gateway_endpoint import WebUIGatewayEndpoint
 from nanobot.webui.gateway_tokens import GatewayTokenStore
 from nanobot.webui.ingress_policy import DEFAULT_WEBUI_INGRESS_POLICY, WebUIIngressPolicy
@@ -127,8 +128,13 @@ def build_gateway_services(
         logger=logger,
     )
     session_projection = WebUISessionProjection(session_manager, subagent_manager=subagent_manager, log=logger)
-    openui = (OpenUIRuntime(session_manager, bus, options=config.openui)
-              if config.openui_enabled and session_manager is not None else None)
+    openui = None
+    if config.openui_enabled and session_manager is not None:
+        try:
+            openui = OpenUIRuntime(session_manager, bus, options=config.openui)
+        except UiSchemaVersionError:
+            logger.error("OpenUI disabled: unsupported UI database version; native chat remains available. "
+                         "Use a compatible installation to reopen interactive views.")
 
     async def discard_with_openui(session_key: str) -> None:
         if openui is not None:

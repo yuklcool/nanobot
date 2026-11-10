@@ -15,7 +15,7 @@ import { OpenUIChatProvider, OpenUIControls } from "../src/openui/OpenUIChat";
 import { initializeI18n } from "../src/i18n";
 import "../src/globals.css";
 
-const chatId = "gateway-poc";
+const chatId = new URLSearchParams(location.search).get("chat") ?? "gateway-poc";
 function Thread({ client, chatId = "gateway-poc", recovery = false }: { client: NanobotClient; chatId?: string; recovery?: boolean }) {
   useReadingTypography();
   const sidebar = useSidebarState([], false);
@@ -86,7 +86,7 @@ async function start() {
   createRoot(document.getElementById("root")!).render(
     <ClientProvider client={client} token={bootstrap.api_token ?? ""} allowUpdateFlow={false}>
       <TooltipProvider>{new URLSearchParams(location.search).has("recovery") ? <RecoveryConversations client={client} />
-        : new URLSearchParams(location.search).has("new") ? <NewConversation client={client} /> : <Thread client={client} />}</TooltipProvider>
+        : new URLSearchParams(location.search).has("new") ? <NewConversation client={client} /> : <Thread client={client} chatId={chatId} />}</TooltipProvider>
     </ClientProvider>);
 }
 void start();

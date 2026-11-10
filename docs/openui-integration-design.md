@@ -252,6 +252,8 @@ flowchart TD
 
 聚合值应由工具或确定性代码计算，再通过引用提供；图表系列和轴字段必须在 schema 中存在。空数据、单位和时间范围有固定展示规则。无法验证的数值不显示为业务统计。
 
+当前实现已注册 DataChart 与 MetricValue：图表支持柱状、折线和单系列占比，指标要求单条工具结果；数据来自现有 DisplayTable。Form 同时支持数字与日历日期，保留字符串值，数字边界仅取自明确需求。组件签名、限制及本批验收范围见 [数据组件与故障恢复](openui-data-components-validation.md)，真实业务字段绑定和数据验收仍待部署后完成。
+
 ### 5.4 Prompt 与组件规范同源
 
 构建时从前端 library 生成完整 OpenUI prompt/spec 和 library_hash，一起打入 Python 安装包/镜像与前端资源。Python 加载版本化产物，不手抄 OpenUI 语法规范。
@@ -481,17 +483,15 @@ generation 不匹配、过期 revision 或终态后的 delta 一律丢弃。切�
 
 ### 10.1 独立附属 SQLite
 
-建议在当前 Nanobot 数据目录增加独立 openui.sqlite，使用宿主相同的文件权限和备份范围。该路径是拟议配置，不写死用户主目录。单实例首版采用 WAL、短事务和有界批处理；多副本部署必须另外设计共享存储与任务互斥。
+当前实现由宿主在会话目录内选择 `openui.sqlite3`，使用 WAL、短事务和 scope + generation 隔离。完整快照携带布局、受控数据和白名单状态，不另建事件队列、数据表或状态表；恢复使用相同版本序列的权威快照。多副本部署不在首版范围内。
 
 | 表 | 关键字段 | 用途 |
 | --- | --- | --- |
-| ui_blocks | scope、session_key、generation、turn_id、anchor、block_id、revision、status、library_hash、source、fallback_ref | UI 身份和最终快照 |
-| ui_events | block_id、revision、seq、type、payload、created_at | 断线回放和事务 outbox |
-| ui_datasets | data_ref、schema_id、source_tool_call_id、授权范围、快照、captured_at、expires_at | 受控业务数据 |
-| ui_states | principal、block_id、revision、state_version、白名单 state | 草稿和筛选恢复 |
-| ui_actions | 幂等键、payload_hash、action_id、状态、目标 turn_id、result_ref | 去重与结果核查 |
-| ui_tombstones | session_key、generation、deleted_at | 删除与迟到写入拦截 |
-| ui_schema_version | migration_id、applied_at | 附属库升级 |
+| ui_snapshots | owner、session_key、generation、block_id、snapshot、state_keys | UI 身份、原生锚点、布局、受控数据与获准草稿 |
+| ui_actions | owner、session_key、generation、request_id、digest、status | 动作准入去重与回执；未确认结果不自动重放 |
+| ui_tombstones | owner、session_key、generation | 删除与迟到写入拦截 |
+
+数据库版本由 SQLite `user_version` 管理；不支持的版本拒绝打开交互库并保留普通聊天，不改写该版本的数据。
 
 主键和索引必须覆盖 scope + generation；不能仅凭用户可预测的 chat_id 隔离。
 
@@ -503,10 +503,10 @@ generation 不匹配、过期 revision 或终态后的 delta 一律丢弃。切�
 
 1. Hook 阶段把经过筛选的展示候选暂存为 pending，尚不可交互。
 2. 原回合持久化成功后，核对锚点，激活唯一 UI 任务。
-3. UI 快照更新与对应 ui_events 写入同一附属库事务。
-4. 事务提交后向 WebSocket 发送；发送失败可重放。
-5. 进程重启时对账 pending/streaming：检查原回合存在且 generation 有效。
-6. 原回合不存在时丢弃 pending；原结果存在但展示未完成时标记 interrupted，并提供单独重试。
+3. UI 完整快照与递增 sequence 在同一附属库事务中保存。
+4. 事务提交后向 WebSocket 发送；发送失败后重新订阅读取完整快照。
+5. 进程重启将 streaming 标记为 failed / UI_STREAM_INTERRUPTED；恢复订阅和每个动作入口核对原生回合答案锚点及 generation。
+6. 原回合不存在时移除孤立视图，保留动作准入记录；原结果存在但展示未完成时保留文字。单独重试仅在原冻结模型仍可用且未保存用户输入时允许，进程重启后缺少该模型则明确拒绝，不偷偷切换模型或自动重试。
 7. 已经完成的业务工具不会因 UI 修复而重新执行。
 
 崩溃恰好落在两库之间时可能只剩文字，这属于可接受降级；不允许出现可执行的孤立卡片。

@@ -864,7 +864,7 @@ class WebUICommandRouter:
                     context_blocks.append(RuntimeContextBlock(
                         source="openui_actions",
                         content=("A separate UI stage converts your ordinary readable Markdown into editable forms "
-                                 "with text inputs, single/multiple choices and conditional fields. For a new form "
+                                 "with text, numeric and date inputs, single/multiple choices and conditional fields. For a new form "
                                  "describe the requested fields, options and conditions in readable text. "
                                  "For these form requests keep the public answer readable if UI generation fails; "
                                  "do not invent JSON, component code, special form fences or a UI schema as a rendering protocol. "

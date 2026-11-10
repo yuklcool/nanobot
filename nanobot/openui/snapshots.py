@@ -86,6 +86,10 @@ class UiConflictError(ValueError):
     """The source/state revision changed, ended, or belongs to a deleted session."""
 
 
+class UiSchemaVersionError(UiConflictError):
+    """A different installation owns this sidecar's schema; do not modify it."""
+
+
 class UiSnapshotStore:
     """A small restart-safe snapshot store, with independent state CAS."""
 
@@ -95,7 +99,7 @@ class UiSnapshotStore:
         with self.transaction() as db:
             version = db.execute("PRAGMA user_version").fetchone()[0]
             if version not in (0, 1, 2):
-                raise UiConflictError("unsupported UI database version")
+                raise UiSchemaVersionError("unsupported UI database version")
             db.execute("""CREATE TABLE IF NOT EXISTS ui_snapshots (
                 owner TEXT NOT NULL, session_key TEXT NOT NULL, generation TEXT NOT NULL,
                 block_id TEXT NOT NULL, snapshot TEXT NOT NULL, state_keys TEXT NOT NULL,
@@ -269,9 +273,16 @@ class UiSnapshotStore:
                 current = UiSnapshot.model_validate_json(raw)
                 updated = UiSnapshot.model_validate({
                     **current.model_dump(), "status": "failed", "seq": current.seq + 1,
+                    "error_code": "UI_STREAM_INTERRUPTED",
                 })
                 db.execute("UPDATE ui_snapshots SET snapshot=? WHERE rowid=?",
                            (updated.model_dump_json(), rowid))
+
+    def discard_blocks(self, scope: UiScope, block_ids: list[str]) -> None:
+        # Keep admission fences: loss of a display never authorizes a replay.
+        with self.transaction() as db:
+            db.executemany("DELETE FROM ui_snapshots WHERE owner=? AND session_key=? AND generation=? AND block_id=?",
+                           [(*self.key(scope), block_id) for block_id in block_ids])
 
     def delete_session(self, owner: str, session_key: str, generation: str | None) -> None:
         """Fence the retiring generation before the host deletes native history."""
