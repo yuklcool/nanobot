@@ -70,7 +70,8 @@ export function DataChartView({ table, props }: { table?: DisplayTable; props: C
 
 export function MetricValueView({ table, field: key }: { table?: DisplayTable; field: string }) {
   const { t } = useTranslation();
-  if (!table || !Object.hasOwn(table.columns, key) || table.rows.length > 1) return <p role="status">{t("openui.unavailable")}</p>;
+  if (!table || !Object.hasOwn(table.columns, key) || table.rows.length > 1
+    || (table.total_rows ?? table.rows.length) > 1) return <p role="status">{t("openui.unavailable")}</p>;
   if (!table.rows.length || table.rows[0].values[key] === null) return <p role="status">{t("openui.emptyData")}</p>;
   const value = table.rows[0].values[key];
   if (typeof value !== "number" || !Number.isFinite(value)) return <p role="status">{t("openui.unavailable")}</p>;

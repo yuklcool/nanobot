@@ -70,6 +70,7 @@ class DisplayTable(BaseModel):
         result: dict[str, JsonValue] = {
             "data_ref": self.data_ref, "title": self.title,
             "columns": dict(self.columns), "row_count": len(self.rows),
+            "total_rows": self.total_rows,
             "source_tool": self.source_tool, "captured_at": self.captured_at,
             "numeric_columns": [key for key in self.columns if self.rows
                                 and any(type(row.values.get(key)) in (int, float) for row in self.rows)

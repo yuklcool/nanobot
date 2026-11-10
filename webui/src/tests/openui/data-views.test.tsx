@@ -29,6 +29,10 @@ it("shows exact single-record metric values, including zero, without selecting o
   const view = render(<MetricValueView table={single} field="energy" />);
   expect(screen.getByText("0")).toBeVisible();
   expect(screen.getByText("Captured energy · Energy (kWh)")).toBeVisible();
+  const truncated = { ...single, total_rows: 2 };
+  view.rerender(<MetricValueView table={truncated} field="energy" />);
+  expect(screen.getByRole("status")).toHaveTextContent("openui.unavailable");
+  expect(replacesAnswer('root = Panel([metric], "replace")\nmetric = MetricValue("energy", "energy")', { energy: truncated })).toBe(false);
   view.rerender(<MetricValueView table={table} field="energy" />);
   expect(screen.getByRole("status")).toHaveTextContent("openui.unavailable");
   view.rerender(<MetricValueView table={{ ...table, rows: [] }} field="energy" />);

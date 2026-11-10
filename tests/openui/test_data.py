@@ -38,5 +38,6 @@ def test_chart_descriptors_expose_only_eligible_column_keys_without_values():
     ]}))
     descriptor = table.descriptor()
     assert descriptor["numeric_columns"] == ["value"]
+    assert descriptor["row_count"] == descriptor["total_rows"] == 2
     assert descriptor["category_columns"] == ["name", "mixed"]
     assert "private-value" not in json.dumps(descriptor)

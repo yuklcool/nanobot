@@ -359,7 +359,7 @@ const DataChart = defineComponent({
   },
 });
 const MetricValue = defineComponent({
-  name: "MetricValue", description: "Show one numeric field from a captured dataset with exactly one record. Arguments: data_ref, field column key. Labels and values come directly from the authorized snapshot. Use only descriptor numeric_columns. Aggregation must already be performed by the tool; never pick an arbitrary record, invent units or compute a total over a truncated snapshot.",
+  name: "MetricValue", description: "Show one numeric field from a captured dataset with exactly one record and no truncation (row_count and total_rows must both be one). Arguments: data_ref, field column key. Labels and values come directly from the authorized snapshot. Use only descriptor numeric_columns. Aggregation must already be performed by the tool; never pick an arbitrary record, invent units or compute a total over a truncated snapshot.",
   props: metricPropsSchema,
   component: function CapturedMetric({ props }) {
     const tables = useContext(DisplayDataContext);
@@ -402,6 +402,7 @@ export function replacesAnswer(source: string, tables: Record<string, DisplayTab
         if (!parsed.success || !Object.hasOwn(tables, parsed.data.data_ref)) return false;
         const table = tables[parsed.data.data_ref];
         return Object.hasOwn(table.columns, parsed.data.field) && table.rows.length === 1
+          && (table.total_rows ?? table.rows.length) === 1
           && typeof table.rows[0].values[parsed.data.field] === "number";
       }
       const parsed = dataTableProps.safeParse(child.props);

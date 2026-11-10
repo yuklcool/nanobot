@@ -31,7 +31,7 @@ async def generate_view(
         {"role": "system", "content": library_prompt + "\nGenerate only OpenUI Lang. "
          "Use the registered DataTable with the supplied data_ref for tabular facts. "
          "For requested charts use DataChart with descriptor category_columns/numeric_columns; "
-         "MetricValue requires a single-row dataset and a numeric column. Use source column labels for units; "
+         "MetricValue requires row_count=total_rows=1 and a numeric column. Use source column labels for units; "
          "never invent units, conversions, aggregates or data values. Retain scope and caveats in Text. "
          "Choose the smallest useful presentation from the user's request, final answer and dataset descriptors together.\n"
          "PRESENTATION: Choose the Panel presentation explicitly before composing its children. "
