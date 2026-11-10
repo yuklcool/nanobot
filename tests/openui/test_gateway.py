@@ -1088,7 +1088,7 @@ async def test_future_ui_schema_disables_views_and_keeps_native_chat(gateway, tm
     try:
         assert services.openui is None
         gateway.channel._commands = WebUICommandRouter(gateway.channel, services)
-        gateway.channel._webui_connections.add(gateway.connection)
+        services.endpoint.webui_connections.add(gateway.connection)
         response = await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": [block["turn_id"]]})
         assert not response["ok"] and response["error"]["message"] == "UI_DISABLED"
         await dispatch(gateway, {"type": "message", "chat_id": "chat", "turn_id": "native-after-rollback", "webui": True,
