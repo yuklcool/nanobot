@@ -654,6 +654,44 @@ test("auto mode uses real session search and read tools without replaying histor
   expect(errors).toEqual([]);
 });
 
+test("eight-option fields render, restore drafts and submit to the same conversation once", async ({ page }) => {
+  const observed = observeRecovery(page);
+  await page.goto("/browser/openui-gateway.html?chat=many-options");
+  await page.getByRole("combobox", { name: "Interactive replies" }).selectOption("auto");
+  await page.getByRole("textbox", { name: "Question", exact: true }).fill("Show an interactive category form");
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  const form = page.getByRole("form", { name: "Categories", exact: true });
+  const select = form.getByRole("combobox", { name: "Category", exact: true });
+  await expect(select).toBeEnabled();
+  await expect(select.getByRole("option")).toHaveCount(9);
+  await select.selectOption("Category 8");
+  const boxes = form.getByRole("checkbox");
+  await expect(boxes).toHaveCount(8);
+  for (let index = 0; index < 8; index += 1) await boxes.nth(index).check();
+  await expect.poll(() => observed.snapshots.at(-1)?.state).toMatchObject({ $forms: { "form-0": {
+    values: ["Category 8", Array.from({ length: 8 }, (_, index) => `Category ${index + 1}`)], status: "draft",
+  } } });
+  await expect(form.getByRole("status")).toHaveText("Draft saved");
+  await page.reload();
+  await expect(select).toHaveValue("Category 8");
+  for (let index = 0; index < 8; index += 1) await expect(boxes.nth(index)).toBeChecked();
+  const submit = form.getByRole("button", { name: "Send", exact: true });
+  await expect(submit).toBeEnabled();
+  await submit.click();
+  await expect(page.getByText("Category selection received.", { exact: true }).filter({ visible: true })).toBeVisible();
+  const sent = observed.sent.filter((frame) => frame.type === "message");
+  expect(sent).toHaveLength(2);
+  expect(sent[1]).toMatchObject({ chat_id: "many-options", ui_mode: "auto",
+    content: "Categories\nCategory: Category 8\nCompare: Category 1, Category 2, Category 3, Category 4, Category 5, Category 6, Category 7, Category 8",
+    ui_action: { action_id: "conversation.followup", form_id: "form-0", request_id: sent[1].turn_id } });
+  await page.reload();
+  await expect(form.getByRole("status")).toHaveText("Submitted");
+  await expect(select).toHaveValue("Category 8");
+  await expect(submit).toBeDisabled();
+  expect(observed.sent.filter((frame) => frame.type === "message")).toHaveLength(2);
+  expect(observed.errors).toEqual([]);
+});
+
 test("a complete employee questionnaire replaces static text and submits visible answers once", async ({ page }) => {
   const errors: string[] = [];
   const frames: Record<string, unknown>[] = [];
