@@ -1,10 +1,11 @@
 import { z } from "zod";
 
-export const formValueSchema = z.union([z.string().max(400), z.array(z.string().min(1).max(120)).max(6)]);
+export const MAX_FORM_OPTIONS = 50;
+export const formValueSchema = z.union([z.string().max(400), z.array(z.string().min(1).max(120)).max(MAX_FORM_OPTIONS)]);
 export type FormValue = z.infer<typeof formValueSchema>;
 export const formFieldSchema = z.object({
   label: z.string().min(1).max(80), placeholder: z.string().max(120).optional(),
-  options: z.array(z.string().min(1).max(120)).min(2).max(6).optional(),
+  options: z.array(z.string().min(1).max(120)).min(2).max(MAX_FORM_OPTIONS).optional(),
   persist: z.boolean().optional(), required: z.boolean().optional(),
   type: z.enum(["text", "number", "date", "select", "radio", "checkbox"]).optional(),
   min: z.number().finite().optional(), max: z.number().finite().optional(),

@@ -11,7 +11,7 @@ from loguru import logger
 
 from nanobot.events import RetryStatusEvent
 from nanobot.openui.data import DisplayTable
-from nanobot.openui.forms import ConversationFollowup
+from nanobot.openui.forms import MAX_FORM_OPTIONS, ConversationFollowup
 from nanobot.providers.base import LLMUsage
 from nanobot.utils.llm_runtime import LLMRuntime
 
@@ -103,6 +103,10 @@ async def generate_view(
          "Expand a short label's question only when needed to identify the requested target; "
          "keep it within the same decision and do not add instructions. "
          "Use Form for missing details or a fillable survey/questionnaire (up to twelve fields). "
+         f"Each choice field supports 2–{MAX_FORM_OPTIONS} distinct options; preserve all options, never truncate them. "
+         "For more than four single-choice options use a Form select dropdown instead of Choices; "
+         "use checkbox for multiple selections. "
+         f"If a field would exceed {MAX_FORM_OPTIONS} options, ask for a narrowing condition instead of generating it. "
          "For an explicit request to rename THIS conversation, offer ONE Form with one required text field and "
          "the optional fifth argument {type:\"session.rename\",title:\"requested title\"}. "
          "This registered action edits only this conversation's sidebar title: the user can edit it, "
@@ -115,7 +119,7 @@ async def generate_view(
          "and options into ONE Form(title, fields, description, \"questionnaire\") as the only Panel child. "
          "This presentation replaces the static questionnaire; its original text remains expandable. "
          "Do not replace the questionnaire with generic next-step Choices such as optimize, anonymize or publish. "
-         "Use radio for single choices, checkbox for multiple selections, and conditional text fields for Other. "
+         "Use radio for up to four single choices, select for longer lists, checkbox for multiple selections, and conditional text fields for Other. "
          "Use number for numeric inputs and date for calendar dates (YYYY-MM-DD). Numeric min/max are optional "
          "and must come from the requested constraints; do not invent limits. Preserve these field types and bounds when revising. "
          "Use when:{field:index,value:option} for dependent questions; indexes refer to earlier fields starting at zero. "

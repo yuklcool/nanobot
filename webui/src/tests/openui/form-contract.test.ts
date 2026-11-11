@@ -1,5 +1,28 @@
 import { expect, it } from "vitest";
-import { formComplete, formDefinitionSchema, normalizeFormValues, type FormField } from "../../openui/form-contract";
+import { MAX_FORM_OPTIONS, formComplete, formContent, formDefinitionSchema, formInputSchema, formStateSchema,
+  normalizeFormValues, type FormField } from "../../openui/form-contract";
+
+it.each([8, MAX_FORM_OPTIONS])("retains and submits all %i options through the form contracts", (count) => {
+  const options = Array.from({ length: count }, (_, index) => `Category ${index + 1}`);
+  const fields: FormField[] = [
+    { label: "Category", type: "select", options, persist: true },
+    { label: "Compare", type: "checkbox", options, persist: true, initial: options },
+  ];
+  const values = normalizeFormValues(fields, [options.at(-1)!, [...options].reverse()], true);
+  const form = formInputSchema.parse({ title: "Categories", fields, values, form_id: "form-0", submit: true });
+  expect(formComplete(form.fields, form.values)).toBe(true);
+  expect(formStateSchema.parse({ schema: "test", values, status: "draft" }).values).toEqual([options.at(-1), options]);
+  expect(formContent(form)).toBe(`Categories\nCategory: ${options.at(-1)}\nCompare: ${options.join(", ")}`);
+});
+
+it("rejects oversized option lists and invalid checkbox selections", () => {
+  const options = Array.from({ length: MAX_FORM_OPTIONS }, (_, index) => `Category ${index + 1}`);
+  const field: FormField = { label: "Compare", type: "checkbox", options };
+  expect(formDefinitionSchema.safeParse({ title: "Categories", fields: [{ ...field, options: [...options, "Too many"] }] }).success).toBe(false);
+  expect(formStateSchema.safeParse({ schema: "test", values: [[...options, "Too many"]], status: "draft" }).success).toBe(false);
+  expect(formComplete([field], [["Unknown"]])).toBe(false);
+  expect(formComplete([field], [[options[0], options[0]]])).toBe(false);
+});
 
 it("limits the registered rename action to one required title field", () => {
   const form = { title: "Rename", fields: [{ label: "New title", type: "text" }],

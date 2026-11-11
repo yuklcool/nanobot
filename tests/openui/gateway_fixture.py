@@ -62,6 +62,12 @@ SURVEY_FIELDS = [
     {"label": "6. 您希望公司提供哪些支持？（多选）", "type": "checkbox", "options": ["薪酬福利", "培训发展", "优化工作量", "其他"]},
     {"label": "其他支持", "when": {"field": 8, "value": "其他"}},
 ]
+CATEGORY_OPTIONS = [f"Category {index + 1}" for index in range(8)]
+CATEGORY_ANSWER = "Please choose a category and the categories to compare: " + ", ".join(CATEGORY_OPTIONS)
+CATEGORY_FIELDS = [
+    {"label": "Category", "type": "select", "options": CATEGORY_OPTIONS, "persist": True},
+    {"label": "Compare", "type": "checkbox", "options": CATEGORY_OPTIONS, "persist": True},
+]
 
 
 class Lookup(Tool):
@@ -106,6 +112,10 @@ class FixtureProvider(LLMProvider):
             return LLMResponse(content=SURVEY_ANSWER, tool_calls=[])
         if question.startswith(SURVEY_TITLE + "\n"):
             return LLMResponse(content="已收到本次填写的答案。", tool_calls=[])
+        if "Show an interactive category form" in question:
+            return LLMResponse(content=CATEGORY_ANSWER, tool_calls=[])
+        if question.startswith("Categories\nCategory:"):
+            return LLMResponse(content="Category selection received.", tool_calls=[])
         if "Explain variables" in question:
             return LLMResponse(content="A variable stores a value.", tool_calls=[])
         if "Search missing conversations" in question:
@@ -166,6 +176,9 @@ class FixtureProvider(LLMProvider):
             source = ('root = Panel([survey])\nsurvey = Form('
                       + ', '.join(json.dumps(value, ensure_ascii=False) for value in
                                   (SURVEY_TITLE, SURVEY_FIELDS, SURVEY_DESCRIPTION, "questionnaire")) + ')\n')
+        elif payload["public_answer"] == CATEGORY_ANSWER:
+            source = ('root = Panel([details])\ndetails = Form("Categories", '
+                      + json.dumps(CATEGORY_FIELDS) + ')\n')
         elif datasets and datasets[0]["title"] == "Saved conversations":
             source = ('root = Panel([intro, data], "replace")\n'
                       'intro = Text("Only visible saved conversations are included.")\n'

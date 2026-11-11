@@ -14,6 +14,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from nanobot.openui.snapshots import UiConflictError, UiScope, UiSnapshot, UiSnapshotStore
 
+MAX_FORM_OPTIONS = 50
+
 
 class FormCondition(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
@@ -22,7 +24,7 @@ class FormCondition(BaseModel):
 
 
 FormValue = Annotated[str, Field(max_length=400)] | Annotated[
-    list[Annotated[str, Field(min_length=1, max_length=120)]], Field(max_length=6),
+    list[Annotated[str, Field(min_length=1, max_length=120)]], Field(max_length=MAX_FORM_OPTIONS),
 ]
 
 
@@ -30,7 +32,7 @@ class FormField(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     label: Annotated[str, Field(min_length=1, max_length=80)]
     placeholder: Annotated[str, Field(max_length=120)] | None = None
-    options: Annotated[list[Annotated[str, Field(min_length=1, max_length=120)]], Field(min_length=2, max_length=6)] | None = None
+    options: Annotated[list[Annotated[str, Field(min_length=1, max_length=120)]], Field(min_length=2, max_length=MAX_FORM_OPTIONS)] | None = None
     persist: bool = False
     required: bool = True
     type: Literal["text", "number", "date", "select", "radio", "checkbox"] | None = None

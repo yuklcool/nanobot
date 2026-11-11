@@ -4,7 +4,13 @@ import pytest
 from pydantic import ValidationError
 
 from nanobot.openui.actions import UiActionLedger
-from nanobot.openui.forms import ConversationForm, FormField, form_followup, save_form
+from nanobot.openui.forms import (
+    MAX_FORM_OPTIONS,
+    ConversationForm,
+    FormField,
+    form_followup,
+    save_form,
+)
 from nanobot.openui.snapshots import UiConflictError, UiScope, UiSnapshot, UiSnapshotStore
 
 
@@ -25,6 +31,34 @@ def form(**updates):
             {"label": "Priority", "options": ["Normal", "High"], "persist": True},
         ], "values": ["Nanobot", "", "High"], **updates,
     })
+
+
+@pytest.mark.parametrize("count", [8, MAX_FORM_OPTIONS])
+def test_many_options_survive_draft_restore_and_submission(form_store, count):
+    store, scope = form_store
+    options = [f"Category {index + 1}" for index in range(count)]
+    draft = form(title="Categories", fields=[
+        {"label": "Category", "type": "select", "options": options, "persist": True},
+        {"label": "Compare", "type": "checkbox", "options": options, "persist": True},
+    ], values=[options[-1], options[::-1]])
+    save_form(store, scope, "block", revision=1, expected_state_version=0, form=draft)
+    restored = UiSnapshotStore(store.path).read(scope, "block")
+    retained = form_followup(restored, "form-0").form
+    assert retained is not None and retained.values == [options[-1], options]
+    assert retained.fields[0].options == retained.fields[1].options == options
+    submitted = ConversationForm.model_validate({**retained.model_dump(), "submit": True})
+    prepared = save_form(store, scope, "block", revision=1, expected_state_version=restored.state_version, form=submitted)
+    assert prepared.state["$forms"]["form-0"]["status"] == "prepared"
+    assert submitted.content() == f"Categories\nCategory: {options[-1]}\nCompare: {', '.join(options)}"
+
+
+def test_options_and_checkbox_values_remain_bounded():
+    options = [f"Category {index + 1}" for index in range(MAX_FORM_OPTIONS)]
+    with pytest.raises(ValidationError):
+        FormField(label="Category", options=[*options, "Too many"])
+    for values in [[*options, "Too many"], ["Unknown"], [options[0], options[0]]]:
+        with pytest.raises(ValidationError):
+            form(fields=[{"label": "Compare", "type": "checkbox", "options": options}], values=[values], submit=True)
 
 
 def test_numeric_date_fields_validate_and_retain_drafts_and_followup(form_store):
