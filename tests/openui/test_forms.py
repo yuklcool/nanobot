@@ -4,7 +4,13 @@ import pytest
 from pydantic import ValidationError
 
 from nanobot.openui.actions import UiActionLedger
-from nanobot.openui.forms import MAX_FORM_OPTIONS, ConversationForm, FormField, form_followup, save_form
+from nanobot.openui.forms import (
+    MAX_FORM_OPTIONS,
+    ConversationForm,
+    FormField,
+    form_followup,
+    save_form,
+)
 from nanobot.openui.snapshots import UiConflictError, UiScope, UiSnapshot, UiSnapshotStore
 
 
