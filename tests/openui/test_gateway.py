@@ -574,6 +574,27 @@ async def test_untrusted_client_and_disabled_mode_preserve_native_chat(gateway):
     await gateway.channel._cleanup_connection(connection)
 
 
+@pytest.mark.parametrize("mode,generation", [("auto", "model"), ("markdown", "model"), ("openui", "preview")])
+async def test_in_chat_data_capability_reaches_only_negotiated_model_ui_turns(gateway, monkeypatch, mode, generation):
+    provider = gateway.loop.provider
+    messages = []
+    original = provider.chat
+
+    async def record_chat(**kwargs):
+        messages.append(kwargs["messages"])
+        return await original(**kwargs)
+
+    monkeypatch.setattr(provider, "chat", record_chat)
+    gateway.services.openui.options.generation = generation
+    await rpc(gateway, "openui.subscribe", {"chat_id": "chat"})
+    await dispatch(gateway, {"type": "message", "chat_id": "chat", "turn_id": "data-view-context", "webui": True,
+                             "content": "Explain variables", "ui_mode": mode})
+    await execute(gateway)
+    context = json.dumps(messages[0])
+    assert ("filterable/sortable tables" in context) is (mode == "auto" and generation == "model")
+    assert provider.agent_calls == 1 and gateway.tool.calls == 0
+
+
 async def test_real_authenticated_websocket_roundtrip(gateway, unused_tcp_port):
     import websockets
 
