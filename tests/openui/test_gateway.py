@@ -740,6 +740,43 @@ async def test_model_table_values_and_record_action_use_authorized_snapshot(gate
     assert not forged["ok"] and gateway.tool.calls == 2
 
 
+async def test_sql_snapshot_row_analysis_runs_a_second_native_tool_turn_in_the_same_session(gateway, monkeypatch):
+    from nanobot.openui.data import TableAdapterConfig
+
+    provider = enable_model_tables(gateway)
+    gateway.collector.adapters["lookup"] = TableAdapterConfig(
+        title="Readonly query", result_format="sql_readonly", id_field=None,
+        columns={"type": "Type", "count": "Count", "device": "Device"},
+    )
+
+    async def query(**kwargs):
+        gateway.tool.calls += 1
+        rows = [{"type": "A", "count": 8}] if gateway.tool.calls == 1 else [{"device": "A1"}]
+        return json.dumps({"ok": True, "rows": rows, "meta": {"truncated": False}, "connection": "PRIVATE-CONNECTION"})
+
+    monkeypatch.setattr(gateway.tool, "execute", query)
+    block = await first_card(gateway, mode="auto")
+    table = next(iter(block["tables"].values()))
+    assert table["columns"] == {"type": "Type", "count": "Count"}
+    assert table["rows"] == [{"id": "row_1", "values": {"type": "A", "count": 8}}]
+    assert table["session_query"] is None
+    request = {"chat_id": "chat", "block_id": block["block_id"], "revision": block["revision"],
+               "session_generation": block["session_generation"], "data_ref": table["data_ref"], "record_id": "row_1"}
+    prepared = await rpc(gateway, "openui.prepare_record", request)
+    assert prepared["ok"]
+    action = {key: value for key, value in request.items() if key != "chat_id"}
+    action.update(action_id="record.analyze", request_id="sql-row-analysis")
+    await dispatch(gateway, {"type": "message", "chat_id": "chat", "webui": True, "ui_mode": "auto",
+                             "turn_id": "sql-row-analysis", "content": prepared["result"]["content"], "ui_action": action})
+    message = await execute(gateway)
+    assert message.chat_id == "chat" and gateway.tool.calls == 2 and provider.ui_calls == 2
+    assert '"count":8' in message.metadata["_runtime_context_blocks"][0].content
+    restored = await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": ["sql-row-analysis"]})
+    followup = restored["result"]["blocks"][0]
+    assert next(iter(followup["tables"].values()))["rows"][0]["values"] == {"device": "A1"}
+    assert "PRIVATE-CONNECTION" not in json.dumps(block["tables"]) + json.dumps(followup["tables"])
+
+
 async def test_auto_skips_plain_answers_but_preserves_explicit_mode_and_followup_intent(gateway):
     await rpc(gateway, "openui.subscribe", {"chat_id": "chat"})
     cases = [

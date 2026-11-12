@@ -329,7 +329,8 @@ const DataTable = defineComponent({
             }); }}>{t("openui.analyzeRecord")}</Button></td>
         </tr>)}</tbody>
       </table></div>
-      <p className="text-caption text-muted-foreground">{t("openui.showingRows", { shown: rows.length, total: data.total_rows ?? data.rows.length })}</p></>}
+      <p className="text-caption text-muted-foreground">{t("openui.showingRows", { shown: rows.length,
+        total: data.source_truncated ? `${data.total_rows ?? data.rows.length}+` : data.total_rows ?? data.rows.length })}</p></>}
       {!rows.length && !loading && !failed && <div className="flex flex-wrap items-center gap-2">
         <p role="status" className="text-reading-small text-muted-foreground">{t(data.rows.length ? "openui.noRecords" : "openui.emptyData")}</p>
         {data.rows.length > 0 && filter && <Button type="button" variant="ghost" size="sm" onClick={() => setFilter("")}>{t("openui.clearFilter")}</Button>}
@@ -401,7 +402,7 @@ export function replacesAnswer(source: string, tables: Record<string, DisplayTab
         const parsed = metricPropsSchema.safeParse(child.props);
         if (!parsed.success || !Object.hasOwn(tables, parsed.data.data_ref)) return false;
         const table = tables[parsed.data.data_ref];
-        return Object.hasOwn(table.columns, parsed.data.field) && table.rows.length === 1
+        return !table.source_truncated && Object.hasOwn(table.columns, parsed.data.field) && table.rows.length === 1
           && (table.total_rows ?? table.rows.length) === 1
           && typeof table.rows[0].values[parsed.data.field] === "number";
       }
