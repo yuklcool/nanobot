@@ -423,11 +423,20 @@ class OpenUIRuntime:
             for count, turn in enumerate(history.turns(reverse=True)):
                 if count >= 32:
                     break
-                for record in reversed(turn_records(history, turn.ordinal, max_records=100, max_bytes=512 * 1024)):
+                answer = None
+                media_delivered = False
+                for record in turn_records(history, turn.ordinal, max_records=100, max_bytes=512 * 1024):
                     if (record.get("turn_id") == turn_id and record.get("turn_phase") == "answer"
                             and record.get("event") in {"message", "stream_end"}
                             and record.get("kind") not in {"progress", "tool_hint", "reasoning"}):
-                        return record
+                        # Native clients hide subsequent streams after a media message.
+                        if record["event"] == "stream_end" and media_delivered:
+                            continue
+                        answer = record
+                        if record["event"] == "message" and (record.get("media_urls") or record.get("media")):
+                            media_delivered = True
+                if answer is not None:
+                    return answer
             return None
 
         answer = await self.sessions.state.project_history(scope.session_key, last_answer)

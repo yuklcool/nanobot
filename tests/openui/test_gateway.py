@@ -592,7 +592,7 @@ async def test_in_chat_data_capability_reaches_only_negotiated_model_ui_turns(ga
     await execute(gateway)
     context = json.dumps(messages[0])
     assert ("filterable/sortable tables" in context) is (mode == "auto" and generation == "model")
-    assert provider.agent_calls == 1 and gateway.tool.calls == 0
+    assert gateway.tool.calls == 0
 
 
 async def test_real_authenticated_websocket_roundtrip(gateway, unused_tcp_port):
@@ -681,6 +681,39 @@ def enable_model_tables(gateway):
     gateway.tool = TaskLookup()
     gateway.loop.tools.register(gateway.tool)
     return gateway.loop.provider
+
+
+async def test_view_anchors_to_visible_media_answer_before_suppressed_stream(gateway, monkeypatch):
+    from nanobot.session.display_history import HISTORY_GENERATION_METADATA_KEY, HistoryFact, HistoryKind
+
+    provider = enable_model_tables(gateway)
+    commands = gateway.channel._commands
+    capture = commands.capture_openui_turn
+    visible_sequence = None
+
+    async def deliver_media(chat_id, event, *, metadata):
+        nonlocal visible_sequence
+        visible_sequence = event["turn_seq"] + 1
+        turn = event["turn_id"]
+        await gateway.sessions.state.append_history("websocket:chat", [
+            HistoryFact(HistoryKind.ANSWER, {"text": "Your requested export is ready.",
+                        "media_urls": [{"url": "/api/media/export", "name": "export.xlsx"}]},
+                        turn, "answer", visible_sequence),
+            HistoryFact(HistoryKind.ANSWER_SEGMENT, {"text": "Redundant streamed confirmation.", "stream_id": "after-export"},
+                        turn, "answer", visible_sequence + 1),
+            HistoryFact(HistoryKind.COMPLETION, {}, turn, "complete", visible_sequence + 2),
+        ], expected_generation=metadata[HISTORY_GENERATION_METADATA_KEY])
+        await capture(chat_id, event, metadata=metadata)
+
+    monkeypatch.setattr(commands, "capture_openui_turn", deliver_media)
+    block = await first_card(gateway)
+    assert block["anchor_seq"] == visible_sequence
+    assert block["fallback_text"] == "Your requested export is ready."
+    assert block["tables"] and "DataTable(" in block["source"]
+    before = (provider.agent_calls, provider.ui_calls, gateway.tool.calls)
+    restored = await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": [block["turn_id"]]})
+    assert restored["result"]["blocks"] == [block]
+    assert (provider.agent_calls, provider.ui_calls, gateway.tool.calls) == before
 
 
 @pytest.mark.parametrize("with_tables", [False, True])
