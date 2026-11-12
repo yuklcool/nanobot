@@ -684,7 +684,11 @@ def enable_model_tables(gateway):
 
 
 async def test_view_anchors_to_visible_media_answer_before_suppressed_stream(gateway, monkeypatch):
-    from nanobot.session.display_history import HISTORY_GENERATION_METADATA_KEY, HistoryFact, HistoryKind
+    from nanobot.session.display_history import (
+        HISTORY_GENERATION_METADATA_KEY,
+        HistoryFact,
+        HistoryKind,
+    )
 
     provider = enable_model_tables(gateway)
     commands = gateway.channel._commands
