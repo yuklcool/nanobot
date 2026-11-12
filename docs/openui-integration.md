@@ -1,6 +1,6 @@
 # OpenUI 接入与维护
 
-Refs #1。本文说明当前实现和维护入口，功能基线为 develop `105cac5bfcdc92e069dd731ccea78c18c1645b76`，不将设计稿中的计划当成已交付能力。OpenUI 仍是实验功能；业务工具及照明数据的真实验收在部署后进行，Issue #1 不因此关闭。部署步骤见 [隔离测试部署](openui-deployment-test.md)，阶段目标和 AT01–AT24 见 [详细设计](openui-integration-design.md)。
+Refs #1。本文说明当前实现和维护入口，已部署运行时代码为 develop `347bdde790bc9dbe8428e90f0d725362ce8f8dc7`。v0.4.0 基线的交互功能、真实问卷、RTU/单灯两轮只读 MCP 和固定候选验收已完成，确切 CI、产物与 AT01–AT24 见 [整体验收报告](openui-final-acceptance.md)。仍作为可选实验功能使用，未发布 tag 或 Release；v0.4.1 升级与冲突处理独立跟进 [Issue #29](https://github.com/yuklcool/nanobot/issues/29)。部署步骤见 [隔离测试部署](openui-deployment-test.md)，设计依据见 [详细设计](openui-integration-design.md)。
 
 ## 启用与模式
 
@@ -123,7 +123,9 @@ gh workflow run upstream-stable.yml --ref develop
 
 仓库当前默认分支为 main，该检查放在 develop，未配置 schedule，仅提供手动入口。工作流经 PR 注册后已实测从功能分支 dispatch；合入后使用上面的 `--ref develop` 命令。工作流不使用真实业务凭据或生产实例。
 
-## 验证证据与未完成项
+## 历史验证记录
+
+以下保留原提交上的结果与失败样本，当前交付状态以 [整体验收报告](openui-final-acceptance.md) 为准，不能把历史的待验收声明当作当前缺口。
 
 运行时基线的 [GitHub Actions 42826811324](https://github.com/yuklcool/nanobot/actions/runs/42826811324) 验证了 428 个 Python、308 个前端、16 个浏览器用例及构建、wheel 和容器；它是上一批运行时证据，不是本批升级工作流的执行结果。真实模型的历史样本与失败边界见 [模型验收记录](openui-live-validation.md) 及各阶段说明，不能据此宣布所有模型和业务都已通过。
 
@@ -131,4 +133,4 @@ gh workflow run upstream-stable.yml --ref develop
 
 [官方目标试合并 42838246345](https://github.com/yuklcool/nanobot/actions/runs/42838246345) 对 develop `105cac5bfcdc92e069dd731ccea78c18c1645b76` 检查官方 v0.4.1 `3404fe83e22b7b2cb3edae1348ed45dd9b8ad051`：上游变化 1180 个路径，双方重叠 35 个，实际冲突 12 个。工具与报告生成成功，最终检查按预期失败并跳过候选回归。冲突涉及会话工具、WebSocket、Gateway 启动、会话历史、命令/侧栏及依赖锁文件；完整清单见该运行的 report artifact。不将这次阻断报告写成升级成功，不在本批解决上游升级。
 
-业务 MCP/照明字段绑定、真实数据效果与权限、固定发布候选的完整 P0–P3/AT 矩阵仍需后续验收；不为等待这些资料新增通用业务框架。
+上述业务 MCP 快照绑定、真实数据闭环及固定 v0.4.0 候选的 P0–P3/AT 矩阵已由整体验收收口。新业务工具仍须依据真实字段和权限显式配置，当前交付不包含通用业务写入或照明控制；官方 v0.4.1 的实际升级尚未完成，见 #29。
