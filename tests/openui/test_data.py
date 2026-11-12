@@ -41,3 +41,37 @@ def test_chart_descriptors_expose_only_eligible_column_keys_without_values():
     assert descriptor["row_count"] == descriptor["total_rows"] == 2
     assert descriptor["category_columns"] == ["name", "mixed"]
     assert "private-value" not in json.dumps(descriptor)
+
+
+def test_sql_rows_project_available_allowed_fields_and_keep_duplicate_snapshot_rows_distinct():
+    config = TableAdapterConfig(title="Query", result_format="sql_readonly", id_field=None,
+                                columns={"type": "Type", "count": "Count", "device": "Device"}, max_rows=1)
+    summary = capture_table(config, tool_name="readonly", call_id="summary", result=json.dumps({
+        "ok": True, "rows": [{"type": "A", "count": 8, "secret": "private"}] * 2,
+        "meta": {"truncated": True, "connection": "private"},
+    }))
+    assert summary.columns == {"type": "Type", "count": "Count"}
+    assert summary.rows[0].values == {"type": "A", "count": 8}
+    assert summary.total_rows == 2 and len(summary.rows) == 1 and summary.source_truncated
+    assert summary.descriptor()["source_truncated"] is True
+    assert "private" not in summary.model_dump_json()
+    config.max_rows = 50
+    detail = capture_table(config, tool_name="readonly", call_id="detail", result=json.dumps({
+        "ok": True, "rows": [{"device": "A"}, {"device": "A"}], "meta": {"truncated": False},
+    }))
+    assert detail.columns == {"device": "Device"}
+    assert [row.id for row in detail.rows] == ["row_1", "row_2"]
+    assert detail.data_ref != summary.data_ref and not detail.source_truncated
+
+
+@pytest.mark.parametrize("payload", [
+    {"ok": False, "rows": [], "meta": {"truncated": False}},
+    {"ok": True, "rows": [], "meta": {"truncated": "false"}},
+    {"ok": True, "rows": [{"secret": "private"}], "meta": {"truncated": False}},
+    {"ok": True, "rows": [{"count": 8}, {"device": "A"}], "meta": {"truncated": False}},
+])
+def test_sql_adapter_rejects_errors_unknown_completeness_and_inconsistent_or_unapproved_columns(payload):
+    with pytest.raises(ValueError):
+        capture_table(TableAdapterConfig(title="Query", result_format="sql_readonly", id_field=None,
+                                         columns={"count": "Count", "device": "Device"}),
+                      tool_name="readonly", call_id="rejected", result=json.dumps(payload))

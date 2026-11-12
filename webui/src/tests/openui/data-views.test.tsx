@@ -33,6 +33,10 @@ it("shows exact single-record metric values, including zero, without selecting o
   view.rerender(<MetricValueView table={truncated} field="energy" />);
   expect(screen.getByRole("status")).toHaveTextContent("openui.unavailable");
   expect(replacesAnswer('root = Panel([metric], "replace")\nmetric = MetricValue("energy", "energy")', { energy: truncated })).toBe(false);
+  const sourceTruncated = { ...single, source_truncated: true };
+  view.rerender(<MetricValueView table={sourceTruncated} field="energy" />);
+  expect(screen.getByRole("status")).toHaveTextContent("openui.unavailable");
+  expect(replacesAnswer('root = Panel([metric], "replace")\nmetric = MetricValue("energy", "energy")', { energy: sourceTruncated })).toBe(false);
   view.rerender(<MetricValueView table={table} field="energy" />);
   expect(screen.getByRole("status")).toHaveTextContent("openui.unavailable");
   view.rerender(<MetricValueView table={{ ...table, rows: [], total_rows: 0 }} field="energy" />);

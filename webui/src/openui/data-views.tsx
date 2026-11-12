@@ -64,13 +64,14 @@ export function DataChartView({ table, props }: { table?: DisplayTable; props: C
     <time className="text-caption text-muted-foreground" dateTime={new Date(table.captured_at * 1000).toISOString()}>
       {t("openui.snapshotTime", { time: new Date(table.captured_at * 1000).toLocaleString() })}
     </time>
-    <p className="text-caption text-muted-foreground">{t("openui.showingRows", { shown: points.length, total: table.total_rows ?? points.length })}</p>
+    <p className="text-caption text-muted-foreground">{t("openui.showingRows", { shown: points.length,
+      total: table.source_truncated ? `${table.total_rows ?? points.length}+` : table.total_rows ?? points.length })}</p>
   </figure>;
 }
 
 export function MetricValueView({ table, field: key }: { table?: DisplayTable; field: string }) {
   const { t } = useTranslation();
-  if (!table || !Object.hasOwn(table.columns, key) || table.rows.length > 1
+  if (!table || table.source_truncated || !Object.hasOwn(table.columns, key) || table.rows.length > 1
     || (table.total_rows ?? table.rows.length) > 1) return <p role="status">{t("openui.unavailable")}</p>;
   if (!table.rows.length || table.rows[0].values[key] === null) return <p role="status">{t("openui.emptyData")}</p>;
   const value = table.rows[0].values[key];

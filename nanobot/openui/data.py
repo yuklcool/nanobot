@@ -16,8 +16,9 @@ Cell = ShortText | bool | int | Annotated[float, Field(allow_inf_nan=False)] | N
 
 class TableAdapterConfig(Base):
     title: Annotated[str, Field(min_length=1, max_length=160)]
+    result_format: Literal["records", "sql_readonly"] = "records"
     records_key: Annotated[str, Field(max_length=128)] = "records"
-    id_field: Annotated[str, Field(min_length=1, max_length=128)] = "id"
+    id_field: Annotated[str, Field(min_length=1, max_length=128)] | None = "id"
     columns: Annotated[dict[str, str], Field(min_length=1, max_length=8)]
     max_rows: Annotated[int, Field(ge=1, le=50)] = 50
 
@@ -64,6 +65,7 @@ class DisplayTable(BaseModel):
     source_call_id: str
     captured_at: float
     total_rows: Annotated[int, Field(ge=0)] = 0
+    source_truncated: bool = False
     session_query: SessionQuery | None = None
 
     def descriptor(self) -> dict[str, JsonValue]:
@@ -71,6 +73,7 @@ class DisplayTable(BaseModel):
             "data_ref": self.data_ref, "title": self.title,
             "columns": dict(self.columns), "row_count": len(self.rows),
             "total_rows": self.total_rows,
+            "source_truncated": self.source_truncated,
             "source_tool": self.source_tool, "captured_at": self.captured_at,
             "numeric_columns": [key for key in self.columns if self.rows
                                 and any(type(row.values.get(key)) in (int, float) for row in self.rows)
@@ -90,28 +93,48 @@ def capture_table(
     if not isinstance(result, str) or len(result.encode("utf-8")) > 256 * 1024:
         raise ValueError("display adapter requires bounded JSON text")
     parsed: JsonValue = TypeAdapter(JsonValue).validate_json(result)
-    records: object = parsed.get(config.records_key) if isinstance(parsed, dict) and config.records_key else parsed
+    source_truncated = False
+    if config.result_format == "sql_readonly":
+        if not isinstance(parsed, dict) or parsed.get("ok") is not True:
+            raise ValueError("display SQL query did not succeed")
+        meta = parsed.get("meta")
+        truncated = meta.get("truncated") if isinstance(meta, dict) else None
+        if not isinstance(truncated, bool):
+            raise ValueError("display SQL result requires truncation metadata")
+        source_truncated = truncated
+        records: object = parsed.get("rows")
+    else:
+        records = parsed.get(config.records_key) if isinstance(parsed, dict) and config.records_key else parsed
     if not isinstance(records, list):
         raise ValueError("display records must be an array")
+    columns = config.columns
+    if config.result_format == "sql_readonly" and records:
+        if not isinstance(records[0], dict):
+            raise ValueError("display record must be an object")
+        columns = {key: label for key, label in columns.items() if key in records[0]}
+        if not columns:
+            raise ValueError("display SQL result has no allowed columns")
     rows: list[DisplayRow] = []
     seen: set[str] = set()
-    for raw in records[:config.max_rows]:
+    for index, raw in enumerate(records[:config.max_rows]):
         if not isinstance(raw, dict):
             raise ValueError("display record must be an object")
-        if any(key not in raw for key in config.columns):
+        if any(key not in raw for key in columns):
             raise ValueError("display field missing")
-        identity = raw.get(config.id_field)
+        # Snapshot IDs address captured rows only; they never identify a live resource.
+        identity = raw.get(config.id_field) if config.id_field is not None else f"row_{index + 1}"
         if not isinstance(identity, str) or identity in seen:
             raise ValueError("display IDs must be unique strings")
         seen.add(identity)
         # JSON numbers beyond JavaScript's safe integer range lose digits in
         # transit. Keep their exact decimal representation as literal cells.
         values = {key: str(value) if type(value) is int and abs(value) > 2**53 - 1 else value
-                  for key in config.columns for value in [raw.get(key)]}
+                  for key in columns for value in [raw.get(key)]}
         rows.append(DisplayRow.model_validate({"id": identity, "values": values}))
     data_ref = "data_" + hashlib.sha256(f"{tool_name}:{call_id}".encode()).hexdigest()[:24]
-    table = DisplayTable(data_ref=data_ref, title=config.title, columns=config.columns,
-                         rows=rows, source_tool=tool_name, source_call_id=call_id, captured_at=time.time(), total_rows=len(records))
+    table = DisplayTable(data_ref=data_ref, title=config.title, columns=columns,
+                         rows=rows, source_tool=tool_name, source_call_id=call_id, captured_at=time.time(),
+                         total_rows=len(records), source_truncated=source_truncated)
     if len(table.model_dump_json().encode()) > 64 * 1024:
         raise ValueError("display table exceeds size budget")
     return table
