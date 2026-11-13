@@ -69,6 +69,11 @@ function makeClient() {
       return status;
     },
     defaultChatId: null as string | null,
+    getOpenUI: lifecycle.getOpenUI.bind(lifecycle),
+    getOpenUIMode: lifecycle.getOpenUIMode.bind(lifecycle),
+    setOpenUIActive: lifecycle.setOpenUIActive.bind(lifecycle),
+    onOpenUI: lifecycle.onOpenUI.bind(lifecycle),
+    onReady: lifecycle.onReady.bind(lifecycle),
     onStatus: (handler: (nextStatus: ConnectionStatus) => void) => {
       statusHandlers.add(handler);
       handler(status);

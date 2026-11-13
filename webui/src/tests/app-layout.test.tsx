@@ -255,6 +255,10 @@ vi.mock("@/lib/bootstrap", () => ({
 vi.mock("@/lib/nanobot-client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/nanobot-client")>();
   class MockClient {
+    getOpenUI = () => null;
+    getOpenUIMode = () => "markdown" as const;
+    setOpenUIActive = vi.fn();
+    onOpenUI = () => () => {};
     onTaskNotice = () => () => {};
     status = "idle" as const;
     defaultChatId = mockDefaultChatId;
