@@ -1904,3 +1904,8 @@
   box-sizing: border-box;
   white-space: nowrap;
 }
+
+/* A hidden tooltip can retain desktop coordinates after the chart shrinks. */
+.recharts-responsive-container {
+  overflow-x: clip;
+}

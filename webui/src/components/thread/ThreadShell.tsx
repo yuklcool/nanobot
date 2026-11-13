@@ -1512,7 +1512,7 @@ export function ThreadShell({
   ) : null;
 
   return (
-    <OpenUIChatProvider key={chatId ?? "none"} client={client} chatId={temporary ? null : chatId} disabled={temporary} messages={displayMessages} send={send}>
+    <OpenUIChatProvider client={client} chatId={temporary ? null : chatId} disabled={temporary} messages={displayMessages} send={send}>
     <SubagentTasksProvider client={client} token={token}
       sessionKey={session?.key ?? null}
       liveEvents={webuiCapabilities.includes("webui.subagents.events.v1")}
