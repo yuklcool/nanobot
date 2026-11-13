@@ -74,7 +74,6 @@ from nanobot.webui.session_access import (
     session_mentions_runtime_context,
 )
 from nanobot.webui.session_identity import is_valid_webui_chat_id, webui_chat_id, webui_session_key
-from nanobot.webui.sidebar_state import read_webui_sidebar_state
 from nanobot.webui.temporary_chats import TemporaryChatError
 from nanobot.webui.transcription_ws import webui_transcription_event
 
@@ -1067,7 +1066,9 @@ class WebUICommandRouter:
                     snapshot = await runtime.rename(rename_request)
                     await self.emit_openui(snapshot)
                     if rename_request.operation == "confirm":
-                        await self.broadcast_webui_event("sidebar_state_updated", state=read_webui_sidebar_state())
+                        await self.broadcast_webui_event(
+                            "sidebar_state_updated", state=await self._http_router.sidebar_state.read(),
+                        )
                     result = {"snapshot": snapshot.model_dump()}
                 elif action == "openui.query":
                     query_request = UiQueryRequest.model_validate(envelope.get("payload"))

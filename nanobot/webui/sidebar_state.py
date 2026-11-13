@@ -6,9 +6,8 @@ flags live in the session database; the public sidebar payload combines both.
 
 from __future__ import annotations
 
-import hashlib
-
 import asyncio
+import hashlib
 import json
 import math
 import os
