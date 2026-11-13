@@ -455,7 +455,8 @@ class SessionState:
             session = self._load(key, history=False)
             if session is None:
                 return None
-            return replace(session, messages=[], provider_state=None, _baseline=None)
+            return replace(session, messages=[], provider_state=None, _baseline=None,
+                           metadata=deepcopy(session.metadata))
         return await self._execute(key, read, write=False)
 
     async def get(self, key: str) -> Session:
@@ -465,16 +466,6 @@ class SessionState:
     async def get_header(self, key: str) -> Session:
         """Read or create a header for controls, without issuing a turn draft."""
         return await self._get(key, history=False)
-
-    async def read_header(self, key: str) -> Session | None:
-        """Read committed identity, policy and metadata without creating a session or loading history."""
-        def read() -> Session | None:
-            session = self._load(key, history=False)
-            if session is None:
-                return None
-            return replace(session, _baseline=None, messages=[], provider_state=None,
-                           metadata=deepcopy(session.metadata))
-        return await self._execute(key, read, write=False)
 
     async def _get(self, key: str, *, history: bool) -> Session:
         def view(session: Session) -> Session:

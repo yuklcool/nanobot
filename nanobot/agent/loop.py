@@ -912,7 +912,9 @@ class AgentLoop:
 
     async def _cancel_active_tasks(self, key: str) -> int:
         pending = self._pending_queues.get(key)
-        tasks = tuple(self._active_tasks.pop(key, set()))
+        # An idle /new can run on this session's worker; it must finish its own reset.
+        current = asyncio.current_task()
+        tasks = tuple(task for task in self._active_tasks.get(key, ()) if task is not current)
         cancelled = sum(1 for t in tasks if not t.done() and t.cancel())
         journal_session = await self.sessions.state.read(key)
         journaled_followup_ids = (
