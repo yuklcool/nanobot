@@ -411,7 +411,17 @@ test("captured charts and typed fields render, recover and submit through the ex
   await expect(form.getByRole("status")).toContainText("Draft saved");
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: test.info().outputPath("captured-charts-typed-fields-mobile.png"), fullPage: true });
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  const layout = await page.evaluate(() => ({
+    width: document.documentElement.scrollWidth, viewport: innerWidth,
+    overflowing: [...document.querySelectorAll("body *")].filter((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.width > 0 && rect.right > innerWidth;
+    }).slice(0, 12).map((element) => ({
+      tag: element.tagName, classes: element.getAttribute("class"), style: element.getAttribute("style"),
+      right: element.getBoundingClientRect().right,
+    })),
+  }));
+  expect(layout.width, JSON.stringify(layout)).toBeLessThanOrEqual(layout.viewport);
   await page.reload();
   await expect(power).toHaveValue("1.25");
   await expect(date).toHaveValue("2028-02-29");

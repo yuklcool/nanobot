@@ -325,11 +325,12 @@ class OpenUIRuntime:
                 with request_context(RequestContext(channel="websocket", chat_id=request.chat_id,
                                                     session_key=table.session_query.exclude_session_key, log_content=False)):
                     if request.operation == "refresh":
-                        result = await SearchSessionsTool(self.sessions).execute(
+                        # tool_parameters supplies the abstract schema property at runtime.
+                        result = await SearchSessionsTool(self.sessions).execute(  # pyright: ignore[reportAbstractUsage]
                             query=table.session_query.query, session_keys=table.session_query.session_keys,
                         )
                     else:
-                        result = await ReadSessionTool(self.sessions).execute(session_key=request.record_id or "")
+                        result = await ReadSessionTool(self.sessions).execute(session_key=request.record_id or "")  # pyright: ignore[reportAbstractUsage]
                 if isinstance(result, ToolResult) and result.is_error:
                     raise UiConflictError("UI_QUERY_UNAVAILABLE")
                 current_scope, current = await self.block(request)

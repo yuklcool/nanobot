@@ -132,7 +132,7 @@ class UiSnapshotStore:
     def key(scope: UiScope) -> tuple[str, str, str]:
         return scope.owner, scope.session_key, scope.generation
 
-    def _read(
+    def read_in_transaction(
         self, db: sqlite3.Connection, scope: UiScope, block_id: str,
     ) -> UiSnapshot:
         row = db.execute(
@@ -143,7 +143,7 @@ class UiSnapshotStore:
             raise KeyError("UI block unavailable")
         return UiSnapshot.model_validate_json(row[0])
 
-    def _write(self, db: sqlite3.Connection, scope: UiScope, snapshot: UiSnapshot) -> None:
+    def write_in_transaction(self, db: sqlite3.Connection, scope: UiScope, snapshot: UiSnapshot) -> None:
         db.execute(
             "UPDATE ui_snapshots SET snapshot=? WHERE owner=? AND session_key=? "
             "AND generation=? AND block_id=?",
@@ -179,7 +179,7 @@ class UiSnapshotStore:
 
     def read(self, scope: UiScope, block_id: str) -> UiSnapshot:
         with self.transaction() as db:
-            return self._read(db, scope, block_id)
+            return self.read_in_transaction(db, scope, block_id)
 
     def advance(
         self, scope: UiScope, block_id: str, *, revision: int, expected_seq: int,
@@ -187,7 +187,7 @@ class UiSnapshotStore:
         usage: dict[str, int] | None = None,
     ) -> UiSnapshot:
         with self.transaction() as db:
-            current = self._read(db, scope, block_id)
+            current = self.read_in_transaction(db, scope, block_id)
             if (current.revision != revision or current.seq != expected_seq
                     or current.status != "streaming"):
                 raise UiConflictError("UI stream changed or ended")
@@ -199,14 +199,14 @@ class UiSnapshotStore:
                 "seq": current.seq + 1, "status": status, "error_code": error_code,
                 "usage": current.usage if usage is None else usage,
             })
-            self._write(db, scope, updated)
+            self.write_in_transaction(db, scope, updated)
             return updated
 
     def refresh_table(
         self, scope: UiScope, block_id: str, *, revision: int, expected_seq: int, table: DisplayTable,
     ) -> UiSnapshot:
         with self.transaction() as db:
-            current = self._read(db, scope, block_id)
+            current = self.read_in_transaction(db, scope, block_id)
             if (current.revision != revision or current.seq != expected_seq or current.status != "complete"
                     or table.data_ref not in current.tables):
                 raise UiConflictError("STALE_REVISION")
@@ -214,7 +214,7 @@ class UiSnapshotStore:
                 **current.model_dump(), "seq": current.seq + 1,
                 "tables": {**current.tables, table.data_ref: table},
             })
-            self._write(db, scope, updated)
+            self.write_in_transaction(db, scope, updated)
             return updated
 
     def save_state(
@@ -222,7 +222,7 @@ class UiSnapshotStore:
         expected_state_version: int, state: dict[str, JsonValue],
     ) -> UiSnapshot:
         with self.transaction() as db:
-            current = self._read(db, scope, block_id)
+            current = self.read_in_transaction(db, scope, block_id)
             if (current.revision != revision or current.state_version != expected_state_version
                     or current.status != "complete"):
                 raise UiConflictError("UI state changed or is not editable")
@@ -237,7 +237,7 @@ class UiSnapshotStore:
                 **current.model_dump(), "state": state,
                 "state_version": current.state_version + 1,
             })
-            self._write(db, scope, updated)
+            self.write_in_transaction(db, scope, updated)
             return updated
 
     def delete_generation(self, scope: UiScope) -> None:
@@ -301,7 +301,7 @@ class UiSnapshotStore:
 
     def restart(self, scope: UiScope, block_id: str, *, revision: int) -> UiSnapshot:
         with self.transaction() as db:
-            current = self._read(db, scope, block_id)
+            current = self.read_in_transaction(db, scope, block_id)
             if current.revision != revision or current.status == "streaming":
                 raise UiConflictError("STALE_REVISION")
             if revision >= 3:
@@ -315,5 +315,5 @@ class UiSnapshotStore:
                 "state_version": 0,
                 "error_code": None, "usage": {},
             })
-            self._write(db, scope, snapshot)
+            self.write_in_transaction(db, scope, snapshot)
             return snapshot

@@ -45,6 +45,7 @@ class _FakeServer:
 def _channel() -> WebSocketChannel:
     gateway = MagicMock()
     gateway.session_manager = None
+    gateway.openui = None
     gateway.transcripts.initialize = AsyncMock()
     gateway.http.settings_routes.close = AsyncMock()
     gateway.http.remote_instances.close = AsyncMock()
