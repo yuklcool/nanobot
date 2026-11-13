@@ -55,18 +55,25 @@ def assess(repo: Path, tag: str, output: Path) -> dict:
     baseline_tags = [name for name, sha in official.items() if sha == stable]
     if not baseline_tags:
         raise ValueError("stable does not match an official final tag; review the baseline before upgrading")
-    baseline = max(baseline_tags, key=stable_version)
+    stable_tag = max(baseline_tags, key=stable_version)
     if tag not in official:
         raise ValueError("Published release tag was not fetched from the official repository")
     upstream = official[tag]
-    if target_version < stable_version(baseline):
+    if target_version < stable_version(stable_tag):
         raise ValueError("Latest release is older than the configured stable baseline; refusing a downgrade")
-    if not ancestor(repo, stable, develop) or not ancestor(repo, stable, upstream):
-        raise ValueError("develop and the target must descend from the verified stable baseline")
-    custom_paths = set(git(repo, "diff", "--name-only", "-z", stable, develop).split("\0")) - {""}
-    upstream_paths = set(git(repo, "diff", "--name-only", "-z", stable, upstream).split("\0")) - {""}
+    if not ancestor(repo, stable, upstream):
+        raise ValueError("the target must descend from the verified stable baseline")
+    integrated_tags = [name for name, sha in official.items()
+                       if ancestor(repo, sha, stable) and ancestor(repo, sha, develop)]
+    if not integrated_tags:
+        raise ValueError("develop and stable have no shared official stable baseline")
+    baseline = max(integrated_tags, key=stable_version)
+    baseline_sha = official[baseline]
+    custom_paths = set(git(repo, "diff", "--name-only", "-z", baseline_sha, develop).split("\0")) - {""}
+    upstream_paths = set(git(repo, "diff", "--name-only", "-z", baseline_sha, upstream).split("\0")) - {""}
     report = {
         "schema_version": 1, "develop_sha": develop, "stable_sha": stable, "baseline_tag": baseline,
+        "baseline_sha": baseline_sha, "stable_tag": stable_tag,
         "target_tag": tag, "upstream_sha": upstream, "status": "up_to_date", "candidate_sha": "",
         "upstream_changed_paths": sorted(upstream_paths), "overlapping_paths": sorted(custom_paths & upstream_paths),
         "conflicts": [],
@@ -99,7 +106,8 @@ def assess(repo: Path, tag: str, output: Path) -> dict:
 def render_report(report: dict) -> str:
     lines = ["# Upstream stable compatibility", "",
              f"- Official target: `{report['target_tag']}` (`{report['upstream_sha']}`)",
-             f"- Verified stable baseline: `{report['baseline_tag']}` (`{report['stable_sha']}`)",
+             f"- Verified stable branch: `{report['stable_tag']}` (`{report['stable_sha']}`)",
+             f"- Shared official baseline: `{report['baseline_tag']}` (`{report['baseline_sha']}`)",
              f"- Project develop: `{report['develop_sha']}`", f"- Trial merge: **{report['status']}**",
              f"- Candidate: `{report['candidate_sha'] or 'none'}`", "",
              "This report does not update branches, deploy, publish, or establish real business acceptance.", ""]
