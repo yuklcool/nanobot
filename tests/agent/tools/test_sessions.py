@@ -573,7 +573,8 @@ async def test_search_stops_reading_bodies_after_five_matches(manager, monkeypat
     monkeypatch.setattr(tool._access, "read", track_read)
     result = _decode(await tool.execute(query="needle"))
     assert [row["session_key"] for row in result["results"]] == [f"sdk:{i}" for i in range(8, 3, -1)]
-    assert scanned == ([] if matches_title else [f"sdk:{i}" for i in range(8, 3, -1)])
+    assert scanned == [f"sdk:{i}" for i in range(8, 3, -1)]
+    assert all(row["excerpts"][0]["content"] == "needle body" for row in result["results"])
 
 
 @pytest.mark.asyncio
