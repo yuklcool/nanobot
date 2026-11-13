@@ -136,6 +136,9 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),
+        // The SDK auto-loads a CDN inspector in development, including hidden
+        // dialogs and editors. Keep that optional widget outside the app's UI.
+        "@openuidev/devtools": path.resolve(__dirname, "./src/openui/devtools-disabled.ts"),
       },
       // Channel-owned UI lives beside the Python package, outside webui/.
       // Resolve its shared frontend dependencies from this app's root.
