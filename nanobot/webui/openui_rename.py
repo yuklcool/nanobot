@@ -43,7 +43,7 @@ def rename_operation(
     # The fence commits before touching the separate sidebar file. A crash in
     # between leaves an explicit unknown result; no automatic execution/retry.
     with store.transaction() as db:
-        block = store._read(db, scope, block_id)
+        block = store.read_in_transaction(db, scope, block_id)
         if block.revision != revision or block.status != "complete":
             raise UiConflictError("STALE_REVISION")
         entries = _RECEIPTS.validate_python(block.state.get("$renames", {}))
@@ -70,11 +70,11 @@ def rename_operation(
             **block.model_dump(), "state": {**block.state, "$renames": {key: item.model_dump() for key, item in entries.items()}},
             "state_version": block.state_version + 1,
         })
-        store._write(db, scope, updated)
+        store.write_in_transaction(db, scope, updated)
     if operation != "confirm" or entry.status == "conflict":
         return updated
     with store.transaction() as db:
-        current = store._read(db, scope, block_id)
+        current = store.read_in_transaction(db, scope, block_id)
         if current.revision != revision or current.status != "complete":
             raise UiConflictError("STALE_REVISION")
         entries = _RECEIPTS.validate_python(current.state.get("$renames", {}))
@@ -85,5 +85,5 @@ def rename_operation(
             **current.model_dump(), "state": {**current.state, "$renames": {key: item.model_dump() for key, item in entries.items()}},
             "state_version": current.state_version + 1,
         })
-        store._write(db, scope, updated)
+        store.write_in_transaction(db, scope, updated)
         return updated

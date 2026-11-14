@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Literal
+from typing import Any, Literal, cast
 
 from nanobot.openui.forms import content_digest
 from nanobot.openui.snapshots import UiConflictError, UiScope, UiSnapshot, UiSnapshotStore
@@ -34,9 +34,11 @@ class UiActionLedger:
                 self.store.key(scope),
             ).fetchone():
                 raise UiConflictError("STALE_GENERATION")
-            block = self.store._read(db, scope, block_id) if form_id else None
-            if block is not None:
-                entry = block.state.get("$forms", {}).get(form_id)
+            block = self.store.read_in_transaction(db, scope, block_id) if form_id else None
+            entry = None
+            if block is not None and form_id is not None:
+                forms = cast(dict[str, dict[str, Any]], block.state.get("$forms", {}))
+                entry = forms.get(form_id)
                 if (block.revision != revision or block.status != "complete" or not entry
                         or entry.get("request_id") != request_id
                         or entry.get("content_digest") != content_digest(content)):
@@ -52,10 +54,10 @@ class UiActionLedger:
             db.execute("INSERT INTO ui_actions VALUES (?, ?, ?, ?, ?, 'reserved')", (
                 *self.store.key(scope), request_id, digest,
             ))
-            if block is not None:
+            if block is not None and entry is not None:
                 entry["status"] = "unknown"
                 updated = UiSnapshot.model_validate({**block.model_dump(), "state_version": block.state_version + 1})
-                self.store._write(db, scope, updated)
+                self.store.write_in_transaction(db, scope, updated)
             return "new"
 
     def accept(
@@ -68,11 +70,12 @@ class UiActionLedger:
                 "AND generation=? AND request_id=?", (*self.store.key(scope), request_id),
             )
             if form_id is not None and block_id is not None:
-                block = self.store._read(db, scope, block_id)
-                entry = block.state.get("$forms", {}).get(form_id)
+                block = self.store.read_in_transaction(db, scope, block_id)
+                forms = cast(dict[str, dict[str, Any]], block.state.get("$forms", {}))
+                entry = forms.get(form_id)
                 if block.revision == revision and entry and entry.get("request_id") == request_id:
                     entry["status"] = "submitted"
                     updated = UiSnapshot.model_validate({**block.model_dump(), "state_version": block.state_version + 1})
-                    self.store._write(db, scope, updated)
+                    self.store.write_in_transaction(db, scope, updated)
                     return updated
         return None

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from loguru import logger
 
@@ -85,9 +85,10 @@ class _Capture(AgentHook):
             if (isinstance(tool, SearchSessionsTool) and config.records_key == "results"
                     and config.id_field == "session_key" and isinstance(params, dict)
                     and request is not None and request.session_key):
+                parameters = cast(dict[str, Any], params)
                 session_query = SessionQuery(
-                    query=params["query"].strip(), exclude_session_key=request.session_key,
-                    session_keys=params.get("session_keys"),
+                    query=parameters["query"].strip(), exclude_session_key=request.session_key,
+                    session_keys=parameters.get("session_keys"),
                 )
                 table = table.model_copy(update={"session_query": session_query})
                 if session_query.session_keys is not None:

@@ -47,13 +47,11 @@ import type {
 
 interface MessageBubbleProps {
   message: UIMessage;
-  /** Give temporary-chat user turns the dashed private-mode treatment. */
   temporary?: boolean;
   cliApps?: CliAppInfo[];
   mcpPresets?: McpPresetInfo[];
   slashCommands?: SlashCommand[];
   onOpenFilePreview?: (path: string) => void;
-  /** Context-menu trigger positioned against this message's visual block. */
   contextMenu?: ReactNode;
 }
 
@@ -117,7 +115,6 @@ function messageCopyContent(message: UIMessage, t: (key: string) => string) {
       : message.content;
 }
 
-/** The same copy behavior in the desktop menu and the mobile reply footer. */
 export function MessageCopyButton({ message, className }: { message: UIMessage; className?: string }) {
   const { t } = useTranslation();
   const content = messageCopyContent(message, t);
@@ -152,7 +149,6 @@ interface MessageBlockMenuActionsProps {
   sheet?: boolean;
 }
 
-/** Actions and metadata shown after opening a visual message block's context panel. */
 export function MessageBlockMenuActions({
   message,
   isTurnStreaming = false,
@@ -406,7 +402,6 @@ function IncomingSessionMessage({
   );
 }
 
-/** Render user turns as compact bubbles and assistant turns as document-like prose. */
 export function MessageBubble({
   message,
   temporary = false,
@@ -509,7 +504,7 @@ export function MessageBubble({
                 "text-left text-reading whitespace-pre-wrap [overflow-wrap:anywhere]",
                 temporary
                   ? "border border-dashed border-muted-foreground/40 bg-transparent"
-                  : "bg-secondary/70",
+                  : "user-message-surface bg-secondary/70",
               )}
             >
               {messageText}
@@ -709,7 +704,6 @@ function MessageMedia({
   );
 }
 
-/** Quiet pre-token state that occupies a stable line in the answer column. */
 function ThinkingState() {
   const { t } = useTranslation();
   return (
@@ -751,11 +745,6 @@ interface TraceGroupProps {
   message: UIMessage;
 }
 
-/**
- * Collapsible group of tool-call / progress breadcrumbs. Defaults to
- * collapsed because tool traces are supporting evidence, not the answer.
- * A single click expands the exact calls when the user wants details.
- */
 function TraceGroup({ message }: TraceGroupProps) {
   const { t } = useTranslation();
   const lines = message.traces ?? [message.content];

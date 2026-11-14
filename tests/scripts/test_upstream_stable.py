@@ -73,6 +73,20 @@ def test_conflicts_are_reported_without_changing_develop_or_exporting_a_candidat
     assert "shared.txt" in render_report(report)
 
 
+def test_trial_merge_uses_shared_official_baseline_when_stable_was_updated_first(history, tmp_path):
+    repo, baseline = history
+    develop = commit(repo, "shared.txt", "custom\n")
+    git(repo, "update-ref", "refs/remotes/origin/develop", develop)
+    upstream = target(repo, baseline, "shared.txt")
+    git(repo, "update-ref", "refs/remotes/origin/stable", upstream)
+    report = assess(repo, "v0.4.1", tmp_path / "report")
+    assert report["status"] == "conflicts"
+    assert report["conflicts"] == report["overlapping_paths"] == ["shared.txt"]
+    assert report["baseline_tag"] == "v0.4.0" and report["baseline_sha"] == baseline
+    assert report["stable_tag"] == "v0.4.1" and report["stable_sha"] == upstream
+    assert git(repo, "rev-parse", "HEAD").strip() == develop
+
+
 def test_already_integrated_stable_needs_no_new_merge(history, tmp_path):
     repo, baseline = history
     git(repo, "update-ref", "refs/remotes/origin/develop", baseline)

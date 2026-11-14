@@ -174,8 +174,8 @@ async def rpc(gateway, action, payload, connection=None):
 
 async def execute(gateway, *, wait_ui=True):
     message = await asyncio.wait_for(gateway.bus.consume_inbound(), 2)
-    await gateway.loop._enqueue_session_message(message)
-    tasks = gateway.loop._active_tasks[gateway.loop._effective_session_key(message)]
+    await gateway.loop._dispatch_inbound(message)
+    tasks = gateway.loop._active_tasks.get(gateway.loop._effective_session_key(message), ())
     await asyncio.gather(*tuple(tasks))
     while gateway.bus.outbound_size:
         await gateway.channel.send(await gateway.bus.consume_outbound())
@@ -227,6 +227,7 @@ async def test_confirmed_title_change_replays_receipt_without_agent_turn(gateway
 
     monkeypatch.setattr("nanobot.webui.sidebar_state.webui_sidebar_state_path", lambda: tmp_path / "sidebar.json")
     block = await first_card(gateway)
+    await gateway.services.http.sidebar_state.write({"archived_keys": ["websocket:chat"]})
     payload = {key: block[key] for key in ("chat_id", "session_generation", "block_id", "revision")}
     payload["form_id"] = "form-0"
     prepared = await rpc(gateway, "openui.rename", {**payload, "operation": "prepare", "title": "Project plan"})
@@ -238,13 +239,14 @@ async def test_confirmed_title_change_replays_receipt_without_agent_turn(gateway
     result = await rpc(gateway, "openui.rename", confirm)
     assert result["ok"]
     assert result["result"]["snapshot"]["state"]["$renames"]["form-0"]["status"] == "applied"
-    saved = read_webui_sidebar_state()
+    saved = await gateway.services.http.sidebar_state.read()
     assert saved["title_overrides"]["websocket:chat"] == "Project plan"
+    assert saved["archived_keys"] == ["websocket:chat"]
     assert any(event["event"] == "sidebar_state_updated" and event["state"] == saved for event in gateway.connection.sent)
     replay = await rpc(gateway, "openui.rename", confirm)
     status = await rpc(gateway, "openui.rename", {**confirm, "operation": "status"})
     assert replay["result"] == result["result"] == status["result"]
-    assert read_webui_sidebar_state() == saved
+    assert await gateway.services.http.sidebar_state.read() == saved
     assert gateway.bus.inbound_size == 0 and gateway.tool.calls == 1
     context = await gateway.services.openui.title_context("chat")
     assert '"current_title": "Project plan"' in context and '"status": "applied"' in context
@@ -301,7 +303,7 @@ async def test_native_two_turn_card_action_and_refresh(gateway):
     from nanobot.webui.openui_runtime import OpenUIRuntime
     await gateway.channel._commands.close()
     services = replace(gateway.services, openui=OpenUIRuntime(gateway.sessions, gateway.bus))
-    gateway.channel._commands = WebUICommandRouter(gateway.channel, services)
+    gateway.channel._commands = WebUICommandRouter(gateway.channel, services, outbound=gateway.channel._outbound)
     gateway.channel._webui_connections.add(gateway.connection)
     await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": ["turn-1"]})
     await dispatch(gateway, envelope)
@@ -416,7 +418,7 @@ async def test_form_context_survives_recap_restart_revision_and_ui_only_retry(ga
     options = gateway.services.openui.options
     await gateway.channel._commands.close()
     gateway.services = replace(gateway.services, openui=OpenUIRuntime(gateway.sessions, gateway.bus, options=options))
-    gateway.channel._commands = WebUICommandRouter(gateway.channel, gateway.services)
+    gateway.channel._commands = WebUICommandRouter(gateway.channel, gateway.services, outbound=gateway.channel._outbound)
     gateway.channel._webui_connections.add(gateway.connection)
     await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": [request_id]})
     revision = await act(recap, "Adjust these details", "revision")
@@ -1079,7 +1081,7 @@ async def test_restart_restores_model_snapshot_without_business_or_model_replay(
     block = await first_card(gateway)
     await gateway.channel._commands.close()
     services = replace(gateway.services, openui=OpenUIRuntime(gateway.sessions, gateway.bus))
-    gateway.channel._commands = WebUICommandRouter(gateway.channel, services)
+    gateway.channel._commands = WebUICommandRouter(gateway.channel, services, outbound=gateway.channel._outbound)
     gateway.channel._webui_connections.add(gateway.connection)
     restored = await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": ["turn-1"]})
     assert restored["result"]["blocks"][0]["tables"] == block["tables"]
@@ -1182,7 +1184,7 @@ async def test_future_ui_schema_disables_views_and_keeps_native_chat(gateway, tm
     )
     try:
         assert services.openui is None
-        gateway.channel._commands = WebUICommandRouter(gateway.channel, services)
+        gateway.channel._commands = WebUICommandRouter(gateway.channel, services, outbound=gateway.channel._outbound)
         services.endpoint.webui_connections.add(gateway.connection)
         response = await rpc(gateway, "openui.subscribe", {"chat_id": "chat", "turn_ids": [block["turn_id"]]})
         assert not response["ok"] and response["error"]["message"] == "UI_DISABLED"

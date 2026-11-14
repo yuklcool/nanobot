@@ -8,7 +8,7 @@ import math
 import re
 import uuid
 from datetime import date
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -94,9 +94,10 @@ class ConversationForm(BaseModel):
                     or (field.type in {"text", "number", "date"} and field.options)
                     or (field.options and len(set(field.options)) != len(field.options))):
                 raise ValueError("INVALID_PARAMS")
-            if field.when and (field.when.field >= index or not self.fields[field.when.field].options
-                               or field.when.value not in self.fields[field.when.field].options):
-                raise ValueError("INVALID_PARAMS")
+            if field.when:
+                source_options = self.fields[field.when.field].options if field.when.field < index else None
+                if not source_options or field.when.value not in source_options:
+                    raise ValueError("INVALID_PARAMS")
             if (field.type == "checkbox") != isinstance(value, list):
                 raise ValueError("INVALID_PARAMS")
             if not visible[index]:
@@ -152,7 +153,8 @@ class ConversationFollowup(BaseModel):
 def form_followup(block: UiSnapshot, form_id: str | None) -> ConversationFollowup:
     if form_id is None:
         return ConversationFollowup.model_validate(block.state.get("$followup", {}))
-    entry = block.state.get("$forms", {}).get(form_id, {})
+    forms = cast(dict[str, dict[str, Any]], block.state.get("$forms", {}))
+    entry = forms.get(form_id, {})
     # Older cards have only a schema digest; do not guess their missing fields.
     if "definition" not in entry:
         return ConversationFollowup()
@@ -174,10 +176,10 @@ def save_form(
     values = [value if field.persist else [] if field.type == "checkbox" else ""
               for field, value in zip(form.fields, form.values)]
     with store.transaction() as db:
-        block = store._read(db, scope, block_id)
+        block = store.read_in_transaction(db, scope, block_id)
         if block.revision != revision or block.status != "complete":
             raise UiConflictError("STALE_REVISION")
-        forms = dict(block.state.get("$forms", {}))
+        forms = dict(cast(dict[str, dict[str, Any]], block.state.get("$forms", {})))
         previous = forms.get(form.form_id)
         if previous and previous["schema"] != schema:
             raise UiConflictError("FORM_CHANGED")
@@ -191,7 +193,7 @@ def save_form(
         definition = form.model_dump(mode="json", exclude_none=True, exclude={
             "form_id": True, "values": True, "submit": True, "fields": {"__all__": {"initial"}},
         })
-        entry = {"schema": schema, "values": values, "status": "draft", "definition": definition}
+        entry: dict[str, Any] = {"schema": schema, "values": values, "status": "draft", "definition": definition}
         if form.submit:
             entry.update(request_id=str(uuid.uuid4()), content_digest=digest, status="prepared")
         if previous == entry:
@@ -203,5 +205,5 @@ def save_form(
             **block.model_dump(), "state": {**block.state, "$forms": forms},
             "state_version": block.state_version + 1,
         })
-        store._write(db, scope, updated)
+        store.write_in_transaction(db, scope, updated)
         return updated
