@@ -2539,6 +2539,7 @@
     "checkConversation": "Pengiriman belum terkonfirmasi. Periksa percakapan.",
     "unavailable": "Tampilan interaktif tidak tersedia. Jawaban teks tetap tersimpan.",
     "filterRecords": "Filter catatan",
+    "analyzeRow": "Analisis baris",
     "analyzeRecord": "Analisis cuplikan",
     "snapshotTime": "Cuplikan: {{time}}",
     "showingRows": "Menampilkan {{shown}} dari {{total}} catatan",

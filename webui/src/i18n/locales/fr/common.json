@@ -2539,6 +2539,7 @@
     "checkConversation": "Envoi non confirmé. Consultez la conversation.",
     "unavailable": "Vue interactive indisponible. La réponse texte est conservée.",
     "filterRecords": "Filtrer les lignes",
+    "analyzeRow": "Analyser la ligne",
     "analyzeRecord": "Analyser cet instantané",
     "snapshotTime": "Instantané : {{time}}",
     "showingRows": "{{shown}} enregistrements affichés sur {{total}}",

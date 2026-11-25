@@ -6,6 +6,7 @@ import { NanobotClient } from "../../lib/nanobot-client";
 import { ClientProvider } from "../../providers/ClientProvider";
 import { useNanobotStream } from "../../hooks/useNanobotStream";
 import { OpenUIChatProvider, OpenUIControls, OpenUIMessage } from "../../openui/OpenUIChat";
+import { MarkdownText } from "../../components/MarkdownText";
 import type { UiSnapshot } from "../../openui/snapshot";
 import type { UIMessage } from "../../lib/types";
 import { emptyFormValue, type FormInput } from "../../openui/form-contract";
@@ -114,9 +115,11 @@ function setup(capability: unknown = { protocol: 1, library_hash: manifest.libra
   socket.onmessage?.({ data: JSON.stringify({ event: "ready", chat_id: "chat", client_id: "browser", openui: capability }) } as MessageEvent);
   function Thread() {
     const { send, messages } = useNanobotStream(chatId, seed);
+    const answer = seed.find((row) => row.id === message.id) ?? message;
     return <OpenUIChatProvider client={client} chatId={chatId} disabled={disabled} messages={messages} send={send}>
       <OpenUIControls />
-      <OpenUIMessage message={message}><p data-testid="native-answer">{message.content}</p></OpenUIMessage>
+      <OpenUIMessage message={answer}>{answer === message
+        ? <p data-testid="native-answer">{message.content}</p> : <MarkdownText preserveStreamingLayout>{answer.content}</MarkdownText>}</OpenUIMessage>
       <OpenUIMessage message={{ ...message, turnSeq: 6, id: "wrong-anchor" }} />
       <ol aria-label="Conversation">{messages.map((row) => <li key={row.id}>{row.content}</li>)}</ol>
     </OpenUIChatProvider>;
@@ -128,6 +131,35 @@ function setup(capability: unknown = { protocol: 1, library_hash: manifest.libra
   }
   return { client, frames, socket, mount, failures, receiveSnapshot };
 }
+
+it("adds scoped actions to a complete report without replacing its native table with a partial projection", async () => {
+  const content = "There are 231 unresolved alarms.\n\n| Category | Alarm type | Count | Share |\n| --- | --- | ---: | ---: |\n"
+    + "| Lamp | Lamp failure | 138 | 59.7% |\n| RTU | Circuit undercurrent | 40 | 17.3% |\n| Total | | 231 | 100% |";
+  const snapshot: UiSnapshot = { ...initial, status: "streaming", source: "", state: {}, tables: { alarms: {
+    data_ref: "alarms", title: "Captured alarms", columns: { type: "Alarm type" },
+    rows: [{ id: "lamp", values: { type: "Lamp failure" } }, { id: "rtu", values: { type: "Circuit undercurrent" } }],
+    source_tool: "mcp_alarms_sql_query_readonly", source_call_id: "sql", captured_at: 1, total_rows: 2,
+  } } };
+  const fixture = setup(undefined, [{ ...message, content }], snapshot);
+  fixture.mount();
+  const table = await screen.findByRole("table");
+  expect(within(table).getByText("59.7%")).toBeVisible();
+  act(() => fixture.receiveSnapshot({ ...snapshot, status: "complete", seq: snapshot.seq + 1,
+    source: 'root = Panel([note, records, next], "replace")\nnote = Text("Partial projection")\nrecords = DataTable("alarms")\n'
+      + 'next = Choices("Keep investigating", [{label:"By road",question:"Group by road"}, {label:"By controller",question:"Group by controller"}])',
+  }));
+  expect(await screen.findByRole("button", { name: "By road" })).toBeVisible();
+  expect(screen.getAllByRole("table")).toEqual([table]);
+  expect(screen.queryByText("Partial projection")).not.toBeInTheDocument();
+  const row = within(table).getByText("Circuit undercurrent").closest("tr")!;
+  expect(within(row).getByText("17.3%")).toBeVisible();
+  expect(within(table).getByText("Total").closest("tr")).not.toHaveTextContent("openui.analyzeRow");
+  fireEvent.click(within(row).getByRole("button", { name: "openui.analyzeRow" }));
+  await screen.findByText("openui.submitted");
+  expect(fixture.frames.find((frame) => frame.type === "message")).toMatchObject({ chat_id: "chat", ui_action: {
+    action_id: "record.analyze", data_ref: "alarms", record_id: "rtu",
+  } });
+});
 
 it("reviews and confirms a title edit, restores its receipt, and never sends an Agent message", async () => {
   const snapshot = { ...initial, state: {}, source: 'root = Panel([rename])\nrename = Form("Rename conversation", [{label:"New title",type:"text"}], "", "inline", {type:"session.rename",title:"Project plan"})\n' };

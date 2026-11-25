@@ -2539,6 +2539,7 @@
     "checkConversation": "無法確認提交狀態，請查看對話。",
     "unavailable": "互動檢視無法使用，文字回答已保留。",
     "filterRecords": "篩選記錄",
+    "analyzeRow": "分析此列",
     "analyzeRecord": "分析快照",
     "snapshotTime": "資料截至：{{time}}",
     "showingRows": "顯示 {{shown}} 筆，共 {{total}} 筆記錄",

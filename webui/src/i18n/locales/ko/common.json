@@ -2539,6 +2539,7 @@
     "checkConversation": "제출 상태를 확인할 수 없습니다. 대화를 확인하세요.",
     "unavailable": "대화형 보기를 사용할 수 없습니다. 텍스트 답변은 유지됩니다.",
     "filterRecords": "기록 필터",
+    "analyzeRow": "이 행 분석",
     "analyzeRecord": "스냅샷 분석",
     "snapshotTime": "데이터 시점: {{time}}",
     "showingRows": "전체 {{total}}개 중 {{shown}}개 표시",

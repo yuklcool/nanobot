@@ -19,6 +19,10 @@ function containsMath(node: Nodes): boolean {
     || ("children" in node && node.children.some(containsMath));
 }
 
+export function hasMarkdownTable(source: string): boolean {
+  return source.includes("|") && boundaryParser.parse(source).children.some((node) => node.type === "table");
+}
+
 /** Keep formula boundaries intact without replacing Streamdown's ordinary block grouping. */
 export function parseMathAwareMarkdownBlocks(source: string): string[] {
   const blocks = parseMarkdownIntoBlocks(source);

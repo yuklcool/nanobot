@@ -2745,6 +2745,7 @@
     "checkConversation": "Submission could not be confirmed. Check the conversation.",
     "unavailable": "Interactive view unavailable. The text answer is preserved.",
     "filterRecords": "Filter records",
+    "analyzeRow": "Analyze row",
     "analyzeRecord": "Analyze snapshot",
     "snapshotTime": "Snapshot: {{time}}",
     "showingRows": "Showing {{shown}} of {{total}} records",

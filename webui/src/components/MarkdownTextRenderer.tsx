@@ -1,11 +1,14 @@
 import { surfaceFocusProps } from "@/lib/surface-focus";
 import {
   Children,
+  cloneElement,
   isValidElement,
+  useContext,
   useEffect,
   useMemo,
   useState,
   type ComponentProps,
+  type ReactElement,
   type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
@@ -24,6 +27,8 @@ import { DisplayMath } from "@/components/DisplayMath";
 import { AttachmentTile } from "@/components/AttachmentTile";
 import { MarkdownCodeBlock } from "@/components/markdown-diagrams/MarkdownCodeBlock";
 import { MarkdownCodeContext } from "@/components/markdown-diagrams/context";
+import { MarkdownTableActions } from "@/components/MarkdownTableActions";
+import { Button } from "@/components/ui/button";
 import { WebLink } from "@/components/WebLink";
 import {
   INLINE_REFERENCE_HIGHLIGHT_COLOR,
@@ -310,6 +315,36 @@ function nodeText(value: ReactNode): string {
       return nodeText(child.props.children);
     })
     .join("");
+}
+
+type TableElement = ReactElement<{ children?: ReactNode; node?: { tagName?: string } }>;
+
+function tableElements(children: ReactNode, tag: string): TableElement[] {
+  return Children.toArray(children).filter((child): child is TableElement =>
+    isValidElement<TableElement["props"]>(child)
+      && (child.type === tag || child.props.node?.tagName === tag));
+}
+
+function MarkdownTableContents({ children }: { children: ReactNode }) {
+  const resolveActions = useContext(MarkdownTableActions);
+  if (!resolveActions) return <>{children}</>;
+  const [head] = tableElements(children, "thead");
+  const [body] = tableElements(children, "tbody");
+  if (!head || !body) return <>{children}</>;
+  const [header] = tableElements(head.props.children, "tr");
+  if (!header) return <>{children}</>;
+  const rows = tableElements(body.props.children, "tr");
+  const actions = resolveActions(tableElements(header.props.children, "th").map((cell) => nodeText(cell.props.children)),
+    rows.map((row) => tableElements(row.props.children, "td").map((cell) => nodeText(cell.props.children))));
+  if (!actions.some(Boolean)) return <>{children}</>;
+  return <>
+    {cloneElement(head, undefined, cloneElement(header, undefined, header.props.children, <th scope="col" />))}
+    {cloneElement(body, undefined, rows.map((row, index) => {
+      const action = actions[index];
+      return cloneElement(row, undefined, row.props.children, <td>{action && <Button type="button" variant="ghost" size="sm"
+        disabled={action.disabled} onClick={action.run}>{action.label}</Button>}</td>);
+    }))}
+  </>;
 }
 
 function cleanFileReferenceTarget(value: string): string {
@@ -713,7 +748,7 @@ export default function MarkdownTextRenderer({
               )}
               {...props}
             >
-              {tableChildren}
+              <MarkdownTableContents>{tableChildren}</MarkdownTableContents>
             </table>
           </div>
         );

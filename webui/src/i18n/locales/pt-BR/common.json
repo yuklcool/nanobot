@@ -2553,6 +2553,7 @@
     "checkConversation": "Não foi possível confirmar o envio. Confira a conversa.",
     "unavailable": "Visualização indisponível. A resposta em texto foi preservada.",
     "filterRecords": "Filtrar registros",
+    "analyzeRow": "Analisar linha",
     "analyzeRecord": "Analisar captura",
     "snapshotTime": "Captura: {{time}}",
     "showingRows": "Exibindo {{shown}} de {{total}} registros",

@@ -6,13 +6,26 @@ import { z } from "zod";
 import manifest from "../../../nanobot/openui/generated/chat-library.json";
 import type { NanobotClient } from "@/lib/nanobot-client";
 import type { UIMessage } from "@/lib/types";
+import { hasMarkdownTable } from "@/lib/markdown-streaming-blocks";
 import type { SendOptions, SubmittedTurn } from "@/hooks/useNanobotStream";
+import { MarkdownTableActions } from "@/components/MarkdownTableActions";
 import { acceptSnapshot, uiSnapshotSchema, type UiSnapshot } from "./snapshot";
 import type { OpenUIAction, OpenUIMode } from "../../../packages/client-events/openui";
 import { ChatInteraction, DisplayDataContext, ReadonlyQuery, FormRecovery, chatLibrary, followupSchema, replacesAnswer } from "./chat-library";
 import { sessionDetailSchema, type DataQuery, type SessionDetail } from "./data-contract";
 import { formContent, formStateSchema, type FormInput, type FormState } from "./form-contract";
 import { SessionRename, renameReceiptSchema, type RenameRequest } from "./SessionRenameForm";
+import { matchTableRecords } from "./table-records";
+
+// Keep the snapshot contract unchanged while rendering the original table in place.
+const nativeTableLibrary = {
+  ...chatLibrary,
+  components: {
+    ...chatLibrary.components,
+    DataTable: { ...chatLibrary.components.DataTable, component: () => null },
+    Text: { ...chatLibrary.components.Text, component: () => null },
+  },
+};
 
 interface ChatViews {
   blocks: UiSnapshot[];
@@ -263,7 +276,9 @@ class Boundary extends Component<{ children: ReactNode; fallback: ReactNode }, {
   static getDerivedStateFromError() { return { failed: true }; }
   render() { return this.state.failed ? this.props.fallback : this.props.children; }
 }
-function Block({ snapshot, views, answer }: { snapshot: UiSnapshot; views: ChatViews; answer?: ReactNode }) {
+function Block({ snapshot, views, answer, replacement = false, preserveTable = false }: {
+  snapshot?: UiSnapshot; views: ChatViews; answer?: ReactNode; replacement?: boolean; preserveTable?: boolean;
+}) {
   const { t } = useTranslation();
   const [parseFailed, setParseFailed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -271,13 +286,14 @@ function Block({ snapshot, views, answer }: { snapshot: UiSnapshot; views: ChatV
   const pending = useRef(false);
   const requests = useRef(new Map<string, string>());
   const confirmed = useRef(new Set<string>());
-  const storedForms = z.record(z.string().regex(/^form-[0-5]$/), formStateSchema).safeParse(snapshot.state.$forms ?? {});
-  const renames = z.record(z.string().regex(/^form-[0-5]$/), renameReceiptSchema).safeParse(snapshot.state.$renames ?? {});
+  const storedForms = z.record(z.string().regex(/^form-[0-5]$/), formStateSchema).safeParse(snapshot?.state.$forms ?? {});
+  const renames = z.record(z.string().regex(/^form-[0-5]$/), renameReceiptSchema).safeParse(snapshot?.state.$renames ?? {});
   const onError = useCallback((errors: OpenUIError[]) => {
     setParseFailed(errors.some((error) => error.severity !== "warning"));
   }, []);
-  const editable = views.available && snapshot.status === "complete" && !parseFailed && !busy && storedForms.success;
+  const editable = views.available && snapshot?.status === "complete" && !parseFailed && !busy && storedForms.success;
   async function updateForm(form: FormInput): Promise<FormState> {
+    if (!snapshot) throw new Error("View unavailable");
     const updated = await views.updateForm(snapshot, form);
     const entry = formStateSchema.parse(z.record(z.string(), formStateSchema).parse(updated.state.$forms)[form.form_id]);
     if (!form.submit || entry.status === "submitted" || entry.status === "unknown") return entry;
@@ -292,20 +308,20 @@ function Block({ snapshot, views, answer }: { snapshot: UiSnapshot; views: ChatV
     return { ...entry, status: "submitted" };
   }
   async function control(action: "cancel" | "retry") {
-    if (pending.current || !views.available) return;
+    if (!snapshot || pending.current || !views.available) return;
     pending.current = true;
     setBusy(true);
     try { await views.control(snapshot, action); }
     catch { setNotice(t("openui.checkConversation")); }
     finally { pending.current = false; setBusy(false); }
   }
-  const fallback = <>{answer}<div><p role="status">{t("openui.unavailable")}</p>
+  const fallback = <>{replacement && answer}<div><p role="status">{t("openui.unavailable")}</p>
     <button type="button" className="rounded-control border px-2 py-1" disabled={!views.available || busy}
       onClick={() => { void control("retry"); }}>{t("openui.retryView")}</button></div></>;
-  const failed = snapshot.status !== "streaming" && snapshot.status !== "complete";
+  const failed = snapshot?.status !== "streaming" && snapshot?.status !== "complete";
 
   async function action(event: unknown) {
-    if (!editable || pending.current) return;
+    if (!snapshot || !editable || pending.current) return;
     pending.current = true;
     setBusy(true);
     setNotice("");
@@ -321,7 +337,8 @@ function Block({ snapshot, views, answer }: { snapshot: UiSnapshot; views: ChatV
         const question = record.success
           ? await views.prepareRecord(snapshot, record.data.params.data_ref, record.data.params.record_id)
           : followupSchema.parse(event).params.question;
-        const identity = JSON.stringify([record.success ? "record.analyze" : "conversation.followup",
+        const identity = JSON.stringify([snapshot.session_generation, snapshot.block_id, snapshot.revision,
+          record.success ? "record.analyze" : "conversation.followup",
           record.success ? record.data.params : question, record.success ? snapshot.seq : null]);
         if (confirmed.current.has(identity)) { setNotice(t("openui.submitted")); return; }
         let requestId = requests.current.get(identity);
@@ -341,20 +358,26 @@ function Block({ snapshot, views, answer }: { snapshot: UiSnapshot; views: ChatV
     } catch { setNotice(t("openui.checkConversation")); }
     finally { pending.current = false; setBusy(false); }
   }
-  return <Boundary fallback={fallback}>
+  const tableActions = preserveTable && views.available && snapshot?.status === "complete" ? (headers: string[], rows: string[][]) =>
+    matchTableRecords(headers, rows, Object.values(snapshot.tables ?? {}).filter(isBusinessTable)).map((params) =>
+      params ? { label: t("openui.analyzeRow"), disabled: !editable, run: () => { void action({ type: "record_analyze", params }); } } : undefined)
+    : null;
+  return <>
+    <MarkdownTableActions.Provider value={tableActions}>{!replacement && answer}</MarkdownTableActions.Provider>
+    {snapshot && <Boundary key={`${snapshot.session_generation}:${snapshot.block_id}:${snapshot.revision}`} fallback={fallback}>
     <ChatInteraction.Provider value={editable}>
     <DisplayDataContext.Provider value={snapshot.tables ?? {}}>
     <ReadonlyQuery.Provider value={views.readonlyQuery ? (request) => views.query(snapshot, request) : null}>
     <FormRecovery.Provider value={views.formRecovery && storedForms.success ? { forms: storedForms.data, update: updateForm } : null}>
     <SessionRename.Provider value={views.sessionRename && renames.success
       ? { receipts: renames.data, request: (request) => views.rename(snapshot, request) } : null}>
-      {failed || !storedForms.success || (parseFailed && snapshot.status === "complete") ? fallback : <Renderer library={chatLibrary}
+      {failed || !storedForms.success || (parseFailed && snapshot.status === "complete") ? fallback : <Renderer library={preserveTable ? nativeTableLibrary : chatLibrary}
         response={snapshot.source} isStreaming={snapshot.status === "streaming"} initialState={snapshot.state}
         onAction={(event) => { void action(event); }} onError={onError} publishObservability={false} />}
       {snapshot.status === "streaming" && <button type="button" className="rounded-control border px-2 py-1"
         disabled={!views.available || busy} onClick={() => { void control("cancel"); }}>{t("openui.cancelView")}</button>}
       {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
-      {answer && !failed && !parseFailed && storedForms.success && <details className="mt-4 text-reading-small text-muted-foreground">
+      {replacement && answer && !failed && !parseFailed && storedForms.success && <details className="mt-4 text-reading-small text-muted-foreground">
         <summary className="w-fit cursor-pointer rounded-control focus-visible:outline focus-visible:outline-ring">{t("openui.originalAnswer")}</summary>
         <div className="mt-3">{answer}</div>
       </details>}
@@ -363,14 +386,24 @@ function Block({ snapshot, views, answer }: { snapshot: UiSnapshot; views: ChatV
     </ReadonlyQuery.Provider>
     </DisplayDataContext.Provider>
     </ChatInteraction.Provider>
-  </Boundary>;
+    </Boundary>}
+  </>;
 }
+
+function isBusinessTable(table: { source_tool: string; session_query?: unknown }): boolean {
+  return table.source_tool !== "search_sessions" && !table.session_query;
+}
+
 export function OpenUIMessage({ message, children }: { message: UIMessage; children?: ReactNode }) {
   const views = useContext(Views);
-  if (!views || message.role !== "assistant" || message.kind === "trace" || message.isStreaming) return <>{children}</>;
-  const blocks = views.blocks.filter((block) => block.turn_id === message.turnId && block.anchor_seq === message.turnSeq);
-  const replacement = views.available && blocks.length === 1 && blocks[0].status === "complete"
-    && replacesAnswer(blocks[0].source, blocks[0].tables ?? {});
-  return <>{!replacement && children}{blocks.map((block) => <Block key={`${block.session_generation}:${block.block_id}:${block.revision}`}
-    snapshot={block} views={views} answer={replacement ? children : undefined} />)}</>;
+  if (!views || message.role !== "assistant" || message.kind === "trace") return <>{children}</>;
+  const blocks = message.isStreaming ? [] : views.blocks.filter((block) =>
+    block.turn_id === message.turnId && block.anchor_seq === message.turnSeq);
+  const [snapshot, ...others] = blocks;
+  const preserveTable = !!snapshot && message.renderAs !== "text"
+    && Object.values(snapshot.tables ?? {}).some(isBusinessTable) && hasMarkdownTable(message.content);
+  const replacement = views.available && blocks.length === 1 && snapshot.status === "complete"
+    && !preserveTable && replacesAnswer(snapshot.source, snapshot.tables ?? {});
+  return <><Block snapshot={snapshot} views={views} answer={children} replacement={replacement} preserveTable={preserveTable} />
+    {others.map((block) => <Block key={`${block.session_generation}:${block.block_id}:${block.revision}`} snapshot={block} views={views} />)}</>;
 }
