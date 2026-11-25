@@ -8,6 +8,11 @@ from nanobot.openui.policy import should_generate_view
 @pytest.mark.parametrize(("question", "answer", "tables", "expected"), [
     ("什么是变量？", "变量用于保存一个值。", False, False),
     ("Explain variables", "A variable stores a value.", False, False),
+    ("分析该 RTU 的报警", "电流为零。\n\n我可以继续对比第 3、5 路巡测，或核对开关灯计划。", False, True),
+    ("Analyze this alarm", "The current dropped.\n\nI can continue by checking the schedule or comparing readings.", False, True),
+    ("分析该 RTU 的报警", "建议下一步\n1. 请现场人员测量电流。\n2. 联系检修人员。", False, False),
+    ("分析该 RTU 的报警，只用文字", "我可以继续对比巡测或核对计划。", False, False),
+    ("解释示例", "示例：\n> 我可以继续对比巡测或核对计划。", False, False),
     ("什么是表单？", "表单用于收集用户输入。", False, False),
     ("Explain confirmations", 'Example:\n```text\nPlease confirm the choice.\n```', False, False),
     ("给我三个可点击选项", "可以选择散步、逛展或探店。", False, True),

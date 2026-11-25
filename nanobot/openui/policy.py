@@ -32,6 +32,9 @@ _ASK = re.compile(
     r"|(?:^|[.!?。！？][ \t]+)[ \t]*(?:[-*][ \t]+)?(?:\*\*)?(?:choose|pick|select)[ \t]+"
     r"(?:(?:one|between)\b|[^\n]{1,160}\bor\b[^\n]{1,160})", re.I | re.M,
 )
+_CONTINUATION_OFFER = re.compile(
+    r"^[ \t]*(?:\*\*)?(?:我(?:还)?可以(?:继续|接着)|I can (?:also )?continue by\b)", re.I | re.M,
+)
 _SURVEY = re.compile(r"调查表|调查问卷|问卷|\b(?:questionnaire|survey)\b", re.I)
 _RENAME = re.compile(
     r"(?:重命名|改名|改.{0,4}标题)[^。！？\n]{0,20}(?:当前|这个|本|这条)?(?:会话|对话)"
@@ -61,6 +64,8 @@ def should_generate_view(
     # Examples and quoted instructions in an explanation are not questions to
     # the current user. Do not let code samples alone trigger a UI request.
     answer = _intent(answer[:16000])
+    if _CONTINUATION_OFFER.search(answer):
+        return True
     return _ASK.search(answer) is not None or _CHOICE_QUESTION.search(answer) is not None or (_SURVEY.search(answer) is not None and re.search(
         r"(?m)^\s*(?:#{1,6}\s*)?(?:\*\*)?\d+[.、．)）][^\n]*[?？]"
         r"|^\s*(?:[-*]\s*)?(?:[□☐☑○●]|\[[ x]?\])\s*\S", answer,
